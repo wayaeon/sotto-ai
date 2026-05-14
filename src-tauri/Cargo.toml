@@ -1,14 +1,14 @@
 [package]
-name = "wispr-local"
+name = "sotto"
 version = "0.1.0"
-description = "Wispr Local — offline-first AI dictation"
+description = "Sotto — offline-first AI dictation"
 authors = []
 edition = "2021"
 
 [package.metadata.tauri]
 
 [[bin]]
-name = "wispr-local"
+name = "sotto"
 path = "src/main.rs"
 
 [build-dependencies]

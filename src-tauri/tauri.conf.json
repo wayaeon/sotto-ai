@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "wispr-local",
+  "productName": "sotto",
   "version": "0.1.0",
-  "identifier": "com.wisprl.local",
+  "identifier": "com.sotto.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -13,18 +13,16 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "label": "overlay",
-        "title": "Wispr Local",
-        "width": 480,
-        "height": 80,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "center": false,
-        "x": 760,
-        "y": 20
+        "label": "main",
+        "title": "Sotto",
+        "width": 600,
+        "height": 520,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "center": true
       }
     ],
     "trayIcon": {
@@ -47,8 +45,7 @@
   },
   "plugins": {
     "shell": {
-      "open": false,
-      "sidecar": true
+      "open": false
     }
   }
 }

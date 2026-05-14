@@ -6,6 +6,7 @@ import TestRecording from "./TestRecording";
 import LicenseStep from "./LicenseStep";
 
 type Step = "hardware" | "download" | "test" | "license";
+const STEPS: Step[] = ["hardware", "download", "test", "license"];
 
 interface Props {
   onComplete: () => void;
@@ -20,112 +21,74 @@ export default function SetupWizard({ onComplete }: Props) {
     onComplete();
   };
 
-  const stepIndex = { hardware: 0, download: 1, test: 2, license: 3 }[step];
-  const steps = ["Hardware", "Model", "Test", "License"];
+  const stepIndex = STEPS.indexOf(step);
 
   return (
-    <div style={styles.root}>
-      <div style={styles.card}>
-        <div style={styles.header}>
-          <span style={styles.logo}>🎙</span>
-          <h1 style={styles.title}>Wispr Local Setup</h1>
-        </div>
+    <div style={s.root}>
+      <style>{`
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
 
-        <div style={styles.stepBar}>
-          {steps.map((s, i) => (
-            <div key={s} style={{ display: "flex", alignItems: "center" }}>
-              <div
-                style={{
-                  ...styles.stepDot,
-                  background: i <= stepIndex ? "#6366f1" : "#3f3f50",
-                }}
-              >
-                {i < stepIndex ? "✓" : i + 1}
-              </div>
-              <span style={{ ...styles.stepLabel, opacity: i === stepIndex ? 1 : 0.5 }}>
-                {s}
-              </span>
-              {i < steps.length - 1 && <div style={styles.stepLine} />}
-            </div>
-          ))}
-        </div>
+      {/* Top progress bar */}
+      <div style={s.progressTrack}>
+        <div style={{ ...s.progressFill, width: `${((stepIndex + 1) / STEPS.length) * 100}%` }} />
+      </div>
 
-        <div style={styles.content}>
-          {step === "hardware" && (
-            <HardwareScan onNext={() => setStep("download")} />
-          )}
-          {step === "download" && (
-            <ModelDownload onNext={() => setStep("test")} />
-          )}
-          {step === "test" && (
-            <TestRecording onNext={() => setStep("license")} />
-          )}
-          {step === "license" && (
-            <LicenseStep onComplete={finish} />
-          )}
-        </div>
+      {/* Step counter */}
+      <div style={s.stepCounter}>{stepIndex + 1} / {STEPS.length}</div>
+
+      {/* Content area */}
+      <div key={step} style={s.content}>
+        {step === "hardware" && <HardwareScan onNext={() => setStep("download")} />}
+        {step === "download" && <ModelDownload onNext={() => setStep("test")} />}
+        {step === "test"     && <TestRecording onNext={() => setStep("license")} />}
+        {step === "license"  && <LicenseStep onComplete={finish} />}
       </div>
     </div>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const s: Record<string, React.CSSProperties> = {
   root: {
+    width: "100%",
+    height: "100%",
+    background: "#0a0a12",
     display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100vw",
-    height: "100vh",
-    background: "#0f0f17",
-    fontFamily: "system-ui, sans-serif",
+    flexDirection: "column",
+    fontFamily: "'Inter', system-ui, sans-serif",
+    position: "relative",
+    overflow: "hidden",
   },
-  card: {
-    background: "#1a1a2e",
-    borderRadius: 16,
-    padding: "32px 40px",
-    width: 520,
-    boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
-    border: "1px solid rgba(255,255,255,0.06)",
+  progressTrack: {
+    position: "absolute",
+    top: 0, left: 0, right: 0,
+    height: 2,
+    background: "rgba(255,255,255,0.06)",
   },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 28,
+  progressFill: {
+    height: "100%",
+    background: "linear-gradient(90deg, #6366f1, #a78bfa)",
+    transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+    borderRadius: "0 2px 2px 0",
   },
-  logo: { fontSize: 28 },
-  title: { margin: 0, color: "#fff", fontSize: 20, fontWeight: 600 },
-  stepBar: {
-    display: "flex",
-    alignItems: "center",
-    marginBottom: 32,
-    gap: 4,
+  stepCounter: {
+    position: "absolute",
+    top: 16,
+    right: 20,
+    color: "rgba(255,255,255,0.2)",
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: 1,
   },
-  stepDot: {
-    width: 28,
-    height: 28,
-    borderRadius: "50%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: 600,
-    flexShrink: 0,
-  },
-  stepLabel: {
-    color: "#fff",
-    fontSize: 12,
-    marginLeft: 6,
-    marginRight: 4,
-    whiteSpace: "nowrap",
-  },
-  stepLine: {
+  content: {
     flex: 1,
-    height: 1,
-    background: "rgba(255,255,255,0.12)",
-    margin: "0 4px",
-    minWidth: 16,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "48px 56px 40px",
+    animation: "fadeUp 0.45s cubic-bezier(0.4, 0, 0.2, 1)",
   },
-  content: { color: "#e0e0e0" },
 };
