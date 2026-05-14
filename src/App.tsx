@@ -1,26 +1,25 @@
-import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { useEffect, useState } from "react";
 import { useAppStore } from "./stores/appStore";
+import { useSidecar } from "./hooks/useSidecar";
 import Overlay from "./components/Overlay";
+import SetupWizard from "./components/setup/SetupWizard";
 
 export default function App() {
-  const setSidecarReady = useAppStore((s) => s.setSidecarReady);
+  const { setupComplete, sidecarReady } = useAppStore();
+  const [showSetup, setShowSetup] = useState(false);
+
+  useSidecar();
 
   useEffect(() => {
-    const unlisten = listen<string>("sidecar-event", (event) => {
-      try {
-        const msg = JSON.parse(event.payload);
-        if (msg.event === "ready") {
-          setSidecarReady(true);
-        }
-      } catch {
-        // ignore malformed
-      }
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [setSidecarReady]);
+    // Show setup if not completed after sidecar ready
+    if (sidecarReady && !setupComplete) {
+      setShowSetup(true);
+    }
+  }, [sidecarReady, setupComplete]);
+
+  if (showSetup && !setupComplete) {
+    return <SetupWizard onComplete={() => setShowSetup(false)} />;
+  }
 
   return <Overlay />;
 }
