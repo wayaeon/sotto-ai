@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cloud Tier Cost & Profit Model</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #111; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 32px; min-height: 100vh; }
+  h2 { font-size: 1.4rem; font-weight: 600; color: #fff; margin-bottom: 4px; }
+  .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 28px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; }
+  .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 20px; }
+  .card h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: #666; margin-bottom: 14px; }
+  .slider-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .slider-row label { font-size: 0.85rem; color: #aaa; min-width: 160px; }
+  .slider-row input[type=range] { flex: 1; accent-color: #a78bfa; }
+  .slider-row .val { font-size: 0.85rem; color: #fff; min-width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
+  .radio-group { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .radio-btn { background: #222; border: 1px solid #333; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 0.82rem; color: #aaa; transition: all 0.15s; }
+  .radio-btn.active { background: #2d2060; border-color: #a78bfa; color: #c4b5fd; }
+  .metric-row { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 0; border-bottom: 1px solid #222; }
+  .metric-row:last-child { border-bottom: none; }
+  .metric-label { font-size: 0.85rem; color: #888; }
+  .metric-value { font-size: 1rem; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+  .metric-value.green { color: #4ade80; }
+  .metric-value.yellow { color: #fbbf24; }
+  .metric-value.red { color: #f87171; }
+  .tier-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .tier-card { background: #111; border: 1px solid #2a2a2a; border-radius: 10px; padding: 16px; text-align: center; cursor: pointer; transition: all 0.15s; }
+  .tier-card.active { border-color: #a78bfa; background: #1a1535; }
+  .tier-card h4 { font-size: 0.9rem; color: #ccc; margin-bottom: 6px; }
+  .tier-card .price { font-size: 1.6rem; font-weight: 700; color: #fff; }
+  .tier-card .price span { font-size: 0.8rem; color: #888; font-weight: 400; }
+  .tier-card .margin { font-size: 0.78rem; margin-top: 6px; }
+  .provider-note { font-size: 0.75rem; color: #555; margin-top: 4px; }
+  .big-number { font-size: 2rem; font-weight: 700; }
+  .section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 10px; }
+  .comparison-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1e1e1e; font-size: 0.85rem; }
+  .comparison-row .name { color: #888; }
+  .comparison-row .amount { color: #ccc; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
+  .tag.profit { background: #14532d; color: #4ade80; }
+  .tag.loss { background: #450a0a; color: #f87171; }
+  .breakeven { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; padding: 16px; margin-top: 16px; }
+  .breakeven h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 10px; }
+  .highlight-box { background: #0f2a1a; border: 1px solid #166534; border-radius: 8px; padding: 12px 16px; margin-top: 12px; }
+  .highlight-box p { font-size: 0.85rem; color: #86efac; }
+</style>
+</head>
+<body>
+
+<h2>Cloud Tier — Cost & Profit Model</h2>
+<p class="subtitle">Adjust the sliders to model different usage scenarios and pricing tiers</p>
+
+<div class="grid">
+  <!-- LEFT: Inputs -->
+  <div>
+    <div class="card" style="margin-bottom:16px">
+      <h3>Usage Assumptions (per user/month)</h3>
+      <div class="slider-row">
+        <label>Dictation minutes/day</label>
+        <input type="range" id="minsPerDay" min="1" max="60" value="10" oninput="update()">
+        <span class="val" id="minsPerDayVal">10 min</span>
+      </div>
+      <div class="slider-row">
+        <label>Working days/month</label>
+        <input type="range" id="daysPerMonth" min="5" max="30" value="22" oninput="update()">
+        <span class="val" id="daysPerMonthVal">22 days</span>
+      </div>
+      <div class="slider-row">
+        <label>Avg words spoken/min</label>
+        <input type="range" id="wpm" min="80" max="180" value="130" oninput="update()">
+        <span class="val" id="wpmVal">130 wpm</span>
+      </div>
+      <div class="slider-row">
+        <label>Paid users (cloud tier)</label>
+        <input type="range" id="users" min="1" max="500" value="50" oninput="update()">
+        <span class="val" id="usersVal">50</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3>STT Provider</h3>
+      <div class="radio-group">
+        <div class="radio-btn active" onclick="setProvider('elevenlabs', this)">ElevenLabs Scribe v2<br><small style="color:#666">$0.0065/min realtime</small></div>
+        <div class="radio-btn" onclick="setProvider('deepgram', this)">Deepgram Nova-3<br><small style="color:#666">$0.0077/min streaming</small></div>
+        <div class="radio-btn" onclick="setProvider('openai', this)">OpenAI Whisper API<br><small style="color:#666">$0.006/min</small></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Include LLM Text Cleanup?</h3>
+      <div class="radio-group">
+        <div class="radio-btn active" onclick="setLLM(true, this)">Yes — Claude Haiku<br><small style="color:#666">~$0.0002/transcription</small></div>
+        <div class="radio-btn" onclick="setLLM(false, this)">No — raw transcription</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Outputs -->
+  <div>
+    <div class="card" style="margin-bottom:16px">
+      <h3>Cost Per User / Month</h3>
+      <div class="metric-row">
+        <span class="metric-label">Total audio (mins/month)</span>
+        <span class="metric-value" id="totalMins">220 min</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Total words transcribed</span>
+        <span class="metric-value" id="totalWords">28,600</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">STT cost</span>
+        <span class="metric-value" id="sttCost">$1.43</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">LLM cleanup cost</span>
+        <span class="metric-value" id="llmCost">$0.04</span>
+      </div>
+      <div class="metric-row" style="border-top: 1px solid #333; padding-top:12px; margin-top:4px">
+        <span class="metric-label" style="color:#fff; font-weight:600">Total COGS / user</span>
+        <span class="metric-value" id="cogsPer">$1.47</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Pick a Pricing Tier</h3>
+      <div class="tier-grid">
+        <div class="tier-card" onclick="setPrice(5, this)">
+          <h4>Starter</h4>
+          <div class="price">$5<span>/mo</span></div>
+          <div class="margin" id="margin5">—</div>
+        </div>
+        <div class="tier-card active" onclick="setPrice(9, this)">
+          <h4>Standard</h4>
+          <div class="price">$9<span>/mo</span></div>
+          <div class="margin" id="margin9">—</div>
+        </div>
+        <div class="tier-card" onclick="setPrice(15, this)">
+          <h4>Pro</h4>
+          <div class="price">$15<span>/mo</span></div>
+          <div class="margin" id="margin15">—</div>
+        </div>
+      </div>
+
+      <div class="breakeven">
+        <h3>Business Summary</h3>
+        <div class="comparison-row"><span class="name">Monthly revenue</span><span class="amount" id="revenue">$450</span></div>
+        <div class="comparison-row"><span class="name">Total COGS</span><span class="amount" id="totalCogs">$73.50</span></div>
+        <div class="comparison-row" style="border:none"><span class="name" style="color:#fff;font-weight:600">Monthly profit</span><span class="amount" id="profit" style="font-weight:700;font-size:1.1rem">$376.50</span></div>
+        <div class="highlight-box">
+          <p id="summary">At 50 users on Standard ($9/mo): <strong>$376/mo profit</strong> — 83.7% gross margin. Break-even at just <strong>1 user</strong>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Competitor comparison -->
+<div class="card">
+  <h3>Competitor Comparison</h3>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:4px">
+    <div>
+      <div class="section-title">Wispr Flow</div>
+      <div style="font-size:1.3rem;font-weight:700;color:#fff">$12<span style="font-size:0.8rem;color:#888">/mo</span></div>
+      <div style="font-size:0.75rem;color:#555;margin-top:4px">$96/yr · Mac + Windows</div>
+    </div>
+    <div>
+      <div class="section-title">SuperWhisper</div>
+      <div style="font-size:1.3rem;font-weight:700;color:#fff">$9<span style="font-size:0.8rem;color:#888">/mo</span></div>
+      <div style="font-size:0.75rem;color:#555;margin-top:4px">$72/yr · Mac only</div>
+    </div>
+    <div>
+      <div class="section-title">Our App (cloud)</div>
+      <div style="font-size:1.3rem;font-weight:700;color:#a78bfa" id="ourPrice">$9<span style="font-size:0.8rem;color:#888">/mo</span></div>
+      <div style="font-size:0.75rem;color:#555;margin-top:4px">+free local tier · all platforms</div>
+    </div>
+    <div>
+      <div class="section-title">Our App (local)</div>
+      <div style="font-size:1.3rem;font-weight:700;color:#4ade80">$0</div>
+      <div style="font-size:0.75rem;color:#555;margin-top:4px">Free forever · offline · private</div>
+    </div>
+  </div>
+</div>
+
+<script>
+let provider = 'elevenlabs';
+let useLLM = true;
+let selectedPrice = 9;
+
+const providerRates = {
+  elevenlabs: 0.0065,
+  deepgram: 0.0077,
+  openai: 0.006
+};
+
+function fmt(n) { return '$' + n.toFixed(2); }
+function fmtInt(n) { return n.toLocaleString(); }
+
+function update() {
+  const minsPerDay = +document.getElementById('minsPerDay').value;
+  const daysPerMonth = +document.getElementById('daysPerMonth').value;
+  const wpm = +document.getElementById('wpm').value;
+  const users = +document.getElementById('users').value;
+
+  document.getElementById('minsPerDayVal').textContent = minsPerDay + ' min';
+  document.getElementById('daysPerMonthVal').textContent = daysPerMonth + ' days';
+  document.getElementById('wpmVal').textContent = wpm + ' wpm';
+  document.getElementById('usersVal').textContent = users;
+
+  const totalMins = minsPerDay * daysPerMonth;
+  const totalWords = totalMins * wpm;
+  const sttCost = totalMins * providerRates[provider];
+  // ~200 words per transcription segment, Claude Haiku at ~$0.0002/call
+  const avgSegments = totalWords / 200;
+  const llmCost = useLLM ? avgSegments * 0.0002 : 0;
+  const cogsPer = sttCost + llmCost;
+
+  document.getElementById('totalMins').textContent = fmtInt(totalMins) + ' min';
+  document.getElementById('totalWords').textContent = fmtInt(Math.round(totalWords));
+  document.getElementById('sttCost').textContent = fmt(sttCost);
+  document.getElementById('llmCost').textContent = fmt(llmCost);
+  document.getElementById('cogsPer').textContent = fmt(cogsPer);
+
+  // Update tier margins
+  [5, 9, 15].forEach(p => {
+    const margin = ((p - cogsPer) / p * 100);
+    const el = document.getElementById('margin' + p);
+    if (margin > 0) {
+      el.innerHTML = `<span style="color:#4ade80">+${margin.toFixed(0)}% margin</span>`;
+    } else {
+      el.innerHTML = `<span style="color:#f87171">${margin.toFixed(0)}% (loss)</span>`;
+    }
+  });
+
+  // Summary
+  const revenue = selectedPrice * users;
+  const totalCogs = cogsPer * users;
+  const profit = revenue - totalCogs;
+  const grossMargin = (profit / revenue * 100);
+  const breakEvenUsers = Math.ceil(cogsPer / selectedPrice * 1); // how many mins to break even per user — always 1 if price > cogs
+  const profitPerUser = selectedPrice - cogsPer;
+
+  document.getElementById('revenue').textContent = fmt(revenue);
+  document.getElementById('totalCogs').textContent = fmt(totalCogs);
+  document.getElementById('profit').textContent = fmt(profit);
+  document.getElementById('profit').className = 'amount' + (profit >= 0 ? ' metric-value green' : ' metric-value red');
+
+  document.getElementById('ourPrice').innerHTML = `$${selectedPrice}<span style="font-size:0.8rem;color:#888">/mo</span>`;
+
+  const beUsers = Math.max(1, Math.ceil(1 / (profitPerUser > 0 ? profitPerUser : 1)));
+  let summaryText;
+  if (profit >= 0) {
+    summaryText = `At ${users} users on $${selectedPrice}/mo: <strong>${fmt(profit)}/mo profit</strong> — ${grossMargin.toFixed(1)}% gross margin. Cost to serve 1 user: <strong>${fmt(cogsPer)}</strong>.`;
+  } else {
+    summaryText = `⚠️ Pricing too low at $${selectedPrice}/mo — losing <strong>${fmt(Math.abs(profitPerUser))}/user</strong>. Raise price or reduce usage cap.`;
+  }
+  document.getElementById('summary').innerHTML = summaryText;
+}
+
+function setProvider(p, el) {
+  provider = p;
+  document.querySelectorAll('.radio-group')[0].querySelectorAll('.radio-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  update();
+}
+
+function setLLM(val, el) {
+  useLLM = val;
+  document.querySelectorAll('.radio-group')[1].querySelectorAll('.radio-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  update();
+}
+
+function setPrice(p, el) {
+  selectedPrice = p;
+  document.querySelectorAll('.tier-card').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  update();
+}
+
+update();
+</script>
+</body>
+</html>

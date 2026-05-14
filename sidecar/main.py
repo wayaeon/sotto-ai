@@ -1,0 +1,57 @@
+"""Wispr Local STT sidecar — entry point and IPC loop."""
+from __future__ import annotations
+
+import sys
+from sidecar.ipc import IPC, Command, Event
+from sidecar.hardware import detect as detect_hardware
+from sidecar.recorder import Recorder
+
+
+def main() -> None:
+    ipc = IPC()
+    ipc.send(Event.READY)
+
+    hw = None
+    recorder = None
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+
+        cmd = ipc.parse(line)
+        if cmd is None:
+            ipc.send(Event.ERROR, msg=f"Unknown command: {line!r}")
+            continue
+
+        if cmd == Command.PING:
+            ipc.send(Event.PONG)
+
+        elif cmd == Command.DETECT_HARDWARE:
+            hw = detect_hardware()
+            ipc.send(Event.HARDWARE, **hw.to_dict())
+            if recorder is None:
+                recorder = Recorder(ipc=ipc, tier=hw.tier)
+
+        elif cmd == Command.START_PTT:
+            if recorder is not None:
+                recorder.start_ptt()
+            else:
+                ipc.send(Event.ERROR, msg="Hardware not detected yet — send detect_hardware first")
+
+        elif cmd == Command.STOP_PTT:
+            if recorder is not None:
+                recorder.stop_ptt()
+
+        elif cmd == Command.TOGGLE_HANDSFREE:
+            if recorder is not None:
+                recorder.toggle_handsfree()
+
+        elif cmd == Command.QUIT:
+            if recorder is not None:
+                recorder.shutdown()
+            break
+
+
+if __name__ == "__main__":
+    main()

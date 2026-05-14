@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Latency Pipeline</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d0d0d; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 28px; }
+h2 { font-size: 1.35rem; font-weight: 600; color: #fff; margin-bottom: 4px; }
+.subtitle { color: #666; font-size: 0.85rem; margin-bottom: 24px; }
+
+.tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+.tab { padding: 8px 20px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 500; border: 1px solid #2a2a2a; color: #888; background: #161616; transition: all 0.15s; }
+.tab.active { background: #1e1545; border-color: #6d4aff; color: #a78bfa; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* Pipeline */
+.pipeline { display: flex; align-items: stretch; gap: 0; margin-bottom: 28px; position: relative; }
+.step {
+  flex: 1; background: #161616; border: 1px solid #252525; padding: 14px 12px;
+  position: relative; display: flex; flex-direction: column; gap: 4px;
+}
+.step:not(:last-child)::after {
+  content: '▶';
+  position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
+  color: #333; font-size: 0.8rem; z-index: 2;
+}
+.step:first-child { border-radius: 10px 0 0 10px; }
+.step:last-child { border-radius: 0 10px 10px 0; }
+.step-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: #555; }
+.step-name { font-size: 0.82rem; font-weight: 600; color: #ccc; }
+.step-time { font-size: 1rem; font-weight: 700; margin-top: 4px; }
+.step-note { font-size: 0.7rem; color: #555; margin-top: 2px; }
+.step.slow .step-time { color: #f87171; }
+.step.med .step-time { color: #fbbf24; }
+.step.fast .step-time { color: #4ade80; }
+.step.zero .step-time { color: #a78bfa; }
+.step.highlight { background: #130f2a; border-color: #6d4aff; }
+
+/* Total bar */
+.total-row { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+.total-label { font-size: 0.8rem; color: #666; min-width: 120px; }
+.bar-wrap { flex: 1; height: 28px; background: #161616; border-radius: 6px; overflow: hidden; display: flex; }
+.bar-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; transition: width 0.4s ease; white-space: nowrap; overflow: hidden; }
+.total-val { font-size: 1rem; font-weight: 700; min-width: 80px; text-align: right; }
+
+/* Technique cards */
+.techniques { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+.tech-card { background: #161616; border: 1px solid #252525; border-radius: 10px; padding: 16px; }
+.tech-card.active-tech { border-color: #6d4aff; background: #130f2a; }
+.tech-name { font-size: 0.9rem; font-weight: 600; color: #fff; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.tech-desc { font-size: 0.78rem; color: #666; line-height: 1.5; }
+.tech-save { font-size: 0.75rem; color: #4ade80; margin-top: 6px; font-weight: 600; }
+.badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; }
+.badge.on { background: #14532d; color: #4ade80; }
+.badge.lib { background: #1e3a5f; color: #60a5fa; }
+
+/* Comparison */
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+.compare-card { background: #161616; border: 1px solid #252525; border-radius: 10px; padding: 20px; }
+.compare-card.after { border-color: #4ade80; background: #0a1f12; }
+.compare-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 12px; }
+.compare-title.green { color: #4ade80; }
+.big-time { font-size: 2.8rem; font-weight: 800; margin-bottom: 4px; }
+.big-time.red { color: #f87171; }
+.big-time.green { color: #4ade80; }
+.compare-sub { font-size: 0.8rem; color: #666; }
+
+.row-item { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #1a1a1a; font-size: 0.82rem; }
+.row-item:last-child { border-bottom: none; }
+.row-name { color: #888; }
+.row-val { font-weight: 600; }
+.row-val.red { color: #f87171; }
+.row-val.yellow { color: #fbbf24; }
+.row-val.green { color: #4ade80; }
+.row-val.purple { color: #a78bfa; }
+
+.arch-note { background: #111; border: 1px solid #1e3a2a; border-radius: 10px; padding: 14px 18px; margin-top: 4px; }
+.arch-note h4 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #4ade80; margin-bottom: 8px; }
+.arch-note p { font-size: 0.82rem; color: #777; line-height: 1.6; }
+.arch-note strong { color: #ccc; }
+
+.section-hdr { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: #444; margin: 20px 0 12px; }
+
+/* Timeline visual */
+.timeline { position: relative; padding: 0; margin-bottom: 24px; }
+.tl-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.tl-label { font-size: 0.75rem; color: #888; min-width: 130px; text-align: right; }
+.tl-bar-wrap { flex: 1; height: 22px; background: #161616; border-radius: 4px; overflow: hidden; display: flex; position: relative; }
+.tl-seg { height: 100%; display: flex; align-items: center; padding: 0 6px; font-size: 0.65rem; font-weight: 600; white-space: nowrap; }
+.tl-end { font-size: 0.75rem; color: #666; min-width: 55px; }
+.tl-ruler { display: flex; gap: 0; padding-left: 142px; margin-bottom: 4px; }
+.tl-tick { flex: 1; font-size: 0.65rem; color: #333; text-align: center; border-left: 1px solid #1e1e1e; padding-left: 2px; }
+</style>
+</head>
+<body>
+
+<h2>Latency Deep-Dive — "Feels Instantaneous"</h2>
+<p class="subtitle">Every millisecond between hotkey press and text appearing — and how we eliminate each one</p>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('breakdown', this)">Latency Breakdown</div>
+  <div class="tab" onclick="showTab('techniques', this)">Techniques</div>
+  <div class="tab" onclick="showTab('modes', this)">Push-to-Talk vs Hands-Free</div>
+</div>
+
+<!-- BREAKDOWN -->
+<div class="panel active" id="panel-breakdown">
+
+  <div class="section-hdr">Naive approach — wait, then transcribe</div>
+  <div class="pipeline">
+    <div class="step slow">
+      <div class="step-label">Stage 1</div>
+      <div class="step-name">Hotkey → Audio start</div>
+      <div class="step-time">~50ms</div>
+      <div class="step-note">OS hotkey hook</div>
+    </div>
+    <div class="step slow">
+      <div class="step-label">Stage 2</div>
+      <div class="step-name">User speaks</div>
+      <div class="step-time">2–10s</div>
+      <div class="step-note">Waiting for user</div>
+    </div>
+    <div class="step slow">
+      <div class="step-label">Stage 3</div>
+      <div class="step-name">Release key → detect end</div>
+      <div class="step-time">~100ms</div>
+      <div class="step-note">Button release</div>
+    </div>
+    <div class="step slow">
+      <div class="step-label">Stage 4</div>
+      <div class="step-name">Transcribe full audio</div>
+      <div class="step-time">~1,200ms</div>
+      <div class="step-note">Whisper processes all at once</div>
+    </div>
+    <div class="step slow">
+      <div class="step-label">Stage 5</div>
+      <div class="step-name">LLM cleanup</div>
+      <div class="step-time">~500ms</div>
+      <div class="step-note">Serial, after transcription</div>
+    </div>
+    <div class="step slow">
+      <div class="step-label">Stage 6</div>
+      <div class="step-name">Inject text</div>
+      <div class="step-time">~20ms</div>
+      <div class="step-note">Clipboard / keystroke</div>
+    </div>
+  </div>
+
+  <div class="total-row">
+    <span class="total-label">Perceived delay (after release)</span>
+    <div class="bar-wrap">
+      <div class="bar-seg" style="width:70%;background:#ef4444;color:#fff">Transcription 1200ms</div>
+      <div class="bar-seg" style="width:28%;background:#f97316;color:#fff">LLM 500ms</div>
+      <div class="bar-seg" style="width:2%;background:#6b7280;color:#fff"></div>
+    </div>
+    <span class="total-val" style="color:#f87171">~1,720ms</span>
+  </div>
+
+  <div class="section-hdr">Optimised approach — stream while speaking</div>
+  <div class="pipeline">
+    <div class="step fast highlight">
+      <div class="step-label">Stage 1</div>
+      <div class="step-name">Hotkey → Audio + VAD</div>
+      <div class="step-time">~32ms</div>
+      <div class="step-note">Silero VAD, 32ms chunks</div>
+    </div>
+    <div class="step zero highlight">
+      <div class="step-label">Stage 2</div>
+      <div class="step-name">User speaks + chunks transcribe</div>
+      <div class="step-time">parallel</div>
+      <div class="step-note">RealtimeSTT streams every ~1s</div>
+    </div>
+    <div class="step fast highlight">
+      <div class="step-label">Stage 3</div>
+      <div class="step-name">Speech end detected</div>
+      <div class="step-time">~32ms</div>
+      <div class="step-note">VAD silence threshold</div>
+    </div>
+    <div class="step fast highlight">
+      <div class="step-label">Stage 4</div>
+      <div class="step-name">Transcribe final chunk only</div>
+      <div class="step-time">~200ms</div>
+      <div class="step-note">WhisperPipe buffered</div>
+    </div>
+    <div class="step fast highlight">
+      <div class="step-label">Stage 5</div>
+      <div class="step-name">LLM cleanup (parallel)</div>
+      <div class="step-time">~0ms added</div>
+      <div class="step-note">Runs during transcription</div>
+    </div>
+    <div class="step zero highlight">
+      <div class="step-label">Stage 6</div>
+      <div class="step-name">Inject text</div>
+      <div class="step-time">~20ms</div>
+      <div class="step-note">Already streamed mid-speech</div>
+    </div>
+  </div>
+
+  <div class="total-row">
+    <span class="total-label">Perceived delay (after release)</span>
+    <div class="bar-wrap">
+      <div class="bar-seg" style="width:60%;background:#6d4aff;color:#fff">Final chunk ~200ms</div>
+      <div class="bar-seg" style="width:10%;background:#4ade80;color:#000">VAD 32ms</div>
+      <div class="bar-seg" style="width:30%;background:#1f2937;color:#666">already streamed mid-speech</div>
+    </div>
+    <span class="total-val" style="color:#4ade80">~230ms</span>
+  </div>
+
+  <div class="compare">
+    <div class="compare-card">
+      <div class="compare-title">Naive — "wait then transcribe"</div>
+      <div class="big-time red">~1,720ms</div>
+      <div class="compare-sub">after releasing hotkey</div>
+      <div style="margin-top:14px">
+        <div class="row-item"><span class="row-name">Transcription</span><span class="row-val red">1,200ms</span></div>
+        <div class="row-item"><span class="row-name">LLM cleanup</span><span class="row-val red">500ms</span></div>
+        <div class="row-item"><span class="row-name">Text injection</span><span class="row-val yellow">20ms</span></div>
+        <div class="row-item"><span class="row-name">Text visible during speech?</span><span class="row-val red">No</span></div>
+      </div>
+    </div>
+    <div class="compare-card after">
+      <div class="compare-title green">Optimised — "stream while speaking"</div>
+      <div class="big-time green">~230ms</div>
+      <div class="compare-sub">after releasing hotkey — 87% faster</div>
+      <div style="margin-top:14px">
+        <div class="row-item"><span class="row-name">Final chunk transcription</span><span class="row-val green">~200ms</span></div>
+        <div class="row-item"><span class="row-name">LLM cleanup (parallel)</span><span class="row-val purple">0ms added</span></div>
+        <div class="row-item"><span class="row-name">Text injection</span><span class="row-val yellow">20ms</span></div>
+        <div class="row-item"><span class="row-name">Text visible during speech?</span><span class="row-val green">Yes — word by word</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arch-note">
+    <h4>Why 230ms feels instant</h4>
+    <p>Human perception of "instantaneous" is <strong>under ~300ms</strong> for connected events (like typing). By streaming partial text word-by-word <em>while you're still speaking</em> and only doing a tiny final-chunk cleanup after you release the key, the user sees text flowing in real time — the 230ms tail is imperceptible because the visual feedback already started mid-sentence.</p>
+  </div>
+</div>
+
+<!-- TECHNIQUES -->
+<div class="panel" id="panel-techniques">
+  <div class="techniques">
+
+    <div class="tech-card active-tech">
+      <div class="tech-name"><span class="badge on">ON</span> RealtimeSTT <span class="badge lib">library</span></div>
+      <div class="tech-desc">KoljaB's Python library — wraps faster-whisper with VAD, ring buffers, and streaming word-by-word output. Replaces building the entire pipeline from scratch. This <em>is</em> our sidecar engine.</div>
+      <div class="tech-save">Saves ~500ms total pipeline latency vs naive Whisper</div>
+    </div>
+
+    <div class="tech-card active-tech">
+      <div class="tech-name"><span class="badge on">ON</span> Silero VAD</div>
+      <div class="tech-desc">32ms audio chunk analysis. Detects speech start in milliseconds — so recording begins capturing real speech immediately, not silence. Hysteresis prevents flicker at word edges. Built into RealtimeSTT.</div>
+      <div class="tech-save">Eliminates false starts, reduces wasted audio at segment edges</div>
+    </div>
+
+    <div class="tech-card active-tech">
+      <div class="tech-name"><span class="badge on">ON</span> Chunked / streaming inference</div>
+      <div class="tech-desc">Instead of waiting for recording to end, Whisper transcribes overlapping 1–2s chunks <em>while you're still speaking</em>. Results stream to the UI word-by-word. Only the final tail chunk is processed after you stop.</div>
+      <div class="tech-save">Makes "wait for transcription" invisible to the user</div>
+    </div>
+
+    <div class="tech-card active-tech">
+      <div class="tech-name"><span class="badge on">ON</span> Pre-roll ring buffer</div>
+      <div class="tech-desc">~500ms of audio is always buffered before VAD fires. When speech is detected, we already have the first syllable. No clipped words at the start of recordings.</div>
+      <div class="tech-save">Eliminates clipped first words</div>
+    </div>
+
+    <div class="tech-card active-tech">
+      <div class="tech-name"><span class="badge on">ON</span> Parallel LLM cleanup</div>
+      <div class="tech-desc">Cleanup runs on each streaming chunk as it completes — not serially after transcription ends. By the time you release the hotkey, most cleanup is already done. Only the final chunk waits.</div>
+      <div class="tech-save">Removes ~500ms serial LLM delay</div>
+    </div>
+
+    <div class="tech-card active-tech">
+      <div class="tech-name"><span class="badge on">ON</span> Model pre-warming</div>
+      <div class="tech-desc">Whisper and VAD models load once at app startup and stay pinned in RAM. Zero cold-start latency per recording. On your 32GB machine this is trivial — model stays warm all day.</div>
+      <div class="tech-save">Eliminates 1–3s model load delay per recording</div>
+    </div>
+
+    <div class="tech-card">
+      <div class="tech-name"><span class="badge lib">OPTIONAL</span> WhisperPipe architecture</div>
+      <div class="tech-desc">2026 research paper. Hybrid VAD + dynamic buffering + overlapping context windows. Achieves 89ms median end-to-end latency. More complex to implement but available as a future upgrade path.</div>
+      <div class="tech-save">Could push final latency to sub-100ms on good hardware</div>
+    </div>
+
+    <div class="tech-card">
+      <div class="tech-name"><span class="badge lib">FUTURE</span> NPU acceleration</div>
+      <div class="tech-desc">Your Ryzen AI 7's XDNA NPU has no mature Whisper driver yet — but AMD is actively working on it. Architecture will make it a drop-in swap when drivers ship.</div>
+      <div class="tech-save">Could push CPU latency to near-GPU speeds</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODES -->
+<div class="panel" id="panel-modes">
+
+  <div class="section-hdr">Push-to-Talk — Ctrl + Win</div>
+  <div class="compare" style="margin-bottom:24px">
+    <div style="background:#161616;border:1px solid #252525;border-radius:10px;padding:18px">
+      <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:#555;margin-bottom:10px">Flow</div>
+      <div class="row-item"><span class="row-name">Hold Ctrl+Win</span><span class="row-val green">Ring buffer starts + VAD active</span></div>
+      <div class="row-item"><span class="row-name">You speak</span><span class="row-val purple">Chunks transcribe every ~1s → text streams to overlay</span></div>
+      <div class="row-item"><span class="row-name">Release key</span><span class="row-val green">Final chunk transcribes (~200ms)</span></div>
+      <div class="row-item"><span class="row-name">Text output</span><span class="row-val green">Inject to active window + clipboard</span></div>
+      <div class="row-item"><span class="row-name">Total perceived delay</span><span class="row-val green">~230ms after release</span></div>
+    </div>
+    <div style="background:#161616;border:1px solid #252525;border-radius:10px;padding:18px">
+      <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:#555;margin-bottom:10px">Visual Feedback</div>
+      <div style="background:#0d0d0d;border-radius:8px;padding:14px;font-size:0.82rem;color:#888;line-height:1.8">
+        <span style="color:#6d4aff">●</span> Recording...<br>
+        <span style="color:#a78bfa">"I want to schedule a meeting"</span> ← streams in<br>
+        <span style="color:#4ade80">"I want to schedule a meeting for tomorrow"</span> ← final<br>
+        <span style="color:#555">✓ Injected</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-hdr">Hands-Free — Ctrl + Win + Space</div>
+  <div class="compare">
+    <div style="background:#161616;border:1px solid #252525;border-radius:10px;padding:18px">
+      <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:#555;margin-bottom:10px">Flow</div>
+      <div class="row-item"><span class="row-name">Toggle on</span><span class="row-val green">Continuous VAD monitoring active</span></div>
+      <div class="row-item"><span class="row-name">You start speaking</span><span class="row-val purple">VAD fires in ~32ms → streaming begins</span></div>
+      <div class="row-item"><span class="row-name">Pause detected</span><span class="row-val yellow">~600ms silence threshold → segment ends</span></div>
+      <div class="row-item"><span class="row-name">Text output</span><span class="row-val green">Inject segment → ready for next</span></div>
+      <div class="row-item"><span class="row-name">Total perceived delay</span><span class="row-val green">~230ms after silence</span></div>
+    </div>
+    <div style="background:#161616;border:1px solid #252525;border-radius:10px;padding:18px">
+      <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:#555;margin-bottom:10px">Best for</div>
+      <div style="font-size:0.82rem;color:#777;line-height:1.7">
+        Long-form dictation (emails, notes, documents)<br><br>
+        Silence threshold is <strong style="color:#ccc">configurable</strong> — shorter for quick back-to-back sentences, longer for pausing to think<br><br>
+        Toggle Ctrl+Win+Space again to fully stop
+      </div>
+    </div>
+  </div>
+
+  <div class="arch-note" style="margin-top:20px">
+    <h4>The Real Secret — Streaming Overlay</h4>
+    <p>Both modes show a <strong>floating overlay</strong> where text appears word-by-word as you speak. By the time you release the hotkey or pause, 80% of the text is already on screen. The final 200ms "finish" is invisible because the user is watching text flow — not a blank screen. This is what makes Wispr feel magical, and we can match it exactly.</p>
+  </div>
+</div>
+
+<script>
+function showTab(id, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-' + id).classList.add('active');
+}
+</script>
+</body>
+</html>

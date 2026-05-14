@@ -1,0 +1,7 @@
+RealtimeSTT==0.3.104
+faster-whisper==1.1.1
+torch==2.5.1
+torchaudio==2.5.1
+anthropic==0.40.0
+websockets==13.1
+requests==2.32.3

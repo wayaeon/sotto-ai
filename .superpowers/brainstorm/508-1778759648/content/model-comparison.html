@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STT Model Comparison</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d0d0d; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 28px; }
+h2 { font-size: 1.35rem; font-weight: 600; color: #fff; margin-bottom: 4px; }
+.subtitle { color: #666; font-size: 0.85rem; margin-bottom: 24px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+.tab { padding: 8px 20px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 500; border: 1px solid #2a2a2a; color: #888; background: #161616; transition: all 0.15s; }
+.tab.active { background: #1e1545; border-color: #6d4aff; color: #a78bfa; }
+
+/* Panels */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* Legend */
+.legend { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: #666; }
+.dot { width: 10px; height: 10px; border-radius: 50%; }
+.dot.tier1 { background: #a78bfa; }
+.dot.tier2 { background: #60a5fa; }
+.dot.tier3 { background: #4ade80; }
+.dot.tier4 { background: #fbbf24; }
+.dot.tier5 { background: #f87171; }
+
+/* Model cards grid */
+.model-grid { display: grid; gap: 10px; }
+
+.model-card {
+  background: #161616;
+  border: 1px solid #252525;
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 16px;
+  align-items: center;
+  transition: border-color 0.15s;
+  cursor: default;
+}
+.model-card:hover { border-color: #3a3a3a; }
+.model-card.recommended { border-color: #6d4aff; background: #130f2a; }
+.model-card.recommended-secondary { border-color: #1d4ed8; background: #0f1e35; }
+
+.model-name { font-size: 0.95rem; font-weight: 600; color: #fff; margin-bottom: 3px; }
+.model-sub { font-size: 0.75rem; color: #555; }
+.model-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; margin-top: 6px; }
+.tag-best { background: #2d1f6e; color: #a78bfa; }
+.tag-fast { background: #1a3a5c; color: #60a5fa; }
+.tag-light { background: #14532d; color: #4ade80; }
+.tag-budget { background: #422006; color: #fbbf24; }
+.tag-cuda { background: #450a0a; color: #f87171; }
+.tag-cloud { background: #1a3a5c; color: #7dd3fc; }
+
+.metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.metric { text-align: center; }
+.metric-val { font-size: 0.9rem; font-weight: 600; color: #fff; white-space: nowrap; }
+.metric-lbl { font-size: 0.65rem; color: #555; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+
+/* Accuracy bar */
+.acc-bar-wrap { height: 4px; background: #222; border-radius: 2px; margin-top: 4px; }
+.acc-bar { height: 4px; border-radius: 2px; background: linear-gradient(90deg, #6d4aff, #a78bfa); }
+.acc-bar.blue { background: linear-gradient(90deg, #1d4ed8, #60a5fa); }
+.acc-bar.green { background: linear-gradient(90deg, #16a34a, #4ade80); }
+.acc-bar.yellow { background: linear-gradient(90deg, #d97706, #fbbf24); }
+.acc-bar.red { background: linear-gradient(90deg, #dc2626, #f87171); }
+
+/* CPU idle note */
+.arch-note { background: #111; border: 1px solid #1e3a2a; border-radius: 10px; padding: 14px 18px; margin-top: 20px; }
+.arch-note h4 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: #4ade80; margin-bottom: 8px; }
+.arch-note p { font-size: 0.83rem; color: #888; line-height: 1.6; }
+.arch-note strong { color: #ccc; }
+
+/* Hardware tiers */
+.hw-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 20px; }
+.hw-card { background: #161616; border: 1px solid #252525; border-radius: 10px; padding: 14px; }
+.hw-card h4 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #666; margin-bottom: 8px; }
+.hw-card .hw-model { font-size: 0.85rem; font-weight: 600; color: #fff; margin-bottom: 4px; }
+.hw-card .hw-detail { font-size: 0.75rem; color: #555; line-height: 1.5; }
+.hw-card.hl { border-color: #6d4aff; background: #130f2a; }
+
+.section-header { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: #444; margin: 20px 0 10px; }
+
+.your-badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 0.68rem; font-weight: 700; background: #2d1f6e; color: #c4b5fd; margin-left: 8px; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<h2>STT Model Selection Guide</h2>
+<p class="subtitle">Optimized for background-idle, near-zero latency dictation — model stays warm in RAM, activates only on hotkey</p>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('local', this)">Local / Offline</div>
+  <div class="tab" onclick="showTab('cloud', this)">Cloud / Online</div>
+  <div class="tab" onclick="showTab('hw', this)">Hardware Auto-Select</div>
+</div>
+
+<!-- LOCAL PANEL -->
+<div class="panel active" id="panel-local">
+  <div class="legend">
+    <div class="legend-item"><div class="dot tier1"></div> Best overall</div>
+    <div class="legend-item"><div class="dot tier2"></div> Speed-focused</div>
+    <div class="legend-item"><div class="dot tier3"></div> Lightweight</div>
+    <div class="legend-item"><div class="dot tier4"></div> Fallback</div>
+    <div class="legend-item"><div class="dot tier5"></div> GPU-only</div>
+  </div>
+
+  <div class="section-header">Multilingual (99+ languages) — Whisper family</div>
+  <div class="model-grid">
+
+    <div class="model-card recommended">
+      <div>
+        <div class="model-name">Whisper Large V3 Turbo <span class="your-badge">YOUR PICK</span></div>
+        <div class="model-sub">faster-whisper · int8 · CPU/GPU</div>
+        <div class="model-tag tag-best">★ RECOMMENDED DEFAULT</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">~5.5%</div><div class="acc-bar-wrap"><div class="acc-bar" style="width:92%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">~1.2s</div><div class="metric-lbl">CPU latency</div></div>
+        <div class="metric"><div class="metric-val">~2GB</div><div class="metric-lbl">RAM</div></div>
+        <div class="metric"><div class="metric-val">0%</div><div class="metric-lbl">idle CPU</div></div>
+        <div class="metric"><div class="metric-val">99+</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+    <div class="model-card">
+      <div>
+        <div class="model-name">Distil-Whisper Large V3</div>
+        <div class="model-sub">faster-whisper · int8 · CPU/GPU · English-optimized</div>
+        <div class="model-tag tag-fast">FASTEST WHISPER</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">~6.0%</div><div class="acc-bar-wrap"><div class="acc-bar blue" style="width:88%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">~0.6s</div><div class="metric-lbl">CPU latency</div></div>
+        <div class="metric"><div class="metric-val">~1.5GB</div><div class="metric-lbl">RAM</div></div>
+        <div class="metric"><div class="metric-val">0%</div><div class="metric-lbl">idle CPU</div></div>
+        <div class="metric"><div class="metric-val">EN only</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+    <div class="model-card">
+      <div>
+        <div class="model-name">Whisper Large V3</div>
+        <div class="model-sub">faster-whisper · int8 · best multilingual accuracy</div>
+        <div class="model-tag tag-best">HIGHEST ACCURACY</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">~4.2%</div><div class="acc-bar-wrap"><div class="acc-bar" style="width:96%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">~2.5s</div><div class="metric-lbl">CPU latency</div></div>
+        <div class="metric"><div class="metric-val">~3.5GB</div><div class="metric-lbl">RAM</div></div>
+        <div class="metric"><div class="metric-val">0%</div><div class="metric-lbl">idle CPU</div></div>
+        <div class="metric"><div class="metric-val">99+</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+    <div class="model-card">
+      <div>
+        <div class="model-name">Whisper Medium</div>
+        <div class="model-sub">faster-whisper · int8 · balanced</div>
+        <div class="model-tag tag-budget">MID-RANGE</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">~8.5%</div><div class="acc-bar-wrap"><div class="acc-bar yellow" style="width:74%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">~0.5s</div><div class="metric-lbl">CPU latency</div></div>
+        <div class="metric"><div class="metric-val">~1.5GB</div><div class="metric-lbl">RAM</div></div>
+        <div class="metric"><div class="metric-val">0%</div><div class="metric-lbl">idle CPU</div></div>
+        <div class="metric"><div class="metric-val">99+</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+    <div class="model-card">
+      <div>
+        <div class="model-name">Whisper Small / Base / Tiny</div>
+        <div class="model-sub">faster-whisper · ultra-light · low-end machines</div>
+        <div class="model-tag tag-light">MINIMUM FOOTPRINT</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">10–18%</div><div class="acc-bar-wrap"><div class="acc-bar red" style="width:55%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">&lt;0.3s</div><div class="metric-lbl">CPU latency</div></div>
+        <div class="metric"><div class="metric-val">0.2–0.9GB</div><div class="metric-lbl">RAM</div></div>
+        <div class="metric"><div class="metric-val">0%</div><div class="metric-lbl">idle CPU</div></div>
+        <div class="metric"><div class="metric-val">99+</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-header">English-only — Ultra-low latency</div>
+  <div class="model-grid">
+
+    <div class="model-card recommended-secondary">
+      <div>
+        <div class="model-name">Moonshine Base</div>
+        <div class="model-sub">Useful Sensors · 245M params · CPU edge model</div>
+        <div class="model-tag tag-fast">107ms LATENCY</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">≈LgV3</div><div class="acc-bar-wrap"><div class="acc-bar blue" style="width:90%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">107ms</div><div class="metric-lbl">CPU latency</div></div>
+        <div class="metric"><div class="metric-val">~0.8GB</div><div class="metric-lbl">RAM</div></div>
+        <div class="metric"><div class="metric-val">0%</div><div class="metric-lbl">idle CPU</div></div>
+        <div class="metric"><div class="metric-val">EN only</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+    <div class="model-card">
+      <div>
+        <div class="model-name">Moonshine Tiny</div>
+        <div class="model-sub">27M params · mobile/embedded grade</div>
+        <div class="model-tag tag-light">ULTRA LIGHT</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">~9%</div><div class="acc-bar-wrap"><div class="acc-bar green" style="width:70%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">&lt;80ms</div><div class="metric-lbl">CPU latency</div></div>
+        <div class="metric"><div class="metric-val">~0.3GB</div><div class="metric-lbl">RAM</div></div>
+        <div class="metric"><div class="metric-val">0%</div><div class="metric-lbl">idle CPU</div></div>
+        <div class="metric"><div class="metric-val">EN only</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+    <div class="model-card">
+      <div>
+        <div class="model-name">Parakeet TDT 1.1B</div>
+        <div class="model-sub">NVIDIA CUDA required · RTFx &gt;2000 · English only</div>
+        <div class="model-tag tag-cuda">NVIDIA ONLY</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">~6.3%</div><div class="acc-bar-wrap"><div class="acc-bar blue" style="width:86%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">&lt;50ms</div><div class="metric-lbl">GPU latency</div></div>
+        <div class="metric"><div class="metric-val">~4GB VRAM</div><div class="metric-lbl">RAM</div></div>
+        <div class="metric"><div class="metric-val">0%</div><div class="metric-lbl">idle CPU</div></div>
+        <div class="metric"><div class="metric-val">EN only</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="arch-note">
+    <h4>Background Compute — How We Keep It Near Zero</h4>
+    <p>The Python STT sidecar loads the model into RAM once at startup, then <strong>stays fully idle</strong> (0% CPU) until a hotkey fires. Recording captures raw audio in a ring buffer, transcription runs <strong>only on the captured segment</strong>, then the process returns to idle. On your AMD Ryzen AI 7 350 with 32GB RAM, <strong>whisper-large-v3-turbo loads in ~3s once</strong>, then transcribes a 10-second segment in ~1.2s — the rest of the time: zero CPU, ~2GB RAM pinned.</p>
+  </div>
+</div>
+
+<!-- CLOUD PANEL -->
+<div class="panel" id="panel-cloud">
+  <div class="legend">
+    <div class="legend-item"><div class="dot tier1"></div> Best accuracy</div>
+    <div class="legend-item"><div class="dot tier2"></div> Best latency</div>
+    <div class="legend-item"><div class="dot tier3"></div> Best value</div>
+    <div class="legend-item"><div class="dot tier4"></div> General purpose</div>
+  </div>
+
+  <div class="section-header">Our chosen stack</div>
+  <div class="model-grid">
+
+    <div class="model-card recommended">
+      <div>
+        <div class="model-name">ElevenLabs Scribe v2 Realtime <span class="your-badge">OUR PICK</span></div>
+        <div class="model-sub">WebSocket streaming · includes TTS in same account</div>
+        <div class="model-tag tag-best">BEST ACCURACY + TTS BUNDLE</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">2.3%</div><div class="acc-bar-wrap"><div class="acc-bar" style="width:98%"></div></div><div class="metric-lbl">AA-WER</div></div>
+        <div class="metric"><div class="metric-val">&lt;150ms</div><div class="metric-lbl">latency</div></div>
+        <div class="metric"><div class="metric-val">$0.0065/min</div><div class="metric-lbl">price</div></div>
+        <div class="metric"><div class="metric-val">~$0.39/hr</div><div class="metric-lbl">cost/hr</div></div>
+        <div class="metric"><div class="metric-val">30+</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-header">Alternatives (user can switch in settings)</div>
+  <div class="model-grid">
+
+    <div class="model-card">
+      <div>
+        <div class="model-name">AssemblyAI Universal-3 Pro</div>
+        <div class="model-sub">Best price-to-performance ratio · streaming</div>
+        <div class="model-tag tag-budget">BEST VALUE</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">3.2%</div><div class="acc-bar-wrap"><div class="acc-bar blue" style="width:94%"></div></div><div class="metric-lbl">AA-WER</div></div>
+        <div class="metric"><div class="metric-val">streaming</div><div class="metric-lbl">latency</div></div>
+        <div class="metric"><div class="metric-val">$0.0042/min</div><div class="metric-lbl">price</div></div>
+        <div class="metric"><div class="metric-val">~$0.25/hr</div><div class="metric-lbl">cost/hr</div></div>
+        <div class="metric"><div class="metric-val">99+</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+    <div class="model-card">
+      <div>
+        <div class="model-name">Deepgram Nova-3</div>
+        <div class="model-sub">Sub-300ms · lowest latency option · free tier</div>
+        <div class="model-tag tag-fast">LOWEST LATENCY</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">6.84%</div><div class="acc-bar-wrap"><div class="acc-bar yellow" style="width:78%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">&lt;300ms</div><div class="metric-lbl">latency</div></div>
+        <div class="metric"><div class="metric-val">$0.0077/min</div><div class="metric-lbl">price</div></div>
+        <div class="metric"><div class="metric-val">~$0.46/hr</div><div class="metric-lbl">cost/hr</div></div>
+        <div class="metric"><div class="metric-val">30+</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+    <div class="model-card">
+      <div>
+        <div class="model-name">OpenAI GPT-4o Transcribe</div>
+        <div class="model-sub">Consistent with local Whisper · familiar</div>
+        <div class="model-tag tag-cloud">FAMILIAR</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">~4%</div><div class="acc-bar-wrap"><div class="acc-bar blue" style="width:90%"></div></div><div class="metric-lbl">WER</div></div>
+        <div class="metric"><div class="metric-val">moderate</div><div class="metric-lbl">latency</div></div>
+        <div class="metric"><div class="metric-val">$0.006/min</div><div class="metric-lbl">price</div></div>
+        <div class="metric"><div class="metric-val">~$0.36/hr</div><div class="metric-lbl">cost/hr</div></div>
+        <div class="metric"><div class="metric-val">99+</div><div class="metric-lbl">languages</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-header">LLM Text Cleanup</div>
+  <div class="model-grid">
+    <div class="model-card recommended">
+      <div>
+        <div class="model-name">Claude Haiku 4.5 <span class="your-badge">CLOUD CLEANUP</span></div>
+        <div class="model-sub">Anthropic · ~$0.0002/transcription · punctuation + filler removal</div>
+        <div class="model-tag tag-best">OUR PICK</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">~150tok</div><div class="metric-lbl">avg input</div></div>
+        <div class="metric"><div class="metric-val">~150tok</div><div class="metric-lbl">avg output</div></div>
+        <div class="metric"><div class="metric-val">~$0.0002</div><div class="metric-lbl">per call</div></div>
+        <div class="metric"><div class="metric-val">&lt;500ms</div><div class="metric-lbl">latency</div></div>
+        <div class="metric"><div class="metric-val">negligible</div><div class="metric-lbl">monthly $</div></div>
+      </div>
+    </div>
+    <div class="model-card recommended-secondary">
+      <div>
+        <div class="model-name">Qwen3:7B via Ollama <span class="your-badge">LOCAL CLEANUP</span></div>
+        <div class="model-sub">≥16GB RAM · free forever · runs offline</div>
+        <div class="model-tag tag-fast">LOCAL OPTION</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-val">7B params</div><div class="metric-lbl">size</div></div>
+        <div class="metric"><div class="metric-val">~4GB</div><div class="metric-lbl">RAM</div></div>
+        <div class="metric"><div class="metric-val">$0</div><div class="metric-lbl">per call</div></div>
+        <div class="metric"><div class="metric-val">~1s</div><div class="metric-lbl">latency</div></div>
+        <div class="metric"><div class="metric-val">offline</div><div class="metric-lbl">privacy</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- HW AUTO-SELECT PANEL -->
+<div class="panel" id="panel-hw">
+  <p style="font-size:0.85rem;color:#666;margin-bottom:16px">At first run, the app detects RAM, CPU, GPU, and disk space — then picks the best model automatically. User can always override in Settings.</p>
+  <div class="hw-grid">
+    <div class="hw-card hl">
+      <h4>Tier 1 — High End</h4>
+      <div class="hw-model">Whisper Large V3 Turbo</div>
+      <div class="hw-detail">≥16GB RAM<br>Any CPU/AMD GPU<br>~2GB model download<br>Best multilingual accuracy<br><br><span style="color:#a78bfa">→ Your machine (32GB)</span></div>
+    </div>
+    <div class="hw-card">
+      <h4>Tier 2 — NVIDIA GPU</h4>
+      <div class="hw-model">Parakeet TDT 1.1B</div>
+      <div class="hw-detail">≥6GB VRAM CUDA<br>Near-instant (&lt;50ms)<br>English only<br>Automatic CUDA detection</div>
+    </div>
+    <div class="hw-card">
+      <h4>Tier 3 — Mid Range</h4>
+      <div class="hw-model">Moonshine Base</div>
+      <div class="hw-detail">6–16GB RAM<br>107ms CPU latency<br>English only<br>~0.8GB model<br>Your sister's machine (likely)</div>
+    </div>
+    <div class="hw-card">
+      <h4>Tier 4 — Low End / Cloud</h4>
+      <div class="hw-model">ElevenLabs Scribe v2</div>
+      <div class="hw-detail">&lt;6GB RAM<br>Redirect to cloud setup<br>API key required<br>Or: Whisper Tiny local fallback</div>
+    </div>
+  </div>
+
+  <div class="arch-note" style="margin-top:16px">
+    <h4>LLM Cleanup Auto-Selection</h4>
+    <p>If Ollama is installed and ≥16GB RAM available → <strong>Qwen3:7B locally</strong> (free, private). If 8–16GB → <strong>Qwen3:4B</strong>. If &lt;8GB → skip cleanup OR use <strong>Claude Haiku API</strong> (cloud tier only). No cleanup still gives great output — Whisper punctuation is surprisingly clean on clear audio.</p>
+  </div>
+</div>
+
+<script>
+function showTab(id, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-' + id).classList.add('active');
+}
+</script>
+</body>
+</html>

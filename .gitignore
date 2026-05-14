@@ -1,0 +1,15 @@
+node_modules/
+dist/
+src-tauri/target/
+sidecar/.venv/
+sidecar/dist/
+sidecar/build/
+sidecar/__pycache__/
+sidecar/_stub.py
+*.spec
+.pytest_cache/
+__pycache__/
+*.pyc
+.env
+
+build/
