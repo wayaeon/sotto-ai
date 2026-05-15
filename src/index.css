@@ -1,12 +1,39 @@
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+:root {
+  --bg: #0a0a0c;
+  --bg-window: #0d0d10;
+  --surface: #131318;
+  --surface-2: #18181f;
+  --surface-3: #1f1f27;
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.10);
+  --text: #ebebf0;
+  --text-2: rgba(235,235,240,0.62);
+  --text-3: rgba(235,235,240,0.38);
+  --text-4: rgba(235,235,240,0.22);
+  --c-violet: #a78bfa;
+  --c-blue: #7dd3fc;
+  --c-amber: #fbbf24;
+  --c-mint: #34d399;
+  --c-rose: #fb7185;
+  --grad-spectrum: linear-gradient(90deg, #a78bfa 0%, #7dd3fc 33%, #fbbf24 66%, #34d399 100%);
+  --grad-spectrum-soft: linear-gradient(90deg, rgba(167,139,250,0.55) 0%, rgba(125,211,252,0.55) 33%, rgba(251,191,36,0.55) 66%, rgba(52,211,153,0.55) 100%);
+  --font-display: "Instrument Serif", "Times New Roman", serif;
+  --font-ui: "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --pad-card: 22px;
+  --pad-section: 36px;
+  --gap-card: 18px;
+  --radius-card: 16px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
 }
-
-html, body, #root {
-  width: 100%;
-  height: 100%;
-  background: #0f0f17;
-  overflow: hidden;
-}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+body { background: #0a0a0c; color: var(--text); font-family: var(--font-ui); font-size: 14px; -webkit-font-smoothing: antialiased; }
+button { font-family: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
+input, textarea, select { font-family: inherit; color: inherit; background: none; border: none; outline: none; }
+::selection { background: rgba(167,139,250,0.35); color: #fff; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }

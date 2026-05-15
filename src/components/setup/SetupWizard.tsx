@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import HardwareScan from "./HardwareScan";
 import ModelDownload from "./ModelDownload";
-import TestRecording from "./TestRecording";
-import LicenseStep from "./LicenseStep";
+import PlanSelection from "./PlanSelection";
+import PermissionsStep from "./PermissionsStep";
+import TranscriptionTest from "./TranscriptionTest";
+import ReadyScreen from "./ReadyScreen";
 
-type Step = "hardware" | "download" | "test" | "license";
-const STEPS: Step[] = ["hardware", "download", "test", "license"];
+type Step = "hardware" | "plan" | "download" | "permissions" | "test" | "ready";
+const STEPS: Step[] = ["hardware", "plan", "download", "permissions", "test", "ready"];
 
 interface Props {
   onComplete: () => void;
@@ -24,7 +26,12 @@ export default function SetupWizard({ onComplete }: Props) {
   const stepIndex = STEPS.indexOf(step);
 
   return (
-    <div style={s.root}>
+    <div style={{
+      width: "100%", height: "100%",
+      background: "var(--bg)",
+      display: "flex", flexDirection: "column",
+      position: "relative", overflow: "hidden",
+    }}>
       <style>{`
         @keyframes fadeUp {
           from { opacity: 0; transform: translateY(16px); }
@@ -33,62 +40,42 @@ export default function SetupWizard({ onComplete }: Props) {
       `}</style>
 
       {/* Top progress bar */}
-      <div style={s.progressTrack}>
-        <div style={{ ...s.progressFill, width: `${((stepIndex + 1) / STEPS.length) * 100}%` }} />
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0,
+        height: 2, background: "var(--border)",
+      }}>
+        <div style={{
+          height: "100%",
+          background: "var(--grad-spectrum)",
+          width: `${((stepIndex + 1) / STEPS.length) * 100}%`,
+          transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+          borderRadius: "0 2px 2px 0",
+        }} />
       </div>
 
       {/* Step counter */}
-      <div style={s.stepCounter}>{stepIndex + 1} / {STEPS.length}</div>
+      <div style={{
+        position: "absolute", top: 16, right: 20,
+        color: "var(--text-4)", fontSize: 11, fontWeight: 500,
+        letterSpacing: 1, fontFamily: "var(--font-mono)",
+      }}>
+        {stepIndex + 1} / {STEPS.length}
+      </div>
 
       {/* Content area */}
-      <div key={step} style={s.content}>
-        {step === "hardware" && <HardwareScan onNext={() => setStep("download")} />}
-        {step === "download" && <ModelDownload onNext={() => setStep("test")} />}
-        {step === "test"     && <TestRecording onNext={() => setStep("license")} />}
-        {step === "license"  && <LicenseStep onComplete={finish} />}
+      <div key={step} style={{
+        flex: 1,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "48px 56px 40px",
+        animation: "fadeUp 0.45s cubic-bezier(0.4, 0, 0.2, 1)",
+      }}>
+        {step === "hardware"     && <HardwareScan      onNext={() => setStep("plan")} />}
+        {step === "plan"         && <PlanSelection     onNext={() => setStep("download")} />}
+        {step === "download"     && <ModelDownload     onNext={() => setStep("permissions")} />}
+        {step === "permissions"  && <PermissionsStep   onNext={() => setStep("test")} />}
+        {step === "test"         && <TranscriptionTest onNext={() => setStep("ready")} />}
+        {step === "ready"        && <ReadyScreen       onComplete={finish} />}
       </div>
     </div>
   );
 }
-
-const s: Record<string, React.CSSProperties> = {
-  root: {
-    width: "100%",
-    height: "100%",
-    background: "#0a0a12",
-    display: "flex",
-    flexDirection: "column",
-    fontFamily: "'Inter', system-ui, sans-serif",
-    position: "relative",
-    overflow: "hidden",
-  },
-  progressTrack: {
-    position: "absolute",
-    top: 0, left: 0, right: 0,
-    height: 2,
-    background: "rgba(255,255,255,0.06)",
-  },
-  progressFill: {
-    height: "100%",
-    background: "linear-gradient(90deg, #6366f1, #a78bfa)",
-    transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
-    borderRadius: "0 2px 2px 0",
-  },
-  stepCounter: {
-    position: "absolute",
-    top: 16,
-    right: 20,
-    color: "rgba(255,255,255,0.2)",
-    fontSize: 11,
-    fontWeight: 500,
-    letterSpacing: 1,
-  },
-  content: {
-    flex: 1,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "48px 56px 40px",
-    animation: "fadeUp 0.45s cubic-bezier(0.4, 0, 0.2, 1)",
-  },
-};
