@@ -17,6 +17,7 @@ class Recorder:
         self._recorder = None
         self._handsfree = False
         self._lock = threading.Lock()
+        self._initial_prompt = ""
 
     def _get_model_path(self) -> str:
         d = model_dir(self._model_name)
@@ -41,6 +42,7 @@ class Recorder:
             post_speech_silence_duration=0.5,
             min_gap_between_recordings=0,
             enable_realtime_transcription=True,
+            initial_prompt=self._initial_prompt or None,
         )
         recorder.on_transcription_start = lambda: self._ipc.send(
             Event.STATUS, msg="recording"
@@ -75,8 +77,40 @@ class Recorder:
                 self._ipc.send(Event.STATUS, msg="handsfree_off")
 
     def _handsfree_loop(self) -> None:
+        # .text() blocks until a full sentence is detected, then returns.
+        # on_full_sentence (registered in _make_recorder) handles SEGMENT_DONE;
+        # passing a second callback here would double-send.
         while self._handsfree and self._recorder is not None:
-            self._recorder.text(lambda text: self._ipc.send(Event.SEGMENT_DONE, text=text))
+            self._recorder.text()
+
+    def set_model(self, model_name: str) -> None:
+        """Hot-swap the Whisper model. Shuts down the current recorder and re-creates it."""
+        with self._lock:
+            self._model_name = model_name
+            if self._recorder is not None:
+                was_handsfree = self._handsfree
+                self._handsfree = False
+                self._recorder.shutdown()
+                self._recorder = None
+                self._recorder = self._make_recorder()
+                if was_handsfree:
+                    self._handsfree = True
+                    threading.Thread(target=self._handsfree_loop, daemon=True).start()
+
+    def set_dictionary(self, words: list[str]) -> None:
+        """Update the Whisper initial_prompt with user dictionary words."""
+        self._initial_prompt = ", ".join(words) if words else ""
+        # If recorder is running, recreate it so the new prompt takes effect.
+        with self._lock:
+            if self._recorder is not None:
+                was_handsfree = self._handsfree
+                self._handsfree = False
+                self._recorder.shutdown()
+                self._recorder = None
+                self._recorder = self._make_recorder()
+                if was_handsfree:
+                    self._handsfree = True
+                    threading.Thread(target=self._handsfree_loop, daemon=True).start()
 
     def shutdown(self) -> None:
         with self._lock:

@@ -5,6 +5,7 @@ import sys
 from sidecar.ipc import IPC, Command, Event
 from sidecar.hardware import detect as detect_hardware
 from sidecar.recorder import Recorder
+from sidecar.models import download_model_async
 
 
 def main() -> None:
@@ -19,7 +20,7 @@ def main() -> None:
         if not line:
             continue
 
-        cmd = ipc.parse(line)
+        cmd, payload = ipc.parse_full(line)
         if cmd is None:
             ipc.send(Event.ERROR, msg=f"Unknown command: {line!r}")
             continue
@@ -32,6 +33,24 @@ def main() -> None:
             ipc.send(Event.HARDWARE, **hw.to_dict())
             if recorder is None:
                 recorder = Recorder(ipc=ipc, tier=hw.tier)
+
+        elif cmd == Command.DOWNLOAD_MODEL:
+            if hw is not None:
+                download_model_async(hw.model_name, ipc)
+            else:
+                ipc.send(Event.ERROR, msg="detect_hardware must be called before download_model")
+
+        elif cmd == Command.SET_MODEL:
+            model_name = payload.get("model", "")
+            if model_name and recorder is not None:
+                recorder.set_model(model_name)
+            elif not model_name:
+                ipc.send(Event.ERROR, msg="set_model requires a 'model' field")
+
+        elif cmd == Command.SET_DICTIONARY:
+            words = payload.get("words", [])
+            if recorder is not None:
+                recorder.set_dictionary(words)
 
         elif cmd == Command.START_PTT:
             if recorder is not None:

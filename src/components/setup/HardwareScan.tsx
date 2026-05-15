@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
+import { detectHardware } from "../../lib/tauri";
 
 interface Spec { key: string; label: string; value: string; detail: string }
 
@@ -75,9 +76,15 @@ export default function HardwareScan({ onNext }: Props) {
     );
     timers.push(setTimeout(() => {
       setDone(true);
-      if (ramGb >= 16) { setTier("tier1");    setModel("whisper-large-v3-turbo"); }
-      else if (ramGb >= 8) { setTier("tier3_en"); setModel("moonshine-base"); }
-      else             { setTier("tier4");    setModel("ElevenLabs Scribe v2"); }
+      let t: string, m: string;
+      if (ramGb >= 16)      { t = "tier1";    m = "whisper-large-v3-turbo"; }
+      else if (ramGb >= 8)  { t = "tier3_en"; m = "moonshine-base"; }
+      else                  { t = "tier4";    m = "ElevenLabs Scribe v2"; }
+      setTier(t as any); setModel(m);
+      localStorage.setItem("sotto_tier", t);
+      localStorage.setItem("sotto_model", m);
+      // Tell the sidecar to detect hardware so it initializes the recorder
+      detectHardware().catch(() => {});
     }, 300 + specs.length * 550 + 100));
     return () => timers.forEach(clearTimeout);
   }, []);

@@ -1,26 +1,11 @@
 import { useEffect, useState } from "react";
-
-interface Transcription {
-  id: number;
-  text: string;
-  created_at: string;
-  duration_ms: number;
-}
+import { getTranscriptions, type Transcription } from "../../lib/db";
 
 export default function HistoryTab() {
   const [items, setItems] = useState<Transcription[]>([]);
 
   useEffect(() => {
-    // Placeholder — SQLite queries via tauri-plugin-sql will be wired in Task 13
-    // For now show last session from localStorage
-    const stored = localStorage.getItem("wispr_recent_transcriptions");
-    if (stored) {
-      try {
-        setItems(JSON.parse(stored));
-      } catch {
-        // ignore
-      }
-    }
+    setItems(getTranscriptions(50));
   }, []);
 
   if (items.length === 0) {
@@ -28,10 +13,10 @@ export default function HistoryTab() {
       <div>
         <h2 style={s.heading}>Transcription History</h2>
         <div style={s.empty}>
-          <div style={s.emptyIcon}>📋</div>
+          <div style={s.emptyIcon}>🎙</div>
           <p style={s.emptyText}>No transcriptions yet.</p>
           <p style={s.emptyHint}>
-            Use Ctrl+Win to dictate — your transcriptions will appear here.
+            Press Ctrl+Shift+F9 to start dictating — your transcriptions will appear here.
           </p>
         </div>
       </div>
@@ -46,8 +31,13 @@ export default function HistoryTab() {
           <div key={item.id} style={s.item}>
             <div style={s.text}>{item.text}</div>
             <div style={s.meta}>
-              {new Date(item.created_at).toLocaleString()} ·{" "}
-              {(item.duration_ms / 1000).toFixed(1)}s
+              {new Date(item.created_at).toLocaleString()}
+              {item.duration_ms > 0 && (
+                <> · {(item.duration_ms / 1000).toFixed(1)}s</>
+              )}
+              {item.model && (
+                <> · <span style={s.modelBadge}>{item.model}</span></>
+              )}
             </div>
           </div>
         ))}
@@ -64,9 +54,10 @@ const s: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(255,255,255,0.06)",
   },
   text: { color: "#e0e0e0", fontSize: 14, marginBottom: 6, lineHeight: 1.5 },
-  meta: { color: "#555", fontSize: 12 },
+  meta: { color: "rgba(255,255,255,0.25)", fontSize: 12 },
+  modelBadge: { color: "rgba(167,139,250,0.6)", fontFamily: "monospace", fontSize: 11 },
   empty: { textAlign: "center", padding: "60px 0" },
-  emptyIcon: { fontSize: 40, marginBottom: 16 },
-  emptyText: { color: "#666", fontSize: 16, margin: "0 0 8px" },
-  emptyHint: { color: "#444", fontSize: 13 },
+  emptyIcon: { fontSize: 36, marginBottom: 16 },
+  emptyText: { color: "rgba(255,255,255,0.3)", fontSize: 15, margin: "0 0 8px" },
+  emptyHint: { color: "rgba(255,255,255,0.15)", fontSize: 13 },
 };

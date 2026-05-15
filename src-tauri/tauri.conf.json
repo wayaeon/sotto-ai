@@ -15,14 +15,34 @@
       {
         "label": "main",
         "title": "Sotto",
-        "width": 600,
-        "height": 520,
+        "width": 760,
+        "height": 540,
+        "minWidth": 640,
+        "minHeight": 480,
+        "maxWidth": 900,
+        "maxHeight": 600,
         "resizable": true,
         "decorations": true,
         "transparent": false,
         "alwaysOnTop": false,
         "skipTaskbar": false,
         "center": true
+      },
+      {
+        "label": "pill",
+        "title": "",
+        "url": "http://localhost:1420/#pill",
+        "width": 380,
+        "height": 420,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "center": false,
+        "x": 0,
+        "y": 0,
+        "shadow": false
       }
     ],
     "trayIcon": {

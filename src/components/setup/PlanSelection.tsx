@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useAppStore } from "../../stores/appStore";
 
@@ -166,4 +166,4 @@ const sub: React.CSSProperties = {
   color: "var(--text-3)", fontSize: 13, margin: "0 0 24px", lineHeight: 1.6,
 };
 
-import React from "react";
+

@@ -43,6 +43,12 @@ pub fn spawn_sidecar(app: &AppHandle) {
                         }
                         CommandEvent::Terminated(status) => {
                             eprintln!("[sidecar] terminated: {status:?}");
+                            app_handle
+                                .emit("sidecar-event", r#"{"event":"error","msg":"sidecar_crashed"}"#)
+                                .ok();
+                            // Wait 1.5 s then respawn so we don't tight-loop on a broken binary.
+                            tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+                            spawn_sidecar(&app_handle);
                             break;
                         }
                         _ => {}

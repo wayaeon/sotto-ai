@@ -29,6 +29,21 @@ pub fn detect_hardware(app: AppHandle) {
 }
 
 #[tauri::command]
+pub fn download_model(app: AppHandle) {
+    send_command(&app, json!({"cmd": "download_model"}));
+}
+
+#[tauri::command]
+pub fn set_model(app: AppHandle, model: String) {
+    send_command(&app, json!({"cmd": "set_model", "model": model}));
+}
+
+#[tauri::command]
+pub fn set_dictionary(app: AppHandle, words: Vec<String>) {
+    send_command(&app, json!({"cmd": "set_dictionary", "words": words}));
+}
+
+#[tauri::command]
 pub fn inject_text(text: String) -> Result<(), String> {
     let injector = Injector::new().map_err(|e| e.to_string())?;
     injector.inject(&text).map_err(|e| e.to_string())

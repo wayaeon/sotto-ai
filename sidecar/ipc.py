@@ -10,7 +10,9 @@ class Command(str, Enum):
     STOP_PTT = "stop_ptt"
     TOGGLE_HANDSFREE = "toggle_handsfree"
     DETECT_HARDWARE = "detect_hardware"
+    DOWNLOAD_MODEL = "download_model"
     SET_MODEL = "set_model"
+    SET_DICTIONARY = "set_dictionary"
     PING = "ping"
     QUIT = "quit"
 
@@ -38,3 +40,11 @@ class IPC:
             return Command(cmd_str)
         except (json.JSONDecodeError, ValueError):
             return None
+
+    def parse_full(self, line: str) -> tuple[Command | None, dict]:
+        try:
+            obj = json.loads(line.strip())
+            cmd_str = obj.get("cmd", "")
+            return Command(cmd_str), obj
+        except (json.JSONDecodeError, ValueError):
+            return None, {}

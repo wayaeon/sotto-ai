@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 
 interface Props {
   onNext: () => void;
@@ -206,4 +206,3 @@ function TrayIcon() {
   );
 }
 
-import React from "react";

@@ -1,3 +1,4 @@
+import React from "react";
 import { useState, useRef, useEffect } from "react";
 import { startPtt, stopPtt } from "../../lib/tauri";
 import { useAppStore } from "../../stores/appStore";
@@ -33,7 +34,7 @@ export default function TranscriptionTest({ onNext }: Props) {
   const canContinue = success;
 
   return (
-    <div style={{ width: "100%", maxWidth: 480 }}>
+    <div style={{ width: "100%", maxWidth: 480, paddingTop: 8 }}>
       <style>{`
         @keyframes pulse-ring {
           0%   { transform: scale(1);   opacity: 0.8; }
@@ -41,7 +42,6 @@ export default function TranscriptionTest({ onNext }: Props) {
         }
       `}</style>
 
-      <div style={eyebrow}>Step 5 of 6</div>
       <h2 style={heading}>Try it out</h2>
       <p style={sub}>Focus the text area below, hold the button and speak a few words.</p>
 
@@ -162,11 +162,6 @@ export default function TranscriptionTest({ onNext }: Props) {
   );
 }
 
-const eyebrow: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600, textTransform: "uppercase",
-  letterSpacing: "0.14em", color: "var(--text-3)",
-  fontFamily: "var(--font-mono)", marginBottom: 10,
-};
 const heading: React.CSSProperties = {
   fontFamily: "var(--font-display)",
   fontSize: 32, fontWeight: 400,
@@ -186,4 +181,3 @@ function MicIcon() {
   );
 }
 
-import React from "react";
