@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { useAppStore } from "../stores/appStore";
 import { useSidecar } from "../hooks/useSidecar";
 
@@ -17,12 +18,32 @@ const LANGUAGES = [
 // Right side = wand(32) + gap(5) + notes(32) = 69px.
 // Left side must match so wavepill lands at exact center.
 const SIDE_W = 69;
+const PILL_WINDOW_W = 380;
+const PILL_WINDOW_COLLAPSED_H = 56;
+const PILL_WINDOW_BAR_H = 124;
+const PILL_WINDOW_ACTIVE_H = 136;
+const PILL_WINDOW_PANEL_H = 380;
 
 type Hovered = null | "lang" | "dictate" | "enhance" | "history";
 
+async function resizePillWindow(height: number) {
+  const win = getCurrentWindow();
+  const monitor = await currentMonitor();
+  const scale = monitor?.scaleFactor ?? await win.scaleFactor();
+  const widthPx = Math.round(PILL_WINDOW_W * scale);
+  const heightPx = Math.round(height * scale);
+
+  await win.setSize(new PhysicalSize(widthPx, heightPx));
+
+  if (!monitor) return;
+  const x = monitor.workArea.position.x + Math.round((monitor.workArea.size.width - widthPx) / 2);
+  const y = monitor.workArea.position.y + monitor.workArea.size.height - heightPx;
+  await win.setPosition(new PhysicalPosition(x, y));
+}
+
 export default function Pill() {
   useSidecar();
-  const { recordingState, sidecarReady, setRecordingState } = useAppStore();
+  const { recordingState, sidecarReady, modelReady, setRecordingState, downloadProgress, downloadModel } = useAppStore();
   const pttActive  = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [bottomPad,     setBottomPad]     = useState(52); // updated on mount from real taskbar height
@@ -37,43 +58,39 @@ export default function Pill() {
     document.body.style.background            = "transparent";
     const root = document.getElementById("root");
     if (root) root.style.background = "transparent";
-    // Compute real taskbar height from screen vs available area, add 4px margin
-    const taskbarH = window.screen.height - window.screen.availHeight;
-    setBottomPad(Math.max(8, taskbarH + 10));
+    setBottomPad(10);
   }, []);
-
-  // Keyboard shortcuts: Ctrl+Win = PTT (hold), Ctrl+Win+Space = hands-free toggle.
-  // These fire when the pill window has focus; the global Rust hotkeys cover other apps.
-  useEffect(() => {
-    const onDown = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || !e.metaKey) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (!e.repeat) invoke("toggle_handsfree").catch(() => {});
-        return;
-      }
-      // Ctrl+Win pressed (MetaLeft/MetaRight is the Win key itself)
-      if ((e.code === "MetaLeft" || e.code === "MetaRight") && !e.repeat) {
-        e.preventDefault();
-        startPtt();
-      }
-    };
-    const onUp = (e: KeyboardEvent) => {
-      if (e.code === "MetaLeft" || e.code === "MetaRight" || e.code === "ControlLeft" || e.code === "ControlRight") {
-        stopPtt();
-      }
-    };
-    window.addEventListener("keydown", onDown);
-    window.addEventListener("keyup",   onUp);
-    return () => {
-      window.removeEventListener("keydown", onDown);
-      window.removeEventListener("keyup",   onUp);
-    };
-  }, [sidecarReady]); // re-bind when sidecarReady changes so startPtt/stopPtt see current state
 
   const isRecording  = recordingState === "recording";
   const isProcessing = recordingState === "processing";
-  const visible      = expanded || isRecording || isProcessing;
+  const isLoading    = recordingState === "loading";
+  const visible      = expanded || isRecording || isProcessing || isLoading;
+
+  useEffect(() => {
+    const height =
+      showLangPanel ? PILL_WINDOW_PANEL_H
+      : isRecording || isProcessing || isLoading ? PILL_WINDOW_ACTIVE_H
+      : visible ? PILL_WINDOW_BAR_H
+      : PILL_WINDOW_COLLAPSED_H;
+
+    resizePillWindow(height).catch(() => {});
+  }, [visible, isRecording, isProcessing, isLoading, showLangPanel]);
+
+  // Recording timer
+  const [recSecs, setRecSecs] = useState(0);
+  const recStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (isRecording) {
+      recStartRef.current = Date.now();
+      setRecSecs(0);
+      const id = setInterval(() => {
+        setRecSecs(Math.floor((Date.now() - recStartRef.current!) / 1000));
+      }, 500);
+      return () => clearInterval(id);
+    } else {
+      recStartRef.current = null;
+    }
+  }, [isRecording]);
   const allActive    = langIdx === -1;
 
   const scheduleHide = () => {
@@ -87,9 +104,10 @@ export default function Pill() {
 
   const startPtt = async () => {
     if (pttActive.current) return;
+    if (!sidecarReady || !modelReady) return; // model still loading — ignore
     pttActive.current = true;
     setRecordingState("recording");
-    if (sidecarReady) await invoke("start_ptt").catch(() => {});
+    await invoke("start_ptt").catch(() => {});
   };
   const stopPtt = async () => {
     if (!pttActive.current) return;
@@ -160,16 +178,26 @@ export default function Pill() {
           from { opacity: 0; transform: translateX(-50%) translateY(5px) scale(0.97); }
           to   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1); }
         }
-        /* Drawer wipes out from right-to-left (slides from under globe) */
         @keyframes drawerWipe {
           from { clip-path: inset(0 0 0 100%); }
           to   { clip-path: inset(0 0 0 0%); }
         }
-        /* Language label pops in */
         @keyframes langPop {
           0%   { opacity: 0; transform: scale(0.65); }
           60%  { transform: scale(1.08); }
           100% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes dictatingIn {
+          from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.94); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0)   scale(1); }
+        }
+        @keyframes pulseGlow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,0); }
+          50%       { box-shadow: 0 0 0 6px rgba(167,139,250,0.18); }
+        }
+        @keyframes micPulse {
+          0%, 100% { opacity: 0.6; transform: scale(1); }
+          50%       { opacity: 1;   transform: scale(1.15); }
         }
 
         .pbtn { outline: none; border: none; }
@@ -192,23 +220,62 @@ export default function Pill() {
       {visible && (
         <div style={s.barRow} onMouseEnter={cancelHide} onMouseLeave={scheduleHide}>
 
-          {isRecording || isProcessing ? (
-            // Recording: X — wave — ✓  (symmetric → wavepill stays centered)
-            <>
-              <div style={{ width: SIDE_W, display: "flex", justifyContent: "flex-end" }}>
-                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.4)" }} onClick={cancelRecording}>
-                  <XIcon />
-                </button>
+          {isLoading ? (
+            <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={s.dictatingBubble}>
+                <span style={{ ...s.dictatingDot, background: "rgba(251,191,36,0.9)", animation: "dotPulse 1s ease-in-out infinite" }} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  <span style={s.dictatingText}>
+                    {downloadProgress !== null
+                      ? `Downloading ${downloadModel ?? "model"} — ${Math.round(downloadProgress)}%`
+                      : "Loading Whisper model…"}
+                  </span>
+                  {downloadProgress !== null && (
+                    <div style={s.progressTrack}>
+                      <div style={{ ...s.progressFill, width: `${downloadProgress}%` }} />
+                    </div>
+                  )}
+                </div>
               </div>
-              <div style={s.wavePill}>
+              <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
+                <XIcon />
+              </button>
+              <div style={{ ...s.wavePill, border: "1px solid rgba(251,191,36,0.4)", minWidth: 100 }}>
+                <WaveVisual state="processing" />
+              </div>
+            </div>
+          ) : isRecording || isProcessing ? (
+            // Recording state: cancel + active pill + confirm (no text bubble)
+            <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
+
+              {/* Cancel button */}
+              <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
+                <XIcon />
+              </button>
+
+              {/* Active wave pill — timer + waveform when recording, dots when processing */}
+              <div style={{
+                ...s.wavePill,
+                border: isRecording
+                  ? "1px solid rgba(167,139,250,0.6)"
+                  : "1px solid rgba(251,191,36,0.4)",
+                animation: isRecording ? "pulseGlow 1.8s ease-in-out infinite" : "none",
+                minWidth: 100,
+                gap: 8,
+              }}>
+                {isRecording && (
+                  <span style={s.recTimer}>
+                    {`${Math.floor(recSecs / 60)}:${String(recSecs % 60).padStart(2, "0")}`}
+                  </span>
+                )}
                 <WaveVisual state={recordingState} />
               </div>
-              <div style={{ width: SIDE_W, display: "flex", justifyContent: "flex-start" }}>
-                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(34,197,94,0.4)" }} onClick={stopPtt}>
-                  <CheckIcon />
-                </button>
-              </div>
-            </>
+
+              {/* Done / confirm button */}
+              <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(34,197,94,0.35)" }} onClick={stopPtt}>
+                <CheckIcon />
+              </button>
+            </div>
           ) : (
             <>
               {/* LEFT side (SIDE_W wide) — globe button right-aligned, drawer slides out left */}
@@ -605,5 +672,57 @@ const s: Record<string, React.CSSProperties> = {
     background: "transparent",
     color: "rgba(255,255,255,0.38)", fontSize: 12, fontWeight: 500,
     width: "100%", textAlign: "left" as const,
+  },
+  dictatingBubble: {
+    position: "absolute" as const,
+    bottom: "calc(100% + 10px)",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "rgba(10,10,20,0.96)",
+    backdropFilter: "blur(20px)",
+    WebkitBackdropFilter: "blur(20px)",
+    border: "1px solid rgba(167,139,250,0.25)",
+    borderRadius: 12,
+    padding: "6px 14px",
+    display: "flex", alignItems: "center", gap: 7,
+    whiteSpace: "nowrap" as const,
+    boxShadow: "0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(167,139,250,0.08)",
+    zIndex: 30,
+    animation: "dictatingIn 0.18s cubic-bezier(.22,1,.36,1) forwards",
+    pointerEvents: "none" as const,
+  },
+  dictatingDot: {
+    display: "inline-block",
+    width: 7, height: 7, borderRadius: "50%",
+    background: "rgba(167,139,250,0.9)",
+    flexShrink: 0,
+    animation: "micPulse 1.2s ease-in-out infinite",
+  } as React.CSSProperties,
+  dictatingText: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 12,
+    fontWeight: 600,
+    letterSpacing: 0.1,
+  },
+  recTimer: {
+    color: "rgba(167,139,250,0.9)",
+    fontSize: 12,
+    fontWeight: 600,
+    fontVariantNumeric: "tabular-nums",
+    letterSpacing: 0.5,
+    flexShrink: 0,
+  },
+  progressTrack: {
+    width: 180,
+    height: 3,
+    borderRadius: 99,
+    background: "rgba(255,255,255,0.1)",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 99,
+    background: "linear-gradient(90deg, rgba(167,139,250,0.9), rgba(251,191,36,0.9))",
+    transition: "width 0.4s ease",
   },
 };

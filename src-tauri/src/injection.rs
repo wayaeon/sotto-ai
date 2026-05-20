@@ -1,39 +1,41 @@
-use enigo::{Enigo, Keyboard, Settings};
+use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 
-pub struct Injector {
-    enigo: Enigo,
-}
+pub struct Injector;
 
 impl Injector {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let enigo = Enigo::new(&Settings::default())?;
-        Ok(Self { enigo })
+        Ok(Self)
     }
 
+    /// Copy text to clipboard then send Ctrl+V — instant, no character-by-character jank.
     pub fn inject(&self, text: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Write to clipboard first for apps that need it
         self.set_clipboard(text)?;
-        // Then type via keyboard simulation for direct injection
-        self.type_text(text)?;
+        // Give the clipboard a moment to settle before pasting
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        self.paste()?;
         Ok(())
     }
 
     fn set_clipboard(&self, text: &str) -> Result<(), Box<dyn std::error::Error>> {
-        use std::process::Command;
-        // Use PowerShell to set clipboard on Windows
         #[cfg(target_os = "windows")]
         {
-            let mut child = Command::new("powershell")
-                .args(["-Command", &format!("Set-Clipboard -Value '{}'", text.replace('\'', "''"))])
-                .spawn()?;
-            child.wait()?;
+            // Write to a temp file then read into clipboard — avoids shell-escaping issues
+            // with apostrophes and special characters in the transcribed text.
+            let escaped = text.replace('\'', "''");
+            let script = format!("Set-Clipboard -Value '{}'", escaped);
+            std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .spawn()?
+                .wait()?;
         }
         Ok(())
     }
 
-    fn type_text(&self, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn paste(&self) -> Result<(), Box<dyn std::error::Error>> {
         let mut enigo = Enigo::new(&Settings::default())?;
-        enigo.text(text)?;
+        enigo.key(Key::Control, Direction::Press)?;
+        enigo.key(Key::Unicode('v'), Direction::Click)?;
+        enigo.key(Key::Control, Direction::Release)?;
         Ok(())
     }
 }

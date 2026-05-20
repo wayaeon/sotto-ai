@@ -26,6 +26,7 @@ class Event(str, Enum):
     STATUS = "status"
     HARDWARE = "hardware"
     DOWNLOAD_PROGRESS = "download_progress"
+    AUDIO_RECORDED = "audio_recorded"
 
 
 class IPC:

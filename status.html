@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sotto — Build Status</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0f1e;
+    color: #e2e8f0;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    min-height: 100vh;
+    padding: 32px;
+  }
+  h1 {
+    font-family: system-ui, sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+    color: #f8fafc;
+  }
+  .subtitle { font-size: 12px; color: #64748b; margin-bottom: 32px; }
+
+  /* ── Phases ── */
+  .phases { display: flex; flex-direction: column; gap: 12px; margin-bottom: 36px; }
+  .phase {
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.07);
+    padding: 16px 20px;
+    position: relative;
+    overflow: hidden;
+    background: rgba(255,255,255,0.03);
+    transition: border-color 0.3s;
+  }
+  .phase.done   { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.05); }
+  .phase.active { border-color: rgba(139,92,246,0.5); background: rgba(139,92,246,0.06); }
+  .phase.blocked{ border-color: rgba(239,68,68,0.3);  background: rgba(239,68,68,0.04); }
+  .phase.pending{ border-color: rgba(255,255,255,0.06); }
+
+  .phase-header { display: flex; align-items: center; gap: 10px; }
+  .phase-num {
+    font-size: 11px;
+    font-weight: 700;
+    color: #475569;
+    min-width: 22px;
+  }
+  .phase-title {
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    flex: 1;
+  }
+  .badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 3px 8px;
+    border-radius: 99px;
+    text-transform: uppercase;
+  }
+  .badge.done    { background: rgba(34,197,94,0.15);  color: #4ade80; }
+  .badge.active  { background: rgba(139,92,246,0.2);  color: #a78bfa; }
+  .badge.blocked { background: rgba(239,68,68,0.15);  color: #f87171; }
+  .badge.pending { background: rgba(255,255,255,0.07);color: #475569;  }
+
+  .phase-tasks { margin-top: 10px; padding-left: 32px; display: flex; flex-direction: column; gap: 5px; }
+  .task { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: #94a3b8; line-height: 1.5; }
+  .task.done    { color: #86efac; }
+  .task.active  { color: #c4b5fd; }
+  .task.blocked { color: #fca5a5; }
+  .task-dot { margin-top: 5px; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .task.done   .task-dot { background: #4ade80; }
+  .task.active .task-dot { background: #a78bfa; animation: pulse 1.4s ease-in-out infinite; }
+  .task.blocked .task-dot { background: #f87171; }
+  .task.pending .task-dot { background: #334155; }
+
+  /* sweep shimmer on active phase */
+  .phase.active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.06) 50%, transparent 100%);
+    animation: sweep 2.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  /* ── Background tasks ── */
+  .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #334155;
+    margin-bottom: 10px;
+  }
+  .tasks-list { display: flex; flex-direction: column; gap: 8px; }
+  .bg-task {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.02);
+  }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(139,92,246,0.2);
+    border-top-color: #a78bfa;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  .check { width: 14px; height: 14px; color: #4ade80; font-size: 14px; flex-shrink: 0; }
+  .bg-task-label { font-size: 12px; color: #94a3b8; flex: 1; }
+  .bg-task-label strong { color: #e2e8f0; }
+  .bg-task-time { font-size: 11px; color: #334155; }
+
+  /* ── Log ── */
+  .log-box {
+    margin-top: 28px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.06);
+    padding: 14px 16px;
+    background: rgba(0,0,0,0.25);
+    font-size: 11px;
+    color: #475569;
+    max-height: 180px;
+    overflow-y: auto;
+    line-height: 1.8;
+  }
+  .log-entry { display: flex; gap: 10px; }
+  .log-time { color: #1e293b; flex-shrink: 0; }
+  .log-msg.green { color: #4ade80; }
+  .log-msg.purple { color: #a78bfa; }
+  .log-msg.red   { color: #f87171; }
+  .log-msg.gray  { color: #475569; }
+
+  /* ── Animations ── */
+  @keyframes spin  { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  @keyframes sweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+</style>
+</head>
+<body>
+
+<h1>🎙 Sotto — Dev Status</h1>
+<p class="subtitle">Last updated manually — refresh after each test</p>
+
+<div class="phases">
+
+  <!-- Phase 1 -->
+  <div class="phase done">
+    <div class="phase-header">
+      <span class="phase-num">01</span>
+      <span class="phase-title">Pill + WAV Recording</span>
+      <span class="badge done">✓ Done</span>
+    </div>
+    <div class="phase-tasks">
+      <div class="task done"><span class="task-dot"></span>Pill UI — timer shows during recording</div>
+      <div class="task done"><span class="task-dot"></span>WAV file saves to <code>~/.sotto/recordings/</code></div>
+      <div class="task done"><span class="task-dot"></span>Silero VAD ONNX models bundled in binary</div>
+      <div class="task done"><span class="task-dot"></span><code>AUDIO_RECORDED</code> event fires immediately after capture</div>
+    </div>
+  </div>
+
+  <!-- Phase 2 -->
+  <div class="phase active">
+    <div class="phase-header">
+      <span class="phase-num">02</span>
+      <span class="phase-title">Whisper Transcription</span>
+      <span class="badge active">● Testing</span>
+    </div>
+    <div class="phase-tasks">
+      <div class="task done"><span class="task-dot"></span>Lambda callback fixed (<code>*args, **kwargs</code>)</div>
+      <div class="task done"><span class="task-dot"></span>Play button wired to <code>audio_recorded</code> event</div>
+      <div class="task active"><span class="task-dot"></span>Verifying transcription completes without crash</div>
+      <div class="task pending"><span class="task-dot"></span><code>segment_done</code> delivers text to UI</div>
+    </div>
+  </div>
+
+  <!-- Phase 3 -->
+  <div class="phase pending">
+    <div class="phase-header">
+      <span class="phase-num">03</span>
+      <span class="phase-title">Local LLM Cleanup (Ollama)</span>
+      <span class="badge pending">Waiting</span>
+    </div>
+    <div class="phase-tasks">
+      <div class="task pending"><span class="task-dot"></span>Enable LLM toggle in pipeline UI</div>
+      <div class="task pending"><span class="task-dot"></span>Verify Ollama endpoint + model selection</div>
+      <div class="task pending"><span class="task-dot"></span>Cleaned text appears in Stage 5</div>
+    </div>
+  </div>
+
+  <!-- Phase 4 -->
+  <div class="phase pending">
+    <div class="phase-header">
+      <span class="phase-num">04</span>
+      <span class="phase-title">Output → Clipboard / Active Window</span>
+      <span class="badge pending">Waiting</span>
+    </div>
+    <div class="phase-tasks">
+      <div class="task pending"><span class="task-dot"></span>Auto-copy final text to clipboard</div>
+      <div class="task pending"><span class="task-dot"></span>Inject into active text field (accessibility API)</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Background tasks -->
+<p class="section-label">Background Tasks</p>
+<div class="tasks-list" id="bg-tasks">
+  <div class="bg-task">
+    <span class="check">✓</span>
+    <span class="bg-task-label"><strong>sidecar rebuild</strong> — Silero + lambda + AUDIO_RECORDED</span>
+    <span class="bg-task-time">complete</span>
+  </div>
+</div>
+
+<!-- Log -->
+<div class="log-box">
+  <div class="log-entry"><span class="log-time">session 1</span><span class="log-msg red">silero_encoder_v5.onnx missing → sidecar crash on every transcription</span></div>
+  <div class="log-entry"><span class="log-time">session 1</span><span class="log-msg green">bundled faster_whisper/assets/*.onnx in PyInstaller spec</span></div>
+  <div class="log-entry"><span class="log-time">session 1</span><span class="log-msg red">on_transcription_start lambda takes 0 args, RealtimeSTT passes 1</span></div>
+  <div class="log-entry"><span class="log-time">session 1</span><span class="log-msg green">fixed to lambda *args, **kwargs</span></div>
+  <div class="log-entry"><span class="log-time">session 1</span><span class="log-msg green">streaming WAV write — no more race condition on stop_ptt</span></div>
+  <div class="log-entry"><span class="log-time">now</span><span class="log-msg purple">new binary deployed — testing Phase 2</span></div>
+</div>
+
+</body>
+</html>

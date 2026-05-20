@@ -56,7 +56,7 @@ export default function ReadyScreen({ onComplete }: Props) {
         color: "var(--text-2)", fontSize: 15, lineHeight: 1.65,
         marginBottom: 32, maxWidth: 380, margin: "0 auto 32px",
       }}>
-        Sotto is running. Focus any text field and hold the hotkey to start dictating.
+        Sotto is running. Focus any text field and hold <strong>Right Ctrl</strong> to dictate.
       </p>
 
       {/* Hotkey display */}
@@ -68,7 +68,7 @@ export default function ReadyScreen({ onComplete }: Props) {
         borderRadius: "var(--radius-md)",
         marginBottom: 32,
       }}>
-        {["Ctrl", "Shift", "F9"].map((k, i) => (
+        {["Right Ctrl"].map((k, i) => (
           <span key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <kbd style={{
               background: "var(--surface-2)",
@@ -81,7 +81,7 @@ export default function ReadyScreen({ onComplete }: Props) {
             }}>
               {k}
             </kbd>
-            {i < 2 && <span style={{ color: "var(--text-4)", fontSize: 12 }}>+</span>}
+            {i < 1 && <span style={{ color: "var(--text-4)", fontSize: 12 }}>+</span>}
           </span>
         ))}
       </div>

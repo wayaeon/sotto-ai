@@ -16,7 +16,7 @@ export default function HistoryTab() {
           <div style={s.emptyIcon}>🎙</div>
           <p style={s.emptyText}>No transcriptions yet.</p>
           <p style={s.emptyHint}>
-            Press Ctrl+Shift+F9 to start dictating — your transcriptions will appear here.
+            Hold Right Ctrl to dictate — your transcriptions will appear here.
           </p>
         </div>
       </div>

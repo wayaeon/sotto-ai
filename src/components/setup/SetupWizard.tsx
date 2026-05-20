@@ -2,13 +2,11 @@ import { useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import HardwareScan from "./HardwareScan";
 import ModelDownload from "./ModelDownload";
-import PlanSelection from "./PlanSelection";
 import PermissionsStep from "./PermissionsStep";
-import TranscriptionTest from "./TranscriptionTest";
 import ReadyScreen from "./ReadyScreen";
 
-type Step = "hardware" | "plan" | "download" | "permissions" | "test" | "ready";
-const STEPS: Step[] = ["hardware", "plan", "download", "permissions", "test", "ready"];
+type Step = "hardware" | "download" | "permissions" | "ready";
+const STEPS: Step[] = ["hardware", "download", "permissions", "ready"];
 
 interface Props {
   onComplete: () => void;
@@ -69,12 +67,10 @@ export default function SetupWizard({ onComplete }: Props) {
         padding: "48px 56px 40px",
         animation: "fadeUp 0.45s cubic-bezier(0.4, 0, 0.2, 1)",
       }}>
-        {step === "hardware"     && <HardwareScan      onNext={() => setStep("plan")} />}
-        {step === "plan"         && <PlanSelection     onNext={() => setStep("download")} />}
-        {step === "download"     && <ModelDownload     onNext={() => setStep("permissions")} />}
-        {step === "permissions"  && <PermissionsStep   onNext={() => setStep("test")} />}
-        {step === "test"         && <TranscriptionTest onNext={() => setStep("ready")} />}
-        {step === "ready"        && <ReadyScreen       onComplete={finish} />}
+        {step === "hardware"    && <HardwareScan    onNext={() => setStep("download")} />}
+        {step === "download"    && <ModelDownload   onNext={() => setStep("permissions")} />}
+        {step === "permissions" && <PermissionsStep onNext={() => setStep("ready")} />}
+        {step === "ready"       && <ReadyScreen     onComplete={finish} />}
       </div>
     </div>
   );

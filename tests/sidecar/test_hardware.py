@@ -11,32 +11,32 @@ def _hw(ram_gb=32, has_cuda=False, vram=0, disk=100) -> HardwareInfo:
     )
 
 
-def test_tier1_high_ram_no_gpu():
+def test_cpu_high_ram_uses_medium_english_model():
     hw = _hw(ram_gb=32)
-    assert hw.tier == ModelTier.TIER1
-    assert hw.model_name == "whisper-large-v3-turbo"
+    assert hw.tier == ModelTier.TIER3_EN
+    assert hw.model_name == "medium.en"
 
 
 def test_tier2_nvidia_gpu():
     hw = _hw(ram_gb=16, has_cuda=True, vram=8)
     assert hw.tier == ModelTier.TIER2
-    assert hw.model_name == "parakeet-tdt-1.1b"
+    assert hw.model_name == "large-v3-turbo"
 
 
 def test_tier3_medium_ram():
     hw = _hw(ram_gb=12)
     assert hw.tier == ModelTier.TIER3_EN
-    assert hw.model_name == "moonshine-base"
+    assert hw.model_name == "medium.en"
 
 
 def test_tier4_low_ram():
     hw = _hw(ram_gb=4)
     assert hw.tier == ModelTier.TIER4_CLOUD
-    assert hw.model_name == "cloud"
+    assert hw.model_name == "small"
 
 
 def test_tier4_low_disk():
-    hw = _hw(ram_gb=32, disk=0.5)
+    hw = _hw(ram_gb=32, disk=0.4)
     assert hw.tier == ModelTier.TIER4_CLOUD
 
 

@@ -1,20 +1,18 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import GeneralTab from "./GeneralTab";
 import ModelsTab from "./ModelsTab";
 import HotkeysTab from "./HotkeysTab";
-import CloudTab from "./CloudTab";
 import HistoryTab from "./HistoryTab";
-import LicenseTab from "./LicenseTab";
+import LLMTab from "./LLMTab";
 
-type Tab = "general" | "models" | "hotkeys" | "cloud" | "history" | "license";
+type Tab = "general" | "models" | "hotkeys" | "llm" | "history";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "general", label: "General" },
-  { id: "models", label: "Models" },
+  { id: "models",  label: "Models" },
   { id: "hotkeys", label: "Hotkeys" },
-  { id: "cloud", label: "Cloud" },
+  { id: "llm",     label: "AI Cleanup" },
   { id: "history", label: "History" },
-  { id: "license", label: "License" },
 ];
 
 export default function Settings() {
@@ -40,11 +38,10 @@ export default function Settings() {
       </div>
       <div style={s.content}>
         {activeTab === "general" && <GeneralTab />}
-        {activeTab === "models" && <ModelsTab />}
+        {activeTab === "models"  && <ModelsTab />}
         {activeTab === "hotkeys" && <HotkeysTab />}
-        {activeTab === "cloud" && <CloudTab />}
+        {activeTab === "llm"     && <LLMTab />}
         {activeTab === "history" && <HistoryTab />}
-        {activeTab === "license" && <LicenseTab />}
       </div>
     </div>
   );

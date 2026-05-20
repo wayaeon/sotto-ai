@@ -1,36 +1,50 @@
-use tauri::AppHandle;
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri::{AppHandle, Emitter};
 use serde_json::json;
 use crate::sidecar::send_command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-pub fn register_hotkeys(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    // Ctrl+Win (hold to record, release to stop).
-    // MetaLeft is the Left Windows key treated as a key, CONTROL as modifier.
-    let ptt_shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::MetaLeft);
+pub fn register_hotkeys(app: &AppHandle) {
+    let app = app.clone();
 
-    // Ctrl+Win+Space = toggle hands-free.
-    // CONTROL | META are modifiers, Space is the key.
-    let handsfree_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::META), Code::Space);
+    std::thread::spawn(move || {
+        let ctrl_down  = Arc::new(AtomicBool::new(false));
+        let ptt_active = Arc::new(AtomicBool::new(false));
 
-    let app_ptt = app.clone();
-    let app_hf  = app.clone();
+        let ctrl1 = ctrl_down.clone();
+        let ptt1  = ptt_active.clone();
+        let app1  = app.clone();
 
-    if let Err(e) = app.global_shortcut().on_shortcut(ptt_shortcut, move |_app, _shortcut, event| {
-        match event.state() {
-            ShortcutState::Pressed  => send_command(&app_ptt, json!({"cmd": "start_ptt"})),
-            ShortcutState::Released => send_command(&app_ptt, json!({"cmd": "stop_ptt"})),
-        }
-    }) {
-        eprintln!("[hotkeys] PTT shortcut (Ctrl+Win) failed: {e}");
-    }
+        rdev::listen(move |event| {
+            use rdev::EventType::*;
+            use rdev::Key::*;
 
-    if let Err(e) = app.global_shortcut().on_shortcut(handsfree_shortcut, move |_app, _shortcut, event| {
-        if event.state() == ShortcutState::Pressed {
-            send_command(&app_hf, json!({"cmd": "toggle_handsfree"}));
-        }
-    }) {
-        eprintln!("[hotkeys] Hands-free shortcut (Ctrl+Win+Space) failed: {e}");
-    }
-
-    Ok(())
+            match event.event_type {
+                KeyPress(ControlLeft) | KeyPress(ControlRight) => {
+                    ctrl1.store(true, Ordering::SeqCst);
+                }
+                KeyRelease(ControlLeft) | KeyRelease(ControlRight) => {
+                    ctrl1.store(false, Ordering::SeqCst);
+                    if ptt1.swap(false, Ordering::SeqCst) {
+                        app1.emit("sidecar-event", r#"{"event":"status","msg":"processing"}"#).ok();
+                        send_command(&app1, json!({"cmd": "stop_ptt"}));
+                    }
+                }
+                KeyPress(MetaLeft) | KeyPress(MetaRight) => {
+                    if ctrl1.load(Ordering::SeqCst) && !ptt1.load(Ordering::SeqCst) {
+                        ptt1.store(true, Ordering::SeqCst);
+                        app1.emit("sidecar-event", r#"{"event":"status","msg":"recording_ptt"}"#).ok();
+                        send_command(&app1, json!({"cmd": "start_ptt"}));
+                    }
+                }
+                KeyRelease(MetaLeft) | KeyRelease(MetaRight) => {
+                    if ptt1.swap(false, Ordering::SeqCst) {
+                        app1.emit("sidecar-event", r#"{"event":"status","msg":"processing"}"#).ok();
+                        send_command(&app1, json!({"cmd": "stop_ptt"}));
+                    }
+                }
+                _ => {}
+            }
+        }).ok();
+    });
 }

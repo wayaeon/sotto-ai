@@ -7,6 +7,7 @@ foreach ($line in $envOutput) {
     }
 }
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+$env:CARGO_TARGET_DIR = "C:\tmp\sotto-tauri-dev-target"
 
 # Kill anything on port 1420
 $conn = Get-NetTCPConnection -LocalPort 1420 -ErrorAction SilentlyContinue
@@ -16,4 +17,4 @@ if ($conn) {
     Start-Sleep -Seconds 1
 }
 
-pnpm tauri dev
+& "$env:USERPROFILE\.cargo\bin\cargo.exe" tauri dev

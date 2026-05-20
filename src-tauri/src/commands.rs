@@ -29,8 +29,12 @@ pub fn detect_hardware(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn download_model(app: AppHandle) {
-    send_command(&app, json!({"cmd": "download_model"}));
+pub fn download_model(app: AppHandle, token: Option<String>) {
+    let mut cmd = json!({"cmd": "download_model"});
+    if let Some(t) = token {
+        cmd["token"] = serde_json::Value::String(t);
+    }
+    send_command(&app, cmd);
 }
 
 #[tauri::command]

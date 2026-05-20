@@ -2,14 +2,13 @@
   "$schema": "https://schema.tauri.app/config/2/capability",
   "identifier": "default",
   "description": "Default capability for the overlay window",
-  "windows": ["main"],
+  "windows": ["main", "pill"],
   "permissions": [
     "core:default",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
     "shell:allow-execute",
     "shell:allow-open",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "global-shortcut:allow-is-registered",
     "sql:default"
   ]
 }

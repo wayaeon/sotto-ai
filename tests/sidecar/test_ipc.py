@@ -21,6 +21,15 @@ def test_send_event_with_data(capsys):
     assert msg["partial"] is True
 
 
+def test_send_audio_recorded_event(capsys):
+    ipc = IPC()
+    ipc.send(Event.AUDIO_RECORDED, audio_path="C:\\tmp\\sample.wav")
+    captured = capsys.readouterr()
+    msg = json.loads(captured.out.strip())
+    assert msg["event"] == "audio_recorded"
+    assert msg["audio_path"] == "C:\\tmp\\sample.wav"
+
+
 def test_parse_command_start_ptt():
     ipc = IPC()
     cmd = ipc.parse('{"cmd": "start_ptt"}')

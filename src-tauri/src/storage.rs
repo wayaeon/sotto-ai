@@ -2,6 +2,7 @@
 /// Schema is initialized from the frontend via the plugin's JS API.
 /// SQL commands are defined here as constants for documentation.
 
+#[allow(dead_code)]
 pub const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS transcriptions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

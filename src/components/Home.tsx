@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
 import { getTranscriptions, type Transcription } from "../lib/db";
-import { supabase } from "../lib/supabase";
+import PipelineDebug from "./PipelineDebug";
 
 // ─── Types ────────────────────────────────────────────────
 
-type View = "home" | "history" | "insights" | "commands" | "settings" | "account";
+type View = "home" | "history" | "insights" | "commands" | "settings" | "account" | "debug";
 
 interface Metrics {
   totalWords: number;
@@ -2503,6 +2503,7 @@ function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, ti
     { key: "commands", label: "Commands", icon: <Icons.Bolt size={16} /> },
     { key: "settings", label: "Settings", icon: <Icons.Settings size={16} /> },
     { key: "account",  label: "Account",  icon: <Icons.User size={16} /> },
+    { key: "debug",    label: "🔬 Debug", icon: <span style={{ fontSize: 14 }}>🔬</span> },
   ];
 
   return (
@@ -2559,15 +2560,10 @@ export default function Home() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
 
-  // Load user info
+  // Local mode — no auth
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      const user = data.session?.user;
-      if (user) {
-        setUserEmail(user.email ?? "");
-        setUserName(user.user_metadata?.full_name ?? user.email ?? "");
-      }
-    });
+    setUserEmail("local");
+    setUserName("You");
   }, []);
 
   // Load transcriptions
@@ -2661,6 +2657,10 @@ export default function Home() {
       )}
       {view === "account" && (
         <AccountScreen userName={userName} userEmail={userEmail} tier={tier} />
+      )}
+
+      {view === "debug" && (
+        <PipelineDebug onClose={() => setView("home")} />
       )}
 
       <CommandPalette

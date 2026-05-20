@@ -9,19 +9,21 @@ from enum import Enum
 
 
 class ModelTier(str, Enum):
-    TIER1 = "tier1"        # whisper-large-v3-turbo, ≥16GB RAM, CPU
-    TIER2 = "tier2"        # parakeet-tdt-1.1b, NVIDIA GPU ≥6GB VRAM
-    TIER3_EN = "tier3_en"  # moonshine-base, 6-16GB RAM English only
-    TIER3_ML = "tier3_ml"  # whisper-medium, 6-16GB RAM multilingual
-    TIER4_CLOUD = "tier4"  # redirect to ElevenLabs cloud
+    TIER1 = "tier1"        # large-v3-turbo, ≥16GB RAM (or NVIDIA GPU ≥6GB VRAM)
+    TIER2 = "tier2"        # large-v3-turbo via GPU
+    TIER3_EN = "tier3_en"  # medium.en, 8-16GB RAM English-only
+    TIER3_ML = "tier3_ml"  # medium, 8-16GB RAM multilingual
+    TIER4_CLOUD = "tier4"  # small, <8GB RAM (still local — "cloud" tier name kept for compat)
 
 
+# Model names must be exactly what faster-whisper / RealtimeSTT accepts:
+# short IDs (auto-download from HF) or local CTranslate2 directory paths.
 MODEL_NAMES: dict[ModelTier, str] = {
-    ModelTier.TIER1: "whisper-large-v3-turbo",
-    ModelTier.TIER2: "parakeet-tdt-1.1b",
-    ModelTier.TIER3_EN: "moonshine-base",
-    ModelTier.TIER3_ML: "whisper-medium",
-    ModelTier.TIER4_CLOUD: "cloud",
+    ModelTier.TIER1:       "large-v3-turbo",  # ~3.1 GB
+    ModelTier.TIER2:       "large-v3-turbo",  # same model, GPU accelerated
+    ModelTier.TIER3_EN:    "medium.en",       # ~1.5 GB, English only
+    ModelTier.TIER3_ML:    "medium",          # ~1.5 GB, multilingual
+    ModelTier.TIER4_CLOUD: "small",           # ~460 MB, lowest RAM
 }
 
 
@@ -40,18 +42,23 @@ class HardwareInfo:
         self.model_name = MODEL_NAMES[self.tier]
 
     def _assign_tier(self) -> ModelTier:
-        if self.free_disk_gb < 1.0 or self.ram_gb < 6:
-            return ModelTier.TIER4_CLOUD
+        if self.free_disk_gb < 0.5 or self.ram_gb < 4:
+            return ModelTier.TIER4_CLOUD   # small model
         if self.has_nvidia_cuda and self.nvidia_vram_gb >= 6:
-            return ModelTier.TIER2
-        if self.ram_gb >= 16:
-            return ModelTier.TIER1
-        return ModelTier.TIER3_EN
+            return ModelTier.TIER2         # large-v3-turbo on GPU — fast
+        # CPU-only: large-v3-turbo is unusably slow without a GPU.
+        # Cap at medium.en regardless of RAM — it's the best CPU model.
+        if self.ram_gb >= 8:
+            return ModelTier.TIER3_EN      # medium.en, fast on CPU
+        return ModelTier.TIER4_CLOUD       # small model
 
     def to_dict(self) -> dict:
+        from .models import best_available_model
+        actual_model = best_available_model(self.model_name)
         return {
             "tier": self.tier.value,
-            "model": self.model_name,
+            "model": actual_model,          # what will actually be loaded
+            "preferred_model": self.model_name,  # what tier recommends
             "ram_gb": round(self.ram_gb, 1),
             "has_nvidia_cuda": self.has_nvidia_cuda,
             "nvidia_vram_gb": round(self.nvidia_vram_gb, 1),
@@ -96,7 +103,9 @@ def _get_nvidia_info() -> tuple[bool, float]:
 
 def _get_free_disk_gb() -> float:
     try:
-        total, used, free = shutil.disk_usage("/")
+        # Use home directory so this works on Windows (avoids "/" resolving wrong drive)
+        import pathlib
+        total, used, free = shutil.disk_usage(str(pathlib.Path.home()))
         return free / (1024**3)
     except Exception:
         return 10.0

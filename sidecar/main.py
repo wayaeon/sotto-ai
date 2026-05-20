@@ -10,10 +10,13 @@ from sidecar.models import download_model_async
 
 def main() -> None:
     ipc = IPC()
-    ipc.send(Event.READY)
 
-    hw = None
-    recorder = None
+    # Detect hardware and create recorder immediately — no IPC handshake needed
+    hw = detect_hardware()
+    ipc.send(Event.HARDWARE, **hw.to_dict())
+    recorder = Recorder(ipc=ipc, tier=hw.tier)
+
+    ipc.send(Event.READY)
 
     for line in sys.stdin:
         line = line.strip()
@@ -29,16 +32,12 @@ def main() -> None:
             ipc.send(Event.PONG)
 
         elif cmd == Command.DETECT_HARDWARE:
-            hw = detect_hardware()
+            # Re-send cached result — hardware doesn't change at runtime
             ipc.send(Event.HARDWARE, **hw.to_dict())
-            if recorder is None:
-                recorder = Recorder(ipc=ipc, tier=hw.tier)
 
         elif cmd == Command.DOWNLOAD_MODEL:
-            if hw is not None:
-                download_model_async(hw.model_name, ipc)
-            else:
-                ipc.send(Event.ERROR, msg="detect_hardware must be called before download_model")
+            token = payload.get("token") or None
+            download_model_async(hw.model_name, ipc, token=token)
 
         elif cmd == Command.SET_MODEL:
             model_name = payload.get("model", "")
@@ -53,24 +52,25 @@ def main() -> None:
                 recorder.set_dictionary(words)
 
         elif cmd == Command.START_PTT:
-            if recorder is not None:
-                recorder.start_ptt()
-            else:
-                ipc.send(Event.ERROR, msg="Hardware not detected yet — send detect_hardware first")
+            recorder.start_ptt()
 
         elif cmd == Command.STOP_PTT:
-            if recorder is not None:
-                recorder.stop_ptt()
+            recorder.stop_ptt()
 
         elif cmd == Command.TOGGLE_HANDSFREE:
-            if recorder is not None:
-                recorder.toggle_handsfree()
+            recorder.toggle_handsfree()
 
         elif cmd == Command.QUIT:
-            if recorder is not None:
-                recorder.shutdown()
+            recorder.shutdown()
             break
 
 
 if __name__ == "__main__":
+    # REQUIRED for PyInstaller + torch.multiprocessing.
+    # Without this, frozen-binary spawn workers re-run main() instead of their
+    # actual worker function, causing infinite hardware/ready event loops and
+    # preventing AudioToTextRecorder from ever initialising correctly.
+    import multiprocessing
+    multiprocessing.freeze_support()
+    multiprocessing.set_start_method("spawn", force=True)
     main()
