@@ -1,7 +1,20 @@
-"""RealtimeSTT wrapper — push-to-talk and hands-free recording modes."""
+"""Push-to-talk and hands-free recording modes.
+
+Architecture for PTT:
+  - A long-lived _TranscriptionWorker subprocess holds faster-whisper in
+    memory.  Audio paths are sent to it via a multiprocessing Queue; results
+    come back the same way.
+  - If the worker crashes (ctranslate2 SIGSEGV / abort) the sidecar process
+    stays alive, logs an error, and respawns the worker on the next PTT.
+  - AudioToTextRecorder is no longer used for PTT; it is kept only for the
+    hands-free mode.
+"""
 from __future__ import annotations
 
+import multiprocessing
+import queue
 import threading
+import time
 import wave
 from datetime import datetime
 from pathlib import Path
@@ -13,9 +26,9 @@ _RECORDINGS_DIR = Path.home() / ".sotto" / "recordings"
 _SAMPLE_RATE = 16000
 _SAMPLE_WIDTH = 2   # 16-bit PCM
 _CHUNK_SIZE   = 1024
+_WORKER_TIMEOUT = 120  # seconds to wait for transcription result
 
 # torch.hub prompts for repo trust via stdin — which we use for IPC.
-# Pre-silence the check so it never reads from stdin and crashes the sidecar.
 try:
     import torch
     torch.hub._check_repo_is_trusted = lambda *args, **kwargs: None  # noqa
@@ -23,44 +36,85 @@ except Exception:
     pass
 
 
+# ── Module-level worker loop ─────────────────────────────────────────────────
+# Must be at module level so multiprocessing spawn can import it in the
+# frozen PyInstaller binary without re-running __main__.
+
+def _worker_loop(model_path: str, task_q, result_q) -> None:  # type: ignore[type-arg]
+    """Long-lived subprocess: loads faster-whisper once, transcribes on demand.
+
+    Listens on task_q for audio-file paths (str) or None (shutdown sentinel).
+    Puts (status, value) tuples on result_q:
+        ("ready", "")         — model loaded, ready to accept tasks
+        ("ok",    text)       — successful transcription
+        ("error", message)    — Python exception during transcription
+    A hard crash (SIGSEGV / abort) produces no result; the parent detects it
+    via p.is_alive() / p.exitcode.
+    """
+    try:
+        from faster_whisper import WhisperModel
+        model = WhisperModel(model_path, device="cpu", compute_type="int8")
+        result_q.put(("ready", ""))
+    except Exception as exc:  # noqa: BLE001
+        result_q.put(("error", f"Worker init failed: {exc}"))
+        return
+
+    while True:
+        audio_path = task_q.get()          # blocks until a path arrives
+        if audio_path is None:             # shutdown sentinel
+            return
+        try:
+            segments, _ = model.transcribe(str(audio_path), language=None)
+            text = " ".join(s.text for s in segments).strip()
+            result_q.put(("ok", text))
+        except Exception as exc:           # noqa: BLE001
+            result_q.put(("error", str(exc)))
+
+
 class Recorder:
     def __init__(self, ipc: IPC, tier: ModelTier) -> None:
         self._ipc = ipc
         self._tier = tier
         self._model_name = tier_to_model(tier)
-        self._recorder = None
-        self._handsfree = False
-        self._lock = threading.Lock()
         self._initial_prompt = ""
-        self._recording_active = False  # True only between start_ptt() and stop_ptt()
+
+        # PTT state
+        self._recording_active = False
         self._ptt_stop = threading.Event()
         self._last_wav_path: str | None = None
         self._capture_thread: threading.Thread | None = None
-        # Pre-warmed PyAudio stream — kept alive between PTT sessions to eliminate
-        # the 1-2s device-open latency on Windows.
+        self._lock = threading.Lock()
+
+        # Persistent transcription worker subprocess
+        self._worker_proc: multiprocessing.Process | None = None
+        self._task_q: multiprocessing.Queue | None = None
+        self._result_q: multiprocessing.Queue | None = None
+
+        # Hands-free mode (AudioToTextRecorder)
+        self._recorder = None
+        self._handsfree = False
+
+        # Pre-warmed PyAudio stream
         self._pa = None
         self._pa_stream = None
+
         _RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         threading.Thread(target=self._preload, daemon=True).start()
 
     # ── model loading ────────────────────────────────────────────────────────
 
     def _preload(self) -> None:
-        """Load model at startup; emits loading_model → idle."""
+        """Warm audio device + spawn transcription worker; emit loading_model → idle."""
         try:
             self._ipc.send(Event.STATUS, msg="loading_model")
-            with self._lock:
-                if self._recorder is None:
-                    self._recorder = self._make_recorder(silent=True)
-            # Pre-warm the PyAudio stream so the first PTT starts instantly
             self._warm_audio_stream()
+            self._start_worker()          # blocks until worker signals "ready"
             self._ipc.send(Event.STATUS, msg="idle")
         except Exception as e:
-            self._ipc.send(Event.ERROR, msg=f"Model preload failed: {e}")
+            self._ipc.send(Event.ERROR, msg=f"Preload failed: {e}")
             self._ipc.send(Event.STATUS, msg="idle")
 
     def _warm_audio_stream(self) -> None:
-        """Open (and keep open) the PyAudio input stream to eliminate first-PTT latency."""
         try:
             import pyaudio
             if self._pa is None:
@@ -88,6 +142,54 @@ class Recorder:
             self._ipc.send(Event.STATUS, msg="loading_model")
             _download_model(self._model_name, self._ipc)
 
+    def _start_worker(self) -> None:
+        """Spawn the transcription worker subprocess and wait for it to be ready."""
+        self._ensure_model_downloaded()
+        model_path = self._get_model_path()
+
+        ctx = multiprocessing.get_context("spawn")
+        self._task_q = ctx.Queue()
+        self._result_q = ctx.Queue()
+        self._worker_proc = ctx.Process(
+            target=_worker_loop,
+            args=(model_path, self._task_q, self._result_q),
+            daemon=False,
+            name="sotto-transcriber",
+        )
+        self._worker_proc.start()
+
+        # Wait for the worker to finish loading the model (up to 60 s)
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            try:
+                status, msg = self._result_q.get(timeout=2)
+                if status == "ready":
+                    return
+                elif status == "error":
+                    raise RuntimeError(msg)
+            except queue.Empty:
+                if not self._worker_proc.is_alive():
+                    raise RuntimeError(
+                        f"Worker exited during init (code {self._worker_proc.exitcode})"
+                    )
+        raise RuntimeError("Worker did not become ready within 60 s")
+
+    def _ensure_worker(self) -> bool:
+        """Return True if the worker is alive, respawning it if it crashed."""
+        if self._worker_proc is not None and self._worker_proc.is_alive():
+            return True
+        # Worker is dead — try to respawn
+        try:
+            self._ipc.send(Event.STATUS, msg="loading_model")
+            self._start_worker()
+            self._ipc.send(Event.STATUS, msg="idle")
+            return True
+        except Exception as e:
+            self._ipc.send(Event.ERROR, msg=f"Worker respawn failed: {e}")
+            return False
+
+    # ── AudioToTextRecorder (hands-free only) ────────────────────────────────
+
     def _make_recorder(self, silent: bool = False):
         from RealtimeSTT import AudioToTextRecorder
         self._ensure_model_downloaded()
@@ -108,31 +210,20 @@ class Recorder:
                 min_gap_between_recordings=0,
                 enable_realtime_transcription=False,
                 initial_prompt=self._initial_prompt or None,
-                # Disable the built-in microphone — we feed audio ourselves
-                use_microphone=False,
+                use_microphone=True,  # hands-free uses the mic directly
             )
         except Exception as e:
             self._ipc.send(Event.ERROR, msg=f"Failed to load model '{model_path}': {e}")
             raise
-        recorder.on_transcription_start = lambda *args, **kwargs: self._ipc.send(
-            Event.STATUS, msg="recording"
-        )
         return recorder
 
     # ── audio capture ────────────────────────────────────────────────────────
 
     def _ptt_capture(self) -> None:
-        """Open PyAudio, capture 16-bit 16 kHz mono while PTT held.
-
-        Writes directly to disk as we go (streaming write) to avoid race
-        conditions with the in-memory frame list.  Also feeds each chunk
-        into RealtimeSTT for transcription.
-        """
+        """Capture 16-bit 16 kHz mono while PTT is held, writing directly to WAV."""
         self._last_wav_path = None
         try:
-            # Reuse the pre-warmed stream; fall back to opening a new one if needed
             stream = self._pa_stream
-            owned = False
             if stream is None or not stream.is_active():
                 import pyaudio
                 if self._pa is None:
@@ -145,7 +236,6 @@ class Recorder:
                     frames_per_buffer=_CHUNK_SIZE,
                 )
                 self._pa_stream = stream
-                owned = True  # we created it, but keep it alive for next PTT
 
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             wav_path = _RECORDINGS_DIR / f"{ts}.wav"
@@ -156,28 +246,60 @@ class Recorder:
                 while not self._ptt_stop.is_set():
                     data = stream.read(_CHUNK_SIZE, exception_on_overflow=False)
                     wf.writeframes(data)
-                    if self._recorder is not None:
-                        self._recorder.feed_audio(data)
             self._last_wav_path = str(wav_path)
-            # Do NOT close the stream — keep it warm for next PTT
         except Exception as e:
             self._ipc.send(Event.ERROR, msg=f"PTT capture error: {type(e).__name__}: {e}")
-
-    # _save_frames removed — streaming write in _ptt_capture handles WAV I/O
 
     # ── transcription ────────────────────────────────────────────────────────
 
     def _fetch_transcription(self, audio_path: str | None = None) -> None:
-        """Blocks until whisper finishes, then sends SEGMENT_DONE."""
+        """Send audio_path to the persistent worker; collect the result.
+
+        If the worker is dead, respawn it.  If ctranslate2 crashes mid-call
+        (worker exits with non-zero code) the sidecar stays alive.
+        """
         try:
-            if self._recorder is None:
+            if not audio_path or not Path(audio_path).exists():
                 return
-            text = self._recorder.text()
-            if text and text.strip():
-                payload: dict = {"text": text.strip()}
-                if audio_path:
-                    payload["audio_path"] = audio_path
-                self._ipc.send(Event.SEGMENT_DONE, **payload)
+
+            if not self._ensure_worker():
+                self._ipc.send(Event.ERROR, msg="Transcription worker unavailable")
+                return
+
+            assert self._task_q is not None
+            assert self._result_q is not None
+
+            self._task_q.put(audio_path)
+
+            # Poll for result, checking worker liveness every 2 s
+            deadline = time.monotonic() + _WORKER_TIMEOUT
+            while time.monotonic() < deadline:
+                try:
+                    status, value = self._result_q.get(timeout=2)
+                    if status == "ok":
+                        if value:
+                            self._ipc.send(
+                                Event.SEGMENT_DONE, text=value, audio_path=audio_path
+                            )
+                    elif status == "error":
+                        self._ipc.send(Event.ERROR, msg=f"Transcription error: {value}")
+                    elif status == "ready":
+                        # Spurious ready from a previous respawn — ignore, keep waiting
+                        continue
+                    return
+                except queue.Empty:
+                    # Check worker is still alive
+                    if not self._worker_proc.is_alive():
+                        code = self._worker_proc.exitcode
+                        self._worker_proc = None
+                        self._ipc.send(
+                            Event.ERROR,
+                            msg=f"Transcription worker crashed (exit {code}); will respawn on next PTT",
+                        )
+                        return
+
+            self._ipc.send(Event.ERROR, msg="Transcription timed out")
+
         except Exception as e:
             self._ipc.send(Event.ERROR, msg=f"Transcription error: {e}")
         finally:
@@ -187,35 +309,30 @@ class Recorder:
 
     def start_ptt(self) -> None:
         with self._lock:
-            if self._recorder is None:
-                self._recorder = self._make_recorder()
-            # Reset capture state
             self._last_wav_path = None
             self._ptt_stop.clear()
             self._capture_thread = threading.Thread(target=self._ptt_capture, daemon=True)
-            self._recorder.start()
             self._recording_active = True
-        # Start audio capture thread outside lock to avoid deadlock
         self._capture_thread.start()
         self._ipc.send(Event.STATUS, msg="recording_ptt")
 
     def stop_ptt(self) -> None:
         with self._lock:
-            if self._recorder is None or not self._recording_active:
+            if not self._recording_active:
                 self._ipc.send(Event.STATUS, msg="idle")
                 return
-            # Signal capture thread to stop and wait for WAV to be flushed
             self._ptt_stop.set()
             self._recording_active = False
-            capture_thread = getattr(self, "_capture_thread", None)
-            self._recorder.stop()
+            capture_thread = self._capture_thread
             self._ipc.send(Event.STATUS, msg="processing")
-        # Wait for the capture thread to finish writing the WAV file
+
         if capture_thread is not None:
             capture_thread.join(timeout=5)
+
         audio_path = self._last_wav_path
         if audio_path:
             self._ipc.send(Event.AUDIO_RECORDED, audio_path=audio_path)
+
         threading.Thread(
             target=self._fetch_transcription, args=(audio_path,), daemon=True
         ).start()
@@ -246,6 +363,10 @@ class Recorder:
     def set_model(self, model_name: str) -> None:
         with self._lock:
             self._model_name = model_name
+            # Restart worker with new model
+            self._stop_worker()
+            self._start_worker()
+            # Restart hands-free recorder if active
             if self._recorder is not None:
                 was_handsfree = self._handsfree
                 self._handsfree = False
@@ -258,6 +379,7 @@ class Recorder:
 
     def set_dictionary(self, words: list[str]) -> None:
         self._initial_prompt = ", ".join(words) if words else ""
+        # Dictionary is passed as initial_prompt; only affects hands-free recorder
         with self._lock:
             if self._recorder is not None:
                 was_handsfree = self._handsfree
@@ -269,10 +391,27 @@ class Recorder:
                     self._handsfree = True
                     threading.Thread(target=self._handsfree_loop, daemon=True).start()
 
+    # ── cleanup ───────────────────────────────────────────────────────────────
+
+    def _stop_worker(self) -> None:
+        if self._task_q is not None and self._worker_proc is not None:
+            try:
+                self._task_q.put(None)          # sentinel → graceful shutdown
+                self._worker_proc.join(timeout=5)
+            except Exception:
+                pass
+            finally:
+                if self._worker_proc.is_alive():
+                    self._worker_proc.terminate()
+        self._worker_proc = None
+        self._task_q = None
+        self._result_q = None
+
     def shutdown(self) -> None:
         with self._lock:
             self._ptt_stop.set()
             self._handsfree = False
+            self._stop_worker()
             if self._recorder is not None:
                 self._recorder.shutdown()
                 self._recorder = None
