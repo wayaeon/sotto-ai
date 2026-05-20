@@ -15,5 +15,6 @@ __pycache__/
 
 build/
 src-tauri/*.log
+src-tauri/binaries/*.exe
 realtimesst.log
 src-tauri/realtimesst.log
