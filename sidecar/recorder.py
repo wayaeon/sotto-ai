@@ -55,9 +55,9 @@ def _worker_loop(model_path: str, task_q, result_q) -> None:  # type: ignore[typ
     try:
         from faster_whisper import WhisperModel
         try:
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-        except ImportError:
+            import ctranslate2
+            device = "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
+        except Exception:
             device = "cpu"
         compute_type = "float16" if device == "cuda" else "int8"
         model = WhisperModel(model_path, device=device, compute_type=compute_type)
@@ -209,9 +209,12 @@ class Recorder:
         if not silent:
             self._ipc.send(Event.STATUS, msg="loading_model")
         try:
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            compute_type = "float16" if device == "cuda" else "int8"
+            import ctranslate2
+            device = "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
+        except Exception:
+            device = "cpu"
+        compute_type = "float16" if device == "cuda" else "int8"
+        try:
             recorder = AudioToTextRecorder(
                 model=model_path,
                 language="",
