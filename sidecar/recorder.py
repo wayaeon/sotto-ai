@@ -26,7 +26,8 @@ _RECORDINGS_DIR = Path.home() / ".sotto" / "recordings"
 _SAMPLE_RATE = 16000
 _SAMPLE_WIDTH = 2   # 16-bit PCM
 _CHUNK_SIZE   = 1024
-_WORKER_TIMEOUT = 120  # seconds to wait for transcription result
+_WORKER_TIMEOUT  = 120  # seconds to wait for transcription result
+_WORKER_INIT_S   = 120  # seconds to wait for model load on GPU (large models take ~30s)
 
 # torch.hub prompts for repo trust via stdin — which we use for IPC.
 try:
@@ -45,7 +46,7 @@ def _worker_loop(model_path: str, task_q, result_q) -> None:  # type: ignore[typ
 
     Listens on task_q for audio-file paths (str) or None (shutdown sentinel).
     Puts (status, value) tuples on result_q:
-        ("ready", "")         — model loaded, ready to accept tasks
+        ("ready", info_dict)  — model loaded, ready to accept tasks
         ("ok",    text)       — successful transcription
         ("error", message)    — Python exception during transcription
     A hard crash (SIGSEGV / abort) produces no result; the parent detects it
@@ -53,8 +54,14 @@ def _worker_loop(model_path: str, task_q, result_q) -> None:  # type: ignore[typ
     """
     try:
         from faster_whisper import WhisperModel
-        model = WhisperModel(model_path, device="cpu", compute_type="int8")
-        result_q.put(("ready", ""))
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            device = "cpu"
+        compute_type = "float16" if device == "cuda" else "int8"
+        model = WhisperModel(model_path, device=device, compute_type=compute_type)
+        result_q.put(("ready", {"device": device, "compute_type": compute_type}))
     except Exception as exc:  # noqa: BLE001
         result_q.put(("error", f"Worker init failed: {exc}"))
         return
@@ -159,12 +166,16 @@ class Recorder:
         )
         self._worker_proc.start()
 
-        # Wait for the worker to finish loading the model (up to 60 s)
-        deadline = time.monotonic() + 60
+        # Wait for the worker to finish loading the model (up to 120 s)
+        deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             try:
                 status, msg = self._result_q.get(timeout=2)
                 if status == "ready":
+                    info = msg if isinstance(msg, dict) else {}
+                    device = info.get("device", "cpu")
+                    compute = info.get("compute_type", "int8")
+                    self._ipc.send(Event.STATUS, msg=f"worker_ready device={device} compute={compute}")
                     return
                 elif status == "error":
                     raise RuntimeError(msg)
@@ -173,7 +184,7 @@ class Recorder:
                     raise RuntimeError(
                         f"Worker exited during init (code {self._worker_proc.exitcode})"
                     )
-        raise RuntimeError("Worker did not become ready within 60 s")
+        raise RuntimeError("Worker did not become ready within 120 s")
 
     def _ensure_worker(self) -> bool:
         """Return True if the worker is alive, respawning it if it crashed."""

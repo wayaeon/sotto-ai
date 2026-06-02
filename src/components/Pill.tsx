@@ -42,7 +42,7 @@ async function resizePillWindow(height: number) {
 }
 
 export default function Pill() {
-  useSidecar();
+  useSidecar({ primary: true });
   const { recordingState, sidecarReady, modelReady, setRecordingState, downloadProgress, downloadModel } = useAppStore();
   const pttActive  = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);

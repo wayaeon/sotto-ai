@@ -6,7 +6,14 @@ import { insertTranscription, updateMetrics } from "../lib/db";
 export const useDownloadProgress = () => useAppStore((s) => s.downloadProgress);
 export const useDownloadModel    = () => useAppStore((s) => s.downloadModel);
 
-export function useSidecar() {
+/**
+ * primary: true  → Pill window only. Handles injection, history, metrics.
+ * primary: false → Home/other windows. State updates only, no side effects.
+ *
+ * Without this flag, useSidecar running in two windows causes double injection
+ * and duplicate history entries because sidecar-event broadcasts to all windows.
+ */
+export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
   const {
     setSidecarReady,
     setModelReady,
@@ -39,7 +46,8 @@ export function useSidecar() {
           const raw = msg.text;
           commitSegment(raw);
 
-          if (raw.trim()) {
+          // Side effects run only in the primary (Pill) instance
+          if (raw.trim() && primary) {
             const durationMs = dictationStartMs.current
               ? Date.now() - dictationStartMs.current
               : 0;
@@ -56,6 +64,9 @@ export function useSidecar() {
 
             insertTranscription(raw, currentModel, currentTier, durationMs);
             updateMetrics(raw.trim().split(/\s+/).length, durationMs);
+          } else if (!primary) {
+            // Non-primary: still reset the timer so state stays consistent
+            dictationStartMs.current = null;
           }
           break;
         }

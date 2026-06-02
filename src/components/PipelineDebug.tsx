@@ -318,6 +318,16 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               updateStage("transcribing", { status: "idle", detail: "⚠️ No speech detected" });
           } else if (msg.msg === "loading_model") {
             updateStage("model", { status: "active", detail: "Loading model from disk…" });
+          } else if (msg.msg.startsWith("worker_ready")) {
+            // e.g. "worker_ready device=cuda compute=float16"
+            const parts = Object.fromEntries(
+              msg.msg.split(" ").slice(1).map(p => p.split("="))
+            );
+            const device  = parts.device  ?? "cpu";
+            const compute = parts.compute ?? "int8";
+            const badge   = device === "cuda" ? `⚡ GPU · ${compute}` : `💻 CPU · ${compute}`;
+            updateStage("model", { status: "done", detail: badge });
+            addLog(`✅ Worker ready — ${badge}`);
           }
           break;
         }
