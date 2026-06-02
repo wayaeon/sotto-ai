@@ -247,39 +247,20 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
     updateStage("recording", { status: "done", detail: path.split(/[\\/]/).pop() });
   }
 
-  // ── Cross-window inject timing via localStorage storage event ──────────────
+  // ── inject-done: emitted by Rust after inject_text completes (all windows) ──
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== "sotto_inject_timing" || !e.newValue) return;
-      try {
-        const t = JSON.parse(e.newValue) as StageTiming;
-        setLastTiming(prev => {
-          if (!prev) return null;
-          return { ...prev, inject_ms: t.inject_ms, _source: prev.whisper_ms ? "sidecar" : "frontend" };
-        });
-        setWaitingForInject(false);
-        updateStage("output", { status: "done", detail: "Injected" });
-        setPipelineDone(Date.now());
-        addLog(`✅ Inject done — ${fmtMs(t.inject_ms)}`);
-      } catch {}
-    };
-    window.addEventListener("storage", onStorage);
-
-    // Also try the Tauri event as backup (same-window fallback)
-    const unlisten = listen<StageTiming>("inject-done", (e) => {
+    const unlisten = listen<{ inject_ms: number }>("inject-done", (e) => {
+      const inject_ms = e.payload.inject_ms;
       setLastTiming(prev => {
         if (!prev) return null;
-        return { ...prev, inject_ms: e.payload.inject_ms };
+        return { ...prev, inject_ms, _source: prev.whisper_ms ? "sidecar" : "frontend" };
       });
       setWaitingForInject(false);
       updateStage("output", { status: "done", detail: "Injected" });
       setPipelineDone(Date.now());
+      addLog(`✅ Inject done — ${fmtMs(inject_ms)}`);
     });
-
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      unlisten.then(fn => fn());
-    };
+    return () => { unlisten.then(fn => fn()); };
   }, []);
 
   // ── Sidecar events ─────────────────────────────────────────────────────────

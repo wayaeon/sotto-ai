@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
-import { emit } from "@tauri-apps/api/event";
-import { onSidecarEvent, injectText, type SidecarMessage, type StageTiming } from "../lib/tauri";
+import { onSidecarEvent, injectText, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 
@@ -38,7 +37,6 @@ export function useSidecar() {
 
         case "segment_done": {
           const raw = msg.text;
-          const sidecarTiming: StageTiming = (msg as any).timing ?? {};
           commitSegment(raw);
 
           if (raw.trim()) {
@@ -53,21 +51,8 @@ export function useSidecar() {
             localStorage.setItem("sotto_last_transcription", raw);
             navigator.clipboard.writeText(raw).catch(() => {});
 
-            const t_inject_start = Date.now();
-            injectText(raw)
-              .then(() => {
-                const inject_ms = Date.now() - t_inject_start;
-                const timing: StageTiming = { ...sidecarTiming, inject_ms };
-                // localStorage write fires 'storage' events in OTHER windows (cross-window bridge)
-                localStorage.setItem("sotto_inject_timing", JSON.stringify(timing));
-                emit("inject-done", timing).catch(() => {});
-              })
-              .catch((e) => {
-                console.warn("[inject_text]", e);
-                const timing: StageTiming = { ...sidecarTiming };
-                localStorage.setItem("sotto_inject_timing", JSON.stringify(timing));
-                emit("inject-done", timing).catch(() => {});
-              });
+            // inject_text Rust command emits "inject-done" to all windows after completing
+            injectText(raw).catch((e) => console.warn("[inject_text]", e));
 
             insertTranscription(raw, currentModel, currentTier, durationMs);
             updateMetrics(raw.trim().split(/\s+/).length, durationMs);
