@@ -84,6 +84,7 @@ class Recorder:
         self._last_wav_path: str | None = None
         self._capture_thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._capture_start_ms: float = 0.0
 
         # Persistent transcription worker subprocess
         self._worker_proc: multiprocessing.Process | None = None
@@ -252,7 +253,7 @@ class Recorder:
 
     # ── transcription ────────────────────────────────────────────────────────
 
-    def _fetch_transcription(self, audio_path: str | None = None) -> None:
+    def _fetch_transcription(self, audio_path: str | None = None, timing_ctx: dict | None = None) -> None:
         """Send audio_path to the persistent worker; collect the result.
 
         If the worker is dead, respawn it.  If ctranslate2 crashes mid-call
@@ -269,6 +270,7 @@ class Recorder:
             assert self._task_q is not None
             assert self._result_q is not None
 
+            t_worker_sent_ms = time.time() * 1000
             self._task_q.put(audio_path)
 
             # Poll for result, checking worker liveness every 2 s
@@ -276,10 +278,20 @@ class Recorder:
             while time.monotonic() < deadline:
                 try:
                     status, value = self._result_q.get(timeout=2)
+                    t_transcription_done_ms = time.time() * 1000
                     if status == "ok":
                         if value:
+                            timing: dict = {}
+                            if timing_ctx:
+                                timing = {
+                                    **timing_ctx,
+                                    "worker_sent_ms": round(t_worker_sent_ms),
+                                    "transcription_done_ms": round(t_transcription_done_ms),
+                                    "queue_ms": round(t_worker_sent_ms - timing_ctx.get("wav_ready_ms", t_worker_sent_ms)),
+                                    "whisper_ms": round(t_transcription_done_ms - t_worker_sent_ms),
+                                }
                             self._ipc.send(
-                                Event.SEGMENT_DONE, text=value, audio_path=audio_path
+                                Event.SEGMENT_DONE, text=value, audio_path=audio_path, timing=timing
                             )
                     elif status == "error":
                         self._ipc.send(Event.ERROR, msg=f"Transcription error: {value}")
@@ -309,6 +321,7 @@ class Recorder:
 
     def start_ptt(self) -> None:
         with self._lock:
+            self._capture_start_ms = time.time() * 1000
             self._last_wav_path = None
             self._ptt_stop.clear()
             self._capture_thread = threading.Thread(target=self._ptt_capture, daemon=True)
@@ -321,6 +334,7 @@ class Recorder:
             if not self._recording_active:
                 self._ipc.send(Event.STATUS, msg="idle")
                 return
+            t_capture_end_ms = time.time() * 1000
             self._ptt_stop.set()
             self._recording_active = False
             capture_thread = self._capture_thread
@@ -329,12 +343,22 @@ class Recorder:
         if capture_thread is not None:
             capture_thread.join(timeout=5)
 
+        t_wav_ready_ms = time.time() * 1000
+
         audio_path = self._last_wav_path
         if audio_path:
             self._ipc.send(Event.AUDIO_RECORDED, audio_path=audio_path)
 
+        timing_ctx = {
+            "capture_start_ms": self._capture_start_ms,
+            "capture_end_ms": t_capture_end_ms,
+            "wav_ready_ms": t_wav_ready_ms,
+            "recording_duration_ms": round(t_capture_end_ms - self._capture_start_ms),
+            "wav_write_ms": round(t_wav_ready_ms - t_capture_end_ms),
+        }
+
         threading.Thread(
-            target=self._fetch_transcription, args=(audio_path,), daemon=True
+            target=self._fetch_transcription, args=(audio_path, timing_ctx), daemon=True
         ).start()
 
     # ── hands-free ───────────────────────────────────────────────────────────

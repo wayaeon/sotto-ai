@@ -1,33 +1,11 @@
 import { useEffect, useRef } from "react";
-import { onSidecarEvent, injectText, type SidecarMessage } from "../lib/tauri";
+import { emit } from "@tauri-apps/api/event";
+import { onSidecarEvent, injectText, type SidecarMessage, type StageTiming } from "../lib/tauri";
 import { useAppStore, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 
 export const useDownloadProgress = () => useAppStore((s) => s.downloadProgress);
 export const useDownloadModel    = () => useAppStore((s) => s.downloadModel);
-
-async function ollamaCleanup(raw: string): Promise<string> {
-  const enabled = localStorage.getItem("sotto_llm_enabled") === "true";
-  if (!enabled) return raw;
-
-  const url   = localStorage.getItem("sotto_llm_url")   ?? "http://localhost:11434";
-  const model = localStorage.getItem("sotto_llm_model") ?? "qwen3:7b";
-  const sysprompt = localStorage.getItem("sotto_llm_prompt") ??
-    "Clean up the following voice transcription. Fix punctuation, capitalisation, and obvious speech errors. Return only the corrected text, nothing else.";
-
-  try {
-    const res = await fetch(`${url}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, prompt: `${sysprompt}\n\n${raw}`, stream: false }),
-    });
-    if (!res.ok) return raw;
-    const data = await res.json();
-    return (data.response as string)?.trim() || raw;
-  } catch {
-    return raw;
-  }
-}
 
 export function useSidecar() {
   const {
@@ -59,7 +37,8 @@ export function useSidecar() {
           break;
 
         case "segment_done": {
-          const raw = msg.cleanup_text ?? msg.text;
+          const raw = msg.text;
+          const sidecarTiming: StageTiming = (msg as any).timing ?? {};
           commitSegment(raw);
 
           if (raw.trim()) {
@@ -71,15 +50,23 @@ export function useSidecar() {
             const currentModel = useAppStore.getState().model ?? "";
             const currentTier  = useAppStore.getState().tier  ?? "";
 
-            ollamaCleanup(raw).then((text) => {
-              localStorage.setItem("sotto_last_transcription", text);
-              // Always copy to clipboard
-              navigator.clipboard.writeText(text).catch(() => {});
-              // Inject into active text field if possible
-              injectText(text).catch((e) => console.warn("[inject_text]", e));
-              insertTranscription(text, currentModel, currentTier, durationMs);
-              updateMetrics(text.trim().split(/\s+/).length, durationMs);
-            });
+            localStorage.setItem("sotto_last_transcription", raw);
+            navigator.clipboard.writeText(raw).catch(() => {});
+
+            const t_inject_start = Date.now();
+            injectText(raw)
+              .then(() => {
+                const inject_ms = Date.now() - t_inject_start;
+                const timing: StageTiming = { ...sidecarTiming, inject_ms };
+                emit("inject-done", timing).catch(() => {});
+              })
+              .catch((e) => {
+                console.warn("[inject_text]", e);
+                emit("inject-done", sidecarTiming as StageTiming).catch(() => {});
+              });
+
+            insertTranscription(raw, currentModel, currentTier, durationMs);
+            updateMetrics(raw.trim().split(/\s+/).length, durationMs);
           }
           break;
         }

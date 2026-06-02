@@ -11,10 +11,23 @@ export const setModel = (model: string) => invoke("set_model", { model });
 export const setDictionary = (words: string[]) => invoke("set_dictionary", { words });
 export const injectText = (text: string) => invoke("inject_text", { text });
 
+export interface StageTiming {
+  capture_start_ms?: number;
+  capture_end_ms?: number;
+  wav_ready_ms?: number;
+  worker_sent_ms?: number;
+  transcription_done_ms?: number;
+  recording_duration_ms?: number;
+  wav_write_ms?: number;
+  queue_ms?: number;
+  whisper_ms?: number;
+  inject_ms?: number; // added by frontend after inject completes
+}
+
 export type SidecarMessage =
   | { event: "ready" }
   | { event: "word"; text: string; partial: boolean }
-  | { event: "segment_done"; text: string; cleanup_text?: string; audio_path?: string }
+  | { event: "segment_done"; text: string; audio_path?: string; timing?: StageTiming }
   | { event: "audio_recorded"; audio_path: string }
   | { event: "error"; msg: string }
   | { event: "pong" }
