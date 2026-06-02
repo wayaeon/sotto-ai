@@ -58,11 +58,15 @@ export function useSidecar() {
               .then(() => {
                 const inject_ms = Date.now() - t_inject_start;
                 const timing: StageTiming = { ...sidecarTiming, inject_ms };
+                // localStorage write fires 'storage' events in OTHER windows (cross-window bridge)
+                localStorage.setItem("sotto_inject_timing", JSON.stringify(timing));
                 emit("inject-done", timing).catch(() => {});
               })
               .catch((e) => {
                 console.warn("[inject_text]", e);
-                emit("inject-done", sidecarTiming as StageTiming).catch(() => {});
+                const timing: StageTiming = { ...sidecarTiming };
+                localStorage.setItem("sotto_inject_timing", JSON.stringify(timing));
+                emit("inject-done", timing).catch(() => {});
               });
 
             insertTranscription(raw, currentModel, currentTier, durationMs);
