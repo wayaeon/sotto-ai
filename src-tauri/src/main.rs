@@ -23,6 +23,7 @@ fn main() {
             commands::detect_hardware,
             commands::download_model,
             commands::set_model,
+            commands::benchmark_model,
             commands::set_dictionary,
             commands::inject_text,
         ])

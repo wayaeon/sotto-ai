@@ -2503,16 +2503,23 @@ function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, ti
     { key: "commands", label: "Commands", icon: <Icons.Bolt size={16} /> },
     { key: "settings", label: "Settings", icon: <Icons.Settings size={16} /> },
     { key: "account",  label: "Account",  icon: <Icons.User size={16} /> },
-    { key: "debug",    label: "🔬 Debug", icon: <span style={{ fontSize: 14 }}>🔬</span> },
   ];
 
   return (
     <div className="sidebar" data-collapsed={String(collapsed)}>
       <div className="brand">
-        <div className="brand-mark" style={{ background: "none", border: "none", width: 28, height: 28, display: "grid", placeItems: "center" }}>
+        <div className="brand-mark">
           <WaveMark size={22} />
         </div>
-        <div className="brand-wordmark"><em>Sotto</em></div>
+        <div className="brand-wordmark">Sotto</div>
+        <button
+          className="sidebar-collapse"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand" : "Collapse"}
+        >
+          {collapsed ? <Icons.ChevronRight size={14} /> : <Icons.ChevronLeft size={14} />}
+        </button>
       </div>
 
       {navItems.map((item) => (
@@ -2528,11 +2535,11 @@ function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, ti
 
       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
         <button
-          className="btn btn-ghost btn-sm"
-          style={{ width: "100%", justifyContent: collapsed ? "center" : "flex-start" }}
-          onClick={onToggleCollapse}
+          className={`nav-item debug-nav-item${view === "debug" ? " active" : ""}`}
+          onClick={() => onViewChange("debug")}
         >
-          {collapsed ? <Icons.ChevronRight size={14} /> : <><Icons.ChevronLeft size={14} /><span className="nav-label"> Collapse</span></>}
+          <span className="nav-icon"><Icons.Code size={16} /></span>
+          <span className="nav-label">Debug</span>
         </button>
         <div className="sidebar-footer" onClick={() => onViewChange("account")}>
           <div className="avatar">{initial}</div>

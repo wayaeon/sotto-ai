@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import os
+import time
 import threading
+import wave
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from .hardware import ModelTier
 
@@ -14,6 +17,15 @@ if TYPE_CHECKING:
 # Models are stored in user data dir
 _DATA_DIR = Path(os.environ.get("WISPR_DATA_DIR", Path.home() / ".sotto"))
 MODELS_DIR = _DATA_DIR / "models"
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    repo_id: str
+    runtime: str
+    download_supported: bool
+    benchmark_supported: bool
+    approx_size_bytes: int = 0
 
 
 # Maps the short model name (what faster-whisper / RealtimeSTT expects) to its HF repo.
@@ -26,6 +38,41 @@ FASTER_WHISPER_MODELS: dict[str, str] = {
     "base":           "Systran/faster-whisper-base",
     "tiny":           "Systran/faster-whisper-tiny",
 }
+
+MODEL_CATALOG: dict[str, ModelSpec] = {
+    "large-v3-turbo": ModelSpec("deepdml/faster-whisper-large-v3-turbo-ct2", "faster-whisper", True, True, int(3.1 * 1024**3)),
+    "medium.en": ModelSpec("Systran/faster-whisper-medium.en", "faster-whisper", True, True, int(1.5 * 1024**3)),
+    "medium": ModelSpec("Systran/faster-whisper-medium", "faster-whisper", True, True, int(1.5 * 1024**3)),
+    "small": ModelSpec("Systran/faster-whisper-small", "faster-whisper", True, True, int(460 * 1024**2)),
+    "base": ModelSpec("Systran/faster-whisper-base", "faster-whisper", True, True, int(145 * 1024**2)),
+    "tiny": ModelSpec("Systran/faster-whisper-tiny", "faster-whisper", True, True, int(75 * 1024**2)),
+    "nvidia/parakeet-tdt-0.6b-v3": ModelSpec("nvidia/parakeet-tdt-0.6b-v3", "nemo", True, False),
+    "nvidia/parakeet-tdt-0.6b-v2": ModelSpec("nvidia/parakeet-tdt-0.6b-v2", "nemo", True, False),
+    "nvidia/canary-1b-flash": ModelSpec("nvidia/canary-1b-flash", "nemo", True, False),
+    "distil-whisper/distil-large-v3.5": ModelSpec("distil-whisper/distil-large-v3.5", "transformers", True, False),
+    "FunAudioLLM/SenseVoiceSmall": ModelSpec("FunAudioLLM/SenseVoiceSmall", "transformers", True, False),
+    "UsefulSensors/moonshine": ModelSpec("UsefulSensors/moonshine", "transformers", True, False),
+    "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01": ModelSpec("csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", "onnx", True, False),
+}
+
+MODEL_DOWNLOAD_SIZES: dict[str, int] = {
+    model_name: spec.approx_size_bytes
+    for model_name, spec in MODEL_CATALOG.items()
+}
+
+
+def format_bytes(bytes_value: int | float | None) -> str:
+    if not bytes_value:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(bytes_value)
+    unit = 0
+    while value >= 1024 and unit < len(units) - 1:
+        value /= 1024
+        unit += 1
+    if unit == 0:
+        return f"{int(value)} {units[unit]}"
+    return f"{value:.1f} {units[unit]}"
 
 
 def model_dir(model_name: str) -> Path:
@@ -66,6 +113,23 @@ def download_model_async(model_name: str, ipc: "IPC", token: str | None = None) 
     thread.start()
 
 
+def benchmark_model_async(
+    model_name: str,
+    audio_path: str,
+    ipc: "IPC",
+    reference_text: str | None = None,
+    sample_label: str | None = None,
+    mode: str = "cold",
+) -> None:
+    """Benchmark one faster-whisper-compatible model against an existing WAV."""
+    thread = threading.Thread(
+        target=_benchmark_model,
+        args=(model_name, audio_path, ipc, reference_text, sample_label, mode),
+        daemon=True,
+    )
+    thread.start()
+
+
 _MODEL_FILES = [
     "model.bin",
     "config.json",
@@ -76,7 +140,12 @@ _MODEL_FILES = [
 ]
 
 
-def _http_get(url: str, dest: "Path", token: str | None = None) -> None:
+def _http_get(
+    url: str,
+    dest: "Path",
+    token: str | None = None,
+    on_chunk: Callable[[int], None] | None = None,
+) -> int:
     """Download url → dest with no system proxy (avoids Windows credential forwarding)."""
     import requests
 
@@ -87,11 +156,18 @@ def _http_get(url: str, dest: "Path", token: str | None = None) -> None:
     session = requests.Session()
     session.trust_env = False  # ignore Windows proxy / env vars — prevents 401s
 
+    bytes_written = 0
     with session.get(url, headers=headers, stream=True, timeout=60) as r:
         r.raise_for_status()
         with open(dest, "wb") as f:
             for chunk in r.iter_content(chunk_size=4 * 1024 * 1024):
+                if not chunk:
+                    continue
                 f.write(chunk)
+                bytes_written += len(chunk)
+                if on_chunk:
+                    on_chunk(len(chunk))
+    return bytes_written
 
 
 def _download_model(model_name: str, ipc: "IPC", token: str | None = None) -> None:
@@ -101,16 +177,43 @@ def _download_model(model_name: str, ipc: "IPC", token: str | None = None) -> No
         ipc.send(Event.DOWNLOAD_PROGRESS, model=model_name, percent=100.0)
         return
 
-    repo_id = FASTER_WHISPER_MODELS.get(model_name)
-    if repo_id is None:
+    spec = MODEL_CATALOG.get(model_name)
+    if spec is None:
         ipc.send(Event.ERROR, msg=f"Unknown model: {model_name}")
+        return
+    if not spec.download_supported:
+        ipc.send(Event.ERROR, msg=f"Download is not wired for model: {model_name}")
         return
 
     local_dir = model_dir(model_name)
     local_dir.mkdir(parents=True, exist_ok=True)
 
-    base_url = f"https://huggingface.co/{repo_id}/resolve/main"
+    if spec.runtime != "faster-whisper":
+        _snapshot_download_model(model_name, spec, local_dir, ipc, token=token)
+        return
+
+    base_url = f"https://huggingface.co/{spec.repo_id}/resolve/main"
     downloaded = 0
+    bytes_total = MODEL_DOWNLOAD_SIZES.get(model_name, 0)
+    bytes_downloaded = 0
+
+    def send_progress() -> None:
+        percent = round(bytes_downloaded / bytes_total * 100, 1) if bytes_total else round(downloaded / len(_MODEL_FILES) * 100, 1)
+        percent = min(100.0, max(0.0, percent))
+        ipc.send(
+            Event.DOWNLOAD_PROGRESS,
+            model=model_name,
+            percent=percent,
+            bytes_downloaded=bytes_downloaded,
+            bytes_total=bytes_total,
+            downloaded_label=format_bytes(bytes_downloaded),
+            total_label=format_bytes(bytes_total),
+        )
+
+    def count_chunk(size: int) -> None:
+        nonlocal bytes_downloaded
+        bytes_downloaded += size
+        send_progress()
 
     try:
         for filename in _MODEL_FILES:
@@ -118,17 +221,141 @@ def _download_model(model_name: str, ipc: "IPC", token: str | None = None) -> No
             dest = local_dir / filename
             if dest.exists() and dest.stat().st_size > 100:
                 downloaded += 1
-                ipc.send(Event.DOWNLOAD_PROGRESS, model=model_name,
-                          percent=round(downloaded / len(_MODEL_FILES) * 100, 1))
+                bytes_downloaded += dest.stat().st_size
+                send_progress()
                 continue
             try:
-                _http_get(url, dest, token=token)
+                _http_get(url, dest, token=token, on_chunk=count_chunk)
                 downloaded += 1
-                ipc.send(Event.DOWNLOAD_PROGRESS, model=model_name,
-                          percent=round(downloaded / len(_MODEL_FILES) * 100, 1))
+                send_progress()
             except Exception:
                 # File doesn't exist in this model's repo — skip it
                 downloaded += 1
 
+        ipc.send(
+            Event.DOWNLOAD_PROGRESS,
+            model=model_name,
+            percent=100.0,
+            bytes_downloaded=bytes_downloaded,
+            bytes_total=bytes_total,
+            downloaded_label="cached",
+            total_label=format_bytes(bytes_total),
+        )
+
     except Exception as exc:
         ipc.send(Event.ERROR, msg=f"Download failed: {exc}")
+
+
+def _snapshot_download_model(
+    model_name: str,
+    spec: ModelSpec,
+    local_dir: Path,
+    ipc: "IPC",
+    token: str | None = None,
+) -> None:
+    from .ipc import Event
+
+    ipc.send(
+        Event.DOWNLOAD_PROGRESS,
+        model=model_name,
+        percent=5.0,
+        bytes_downloaded=0,
+        bytes_total=spec.approx_size_bytes,
+        downloaded_label="starting",
+        total_label=format_bytes(spec.approx_size_bytes) if spec.approx_size_bytes else "unknown",
+    )
+    try:
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(
+            repo_id=spec.repo_id,
+            local_dir=str(local_dir),
+            token=token,
+        )
+        ipc.send(
+            Event.DOWNLOAD_PROGRESS,
+            model=model_name,
+            percent=100.0,
+            bytes_total=spec.approx_size_bytes,
+            downloaded_label="cached",
+            total_label=format_bytes(spec.approx_size_bytes) if spec.approx_size_bytes else "unknown",
+        )
+    except Exception as exc:
+        ipc.send(Event.ERROR, msg=f"Download failed for {model_name}: {exc}")
+
+
+def _benchmark_model(
+    model_name: str,
+    audio_path: str,
+    ipc: "IPC",
+    reference_text: str | None = None,
+    sample_label: str | None = None,
+    mode: str = "cold",
+) -> None:
+    from .ipc import Event
+    from .benchmark import score_transcript
+
+    spec = MODEL_CATALOG.get(model_name)
+    if spec is None:
+        ipc.send(Event.ERROR, msg=f"Unknown model: {model_name}")
+        return
+
+    if not spec.benchmark_supported or spec.runtime != "faster-whisper":
+        ipc.send(Event.ERROR, msg=f"Benchmark runtime not wired for model: {model_name}")
+        return
+
+    path = Path(audio_path)
+    if not path.exists():
+        ipc.send(Event.ERROR, msg=f"Benchmark audio not found: {audio_path}")
+        return
+
+    if not is_downloaded(model_name):
+        ipc.send(Event.ERROR, msg=f"Download model before benchmarking: {model_name}")
+        return
+
+    try:
+        from faster_whisper import WhisperModel
+        import torch
+        model_path = str(model_dir(model_name))
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        compute_type = "float16" if device == "cuda" else "int8"
+
+        load_start = time.perf_counter()
+        model = WhisperModel(model_path, device=device, compute_type=compute_type)
+        load_ms = round((time.perf_counter() - load_start) * 1000)
+
+        audio_duration_ms = _wav_duration_ms(path)
+
+        transcribe_start = time.perf_counter()
+        segments, _ = model.transcribe(str(path), language=None)
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        transcribe_ms = round((time.perf_counter() - transcribe_start) * 1000)
+        rtf = round(transcribe_ms / max(audio_duration_ms, 1), 3)
+        score = score_transcript(reference_text, text)
+
+        ipc.send(
+            Event.BENCHMARK_RESULT,
+            model=model_name,
+            runtime="faster-whisper",
+            device=device,
+            compute_type=compute_type,
+            mode=mode,
+            sample_label=sample_label,
+            reference_text=reference_text,
+            load_ms=load_ms,
+            transcribe_ms=transcribe_ms,
+            audio_duration_ms=audio_duration_ms,
+            rtf=rtf,
+            text=text,
+            **score,
+        )
+    except Exception as exc:
+        ipc.send(Event.ERROR, msg=f"Benchmark failed for {model_name}: {exc}")
+
+
+def _wav_duration_ms(path: Path) -> int:
+    """Return duration for recorder-produced WAV files without extra native deps."""
+    with wave.open(str(path), "rb") as wav:
+        frames = wav.getnframes()
+        rate = wav.getframerate()
+    return round(frames / max(rate, 1) * 1000)

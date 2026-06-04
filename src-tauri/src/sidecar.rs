@@ -17,7 +17,26 @@ impl SidecarState {
 
 pub fn spawn_sidecar(app: &AppHandle) {
     let shell = app.shell();
-    let result = shell.sidecar("sidecar").expect("sidecar binary not found").spawn();
+    let result = {
+        #[cfg(debug_assertions)]
+        {
+            let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("src-tauri should have a repo parent")
+                .to_path_buf();
+
+            shell
+                .command("python")
+                .args(["-m", "sidecar.main"])
+                .current_dir(repo_root)
+                .spawn()
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            shell.sidecar("sidecar").expect("sidecar binary not found").spawn()
+        }
+    };
 
     match result {
         Ok((mut rx, child)) => {

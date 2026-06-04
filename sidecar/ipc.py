@@ -12,6 +12,7 @@ class Command(str, Enum):
     DETECT_HARDWARE = "detect_hardware"
     DOWNLOAD_MODEL = "download_model"
     SET_MODEL = "set_model"
+    BENCHMARK_MODEL = "benchmark_model"
     SET_DICTIONARY = "set_dictionary"
     PING = "ping"
     QUIT = "quit"
@@ -26,6 +27,7 @@ class Event(str, Enum):
     STATUS = "status"
     HARDWARE = "hardware"
     DOWNLOAD_PROGRESS = "download_progress"
+    BENCHMARK_RESULT = "benchmark_result"
     AUDIO_RECORDED = "audio_recorded"
 
 

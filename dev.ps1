@@ -7,7 +7,7 @@ foreach ($line in $envOutput) {
     }
 }
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
-$env:CARGO_TARGET_DIR = "C:\tmp\sotto-tauri-dev-target"
+$env:CARGO_TARGET_DIR = Join-Path $PSScriptRoot "src-tauri\target"
 
 # Kill anything on port 1420
 $conn = Get-NetTCPConnection -LocalPort 1420 -ErrorAction SilentlyContinue

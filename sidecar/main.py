@@ -5,7 +5,7 @@ import sys
 from sidecar.ipc import IPC, Command, Event
 from sidecar.hardware import detect as detect_hardware
 from sidecar.recorder import Recorder
-from sidecar.models import download_model_async
+from sidecar.models import benchmark_model_async, download_model_async
 
 
 def main() -> None:
@@ -37,7 +37,8 @@ def main() -> None:
 
         elif cmd == Command.DOWNLOAD_MODEL:
             token = payload.get("token") or None
-            download_model_async(hw.model_name, ipc, token=token)
+            model_name = payload.get("model") or hw.model_name
+            download_model_async(model_name, ipc, token=token)
 
         elif cmd == Command.SET_MODEL:
             model_name = payload.get("model", "")
@@ -45,6 +46,16 @@ def main() -> None:
                 recorder.set_model(model_name)
             elif not model_name:
                 ipc.send(Event.ERROR, msg="set_model requires a 'model' field")
+
+        elif cmd == Command.BENCHMARK_MODEL:
+            model_name = payload.get("model", "")
+            audio_path = payload.get("audio_path") or payload.get("audioPath") or ""
+            if not model_name:
+                ipc.send(Event.ERROR, msg="benchmark_model requires a 'model' field")
+            elif not audio_path:
+                ipc.send(Event.ERROR, msg="Record audio before running a benchmark")
+            else:
+                benchmark_model_async(model_name, audio_path, ipc)
 
         elif cmd == Command.SET_DICTIONARY:
             words = payload.get("words", [])

@@ -6,8 +6,9 @@ export const stopPtt = () => invoke("stop_ptt");
 export const toggleHandsfree = () => invoke("toggle_handsfree");
 export const pingSidecar = () => invoke("ping_sidecar");
 export const detectHardware = () => invoke("detect_hardware");
-export const downloadModel = (token?: string) => invoke("download_model", token ? { token } : {});
+export const downloadModel = (model?: string, token?: string) => invoke("download_model", { model, token });
 export const setModel = (model: string) => invoke("set_model", { model });
+export const benchmarkModel = (model: string, audioPath?: string | null) => invoke("benchmark_model", { model, audioPath });
 export const setDictionary = (words: string[]) => invoke("set_dictionary", { words });
 export const injectText = (text: string) => invoke("inject_text", { text });
 
@@ -24,6 +25,39 @@ export interface StageTiming {
   inject_ms?: number; // added by frontend after inject completes
 }
 
+export interface HardwareInfo {
+  tier: string;
+  model: string;
+  preferred_model?: string;
+  ram_gb: number;
+  has_nvidia_cuda?: boolean;
+  nvidia_vram_gb?: number;
+  free_disk_gb?: number;
+  platform?: string;
+  platform_release?: string;
+  machine?: string;
+  cpu_name?: string;
+  cpu_cores?: number;
+  cpu_threads?: number;
+  gpus?: Array<{ name: string; vram_gb?: number }>;
+  has_amd_gpu?: boolean;
+  has_intel_gpu?: boolean;
+  ai_accelerators?: string[];
+  detection_notes?: string[];
+}
+
+export interface BenchmarkResult {
+  model: string;
+  runtime: string;
+  device: string;
+  compute_type: string;
+  load_ms: number;
+  transcribe_ms: number;
+  audio_duration_ms: number;
+  rtf: number;
+  text: string;
+}
+
 export type SidecarMessage =
   | { event: "ready" }
   | { event: "word"; text: string; partial: boolean }
@@ -32,8 +66,17 @@ export type SidecarMessage =
   | { event: "error"; msg: string }
   | { event: "pong" }
   | { event: "status"; msg: string }
-  | { event: "hardware"; tier: string; model: string; ram_gb: number }
-  | { event: "download_progress"; model: string; percent: number };
+  | ({ event: "hardware" } & HardwareInfo)
+  | {
+      event: "download_progress";
+      model: string;
+      percent: number;
+      bytes_downloaded?: number;
+      bytes_total?: number;
+      downloaded_label?: string;
+      total_label?: string;
+    }
+  | ({ event: "benchmark_result" } & BenchmarkResult);
 
 export function onSidecarEvent(
   handler: (msg: SidecarMessage) => void

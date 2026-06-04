@@ -43,7 +43,7 @@ export default function ModelDownload({ onNext }: Props) {
     if (token) localStorage.setItem("sotto_hf_token", token);
     setPhase("downloading");
     setProgress(0);
-    downloadModel(token || undefined).catch(() => {});
+    downloadModel(modelName, token || undefined).catch(() => {});
   };
 
   return (
