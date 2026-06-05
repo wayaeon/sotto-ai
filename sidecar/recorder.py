@@ -77,16 +77,13 @@ def _worker_loop(model_path: str, task_q, result_q) -> None:  # type: ignore[typ
 
 def _pcm16_level(data: bytes) -> float:
     """Return normalized RMS level for little-endian signed 16-bit PCM."""
+    import numpy as np
     sample_bytes = len(data) - (len(data) % 2)
     if sample_bytes <= 0:
         return 0.0
 
-    total = 0
-    count = sample_bytes // 2
-    for (sample,) in struct.iter_unpack("<h", data[:sample_bytes]):
-        total += sample * sample
-
-    rms = (total / count) ** 0.5
+    samples = np.frombuffer(data[:sample_bytes], dtype=np.int16)
+    rms = np.sqrt(np.mean(samples.astype(np.float64) ** 2))
     return min(1.0, rms / 32768.0)
 
 
