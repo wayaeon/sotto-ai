@@ -58,6 +58,12 @@ const MODEL_CANDIDATES: ModelCandidate[] = [
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Returns a human-readable label for a model ID, falling back to the last path segment. */
+function modelLabel(id: string): string {
+  const parts = id.split("/");
+  return MODEL_CANDIDATES.find(m => m.id === id)?.label ?? parts[parts.length - 1] ?? id;
+}
+
 function statusColor(s: StageStatus) {
   if (s === "active") return "#a855f7";
   if (s === "done")   return "#22c55e";
@@ -519,9 +525,9 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
       addLog(`⚠️ ${model.label} can download, but needs a ${model.runtime} benchmark/runtime adapter before activation`);
       return;
     }
-    updateStage("model", { status: "active", detail: `Activating ${model.id}…` });
+    updateStage("model", { status: "active", detail: `Activating ${model.label}…` });
     setModel(model.id)
-      .then(() => addLog(`✅ Activation requested: ${model.id}`))
+      .then(() => addLog(`✅ Activation requested: ${model.label}`))
       .catch(() => addLog(`🔴 Failed to activate ${model.id}`));
   }
 
@@ -583,10 +589,10 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
           setSelectedModel(msg.model);
           const preferred = (msg as any).preferred_model as string | undefined;
           const detail = preferred && preferred !== msg.model
-            ? `${msg.model} (preferred: ${preferred} — not downloaded)`
-            : `${msg.model}`;
+            ? `${modelLabel(msg.model)} (preferred: ${modelLabel(preferred)} — not downloaded)`
+            : modelLabel(msg.model);
           updateStage("model", { status: "done", detail });
-          addLog(`✅ Model: ${msg.model} (tier ${msg.tier}, ${msg.ram_gb}GB RAM)`);
+          addLog(`✅ Model: ${modelLabel(msg.model)} (tier ${msg.tier}, ${msg.ram_gb}GB RAM)`);
           break;
         }
 
@@ -706,15 +712,15 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               [mdl]: `${msg.downloaded_label ?? "0 B"} / ${msg.total_label ?? "unknown"}`,
             }));
           }
-          updateStage("model", { status: "active", detail: `Downloading ${mdl} — ${pct.toFixed(0)}%`, progress: pct });
-          if (pct >= 100) setTimeout(() => updateStage("model", { status: "done", detail: `${mdl} · ready`, progress: undefined }), 800);
+          updateStage("model", { status: "active", detail: `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`, progress: pct });
+          if (pct >= 100) setTimeout(() => updateStage("model", { status: "done", detail: `${modelLabel(mdl)} · ready`, progress: undefined }), 800);
           break;
         }
 
         case "benchmark_result": {
           setBenchmarkingModel(prev => prev === msg.model ? null : prev);
           setBenchmarkResults(prev => [msg, ...prev].slice(0, 12));
-          addLog(`✅ Benchmark ${msg.model}: ${fmtMs(msg.transcribe_ms)} · RTF ${msg.rtf}x`);
+          addLog(`✅ Benchmark ${modelLabel(msg.model)}: ${fmtMs(msg.transcribe_ms)} · RTF ${msg.rtf}x`);
           break;
         }
 
