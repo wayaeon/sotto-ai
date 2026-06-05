@@ -45,10 +45,10 @@ def load_model(model_path: str, device: str, compute_type: str) -> Any:
     d = Path(model_path)
     provider = _get_provider(device)
 
-    # Find model files
-    encoder = _find_file(d, ["encoder*.onnx", "encoder*.int8.onnx"])
-    decoder = _find_file(d, ["decoder*.onnx"])
-    joiner  = _find_file(d, ["joiner*.onnx", "joiner*.int8.onnx"])
+    # Find model files — prefer int8 quantized variants for efficiency
+    encoder = _find_file(d, ["encoder*.int8.onnx", "encoder*.onnx"])
+    decoder = _find_file(d, ["decoder*.int8.onnx", "decoder*.onnx"])
+    joiner  = _find_file(d, ["joiner*.int8.onnx", "joiner*.onnx"])
     tokens  = _find_file(d, ["tokens.txt"])
 
     if not all([encoder, decoder, joiner, tokens]):

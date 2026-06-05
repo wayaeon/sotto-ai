@@ -35,11 +35,8 @@ def load_model(model_path: str, device: str, compute_type: str) -> Any:
 
     model_dir = Path(model_path)
 
-    # Detect SenseVoice by checking for configuration or model file
-    is_sensevoice = any(
-        (model_dir / f).exists()
-        for f in ("configuration.json", "SenseVoiceSmall.onnx")
-    ) and "sensevoice" in str(model_path).lower()
+    # Detect SenseVoice by path name (FunASR format: model.pt + config.yaml, no config.json)
+    is_sensevoice = "sensevoice" in str(model_path).lower()
 
     if is_sensevoice:
         try:

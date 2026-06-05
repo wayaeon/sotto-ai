@@ -51,7 +51,7 @@ MODEL_CATALOG: dict[str, ModelSpec] = {
     "nvidia/canary-1b-flash": ModelSpec("nvidia/canary-1b-flash", "nemo", True, True, int(4.0 * 1024**3)),
     "distil-whisper/distil-large-v3.5": ModelSpec("distil-whisper/distil-large-v3.5", "transformers", True, True, int(1.5 * 1024**3)),
     "FunAudioLLM/SenseVoiceSmall": ModelSpec("FunAudioLLM/SenseVoiceSmall", "transformers", True, True, int(500 * 1024**2)),
-    "UsefulSensors/moonshine": ModelSpec("UsefulSensors/moonshine", "transformers", True, True, int(200 * 1024**2)),
+    "UsefulSensors/moonshine-base": ModelSpec("UsefulSensors/moonshine-base", "transformers", True, True, int(200 * 1024**2)),
     "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01": ModelSpec("csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", "onnx", True, True, int(100 * 1024**2)),
 }
 
