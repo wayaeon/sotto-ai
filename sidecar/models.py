@@ -81,7 +81,23 @@ def model_dir(model_name: str) -> Path:
 
 def is_downloaded(model_name: str) -> bool:
     d = model_dir(model_name)
-    return d.exists() and any(d.iterdir())
+    if not d.exists():
+        return False
+    spec = MODEL_CATALOG.get(model_name)
+    runtime = spec.runtime if spec else "faster-whisper"
+    if runtime == "faster-whisper":
+        return (d / "model.bin").exists()
+    elif runtime == "nemo":
+        return any(d.glob("*.nemo"))
+    elif runtime == "onnx":
+        return any(d.glob("*.onnx"))
+    elif runtime == "transformers":
+        return (
+            (d / "model.safetensors").exists()
+            or (d / "pytorch_model.bin").exists()
+            or (d / "model.pt").exists()
+        )
+    return any(d.iterdir())
 
 
 def best_available_model(preferred: str) -> str:
