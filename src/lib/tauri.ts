@@ -78,7 +78,8 @@ export type SidecarMessage =
       downloaded_label?: string;
       total_label?: string;
     }
-  | ({ event: "benchmark_result" } & BenchmarkResult);
+  | ({ event: "benchmark_result" } & BenchmarkResult)
+  | { event: "audio_level"; level: number };
 
 export function onSidecarEvent(
   handler: (msg: SidecarMessage) => void
