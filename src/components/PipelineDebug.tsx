@@ -47,13 +47,13 @@ const MODEL_CANDIDATES: ModelCandidate[] = [
   { id: "small", label: "small CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "86-92%", expectedLatencyLabel: "0.8-2s CPU", sizeLabel: "~460 MB", sourceUrl: "https://huggingface.co/Systran/faster-whisper-small", downloadSupported: true, benchmarkSupported: true, note: "Fast local fallback for lower-power PCs." },
   { id: "base", label: "base CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "78-86%", expectedLatencyLabel: "0.3-1s CPU", sizeLabel: "~145 MB", sourceUrl: "https://huggingface.co/Systran/faster-whisper-base", downloadSupported: true, benchmarkSupported: true, note: "Speed test model; accuracy is limited." },
   { id: "tiny", label: "tiny CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "65-78%", expectedLatencyLabel: "<500ms CPU", sizeLabel: "~75 MB", sourceUrl: "https://huggingface.co/Systran/faster-whisper-tiny", downloadSupported: true, benchmarkSupported: true, note: "Smallest fallback for quick smoke tests." },
-  { id: "nvidia/parakeet-tdt-0.6b-v3", label: "TDT 0.6B v3", family: "Parakeet", runtime: "nemo", accuracyLabel: "94-98%", expectedLatencyLabel: "<1s GPU", sizeLabel: "TBD", sourceUrl: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3", downloadSupported: true, benchmarkSupported: false, note: "Can cache locally; needs NeMo runtime." },
-  { id: "nvidia/parakeet-tdt-0.6b-v2", label: "TDT 0.6B v2", family: "Parakeet", runtime: "nemo", accuracyLabel: "93-97%", expectedLatencyLabel: "<1s GPU", sizeLabel: "TBD", sourceUrl: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", downloadSupported: true, benchmarkSupported: false, note: "Can cache locally; needs NeMo runtime." },
-  { id: "nvidia/canary-1b-flash", label: "1B Flash", family: "Canary", runtime: "nemo", accuracyLabel: "93-97%", expectedLatencyLabel: "1-3s GPU", sizeLabel: "TBD", sourceUrl: "https://huggingface.co/nvidia/canary-1b-flash", downloadSupported: true, benchmarkSupported: false, note: "Can cache locally; needs NeMo runtime." },
-  { id: "distil-whisper/distil-large-v3.5", label: "large-v3.5", family: "Distil-Whisper", runtime: "transformers", accuracyLabel: "91-95%", expectedLatencyLabel: "1-2s GPU", sizeLabel: "TBD", sourceUrl: "https://huggingface.co/distil-whisper/distil-large-v3.5", downloadSupported: true, benchmarkSupported: false, note: "Can cache locally; needs Transformers runtime." },
-  { id: "FunAudioLLM/SenseVoiceSmall", label: "Small", family: "SenseVoice", runtime: "transformers", accuracyLabel: "85-92%", expectedLatencyLabel: "0.5-2s", sizeLabel: "TBD", sourceUrl: "https://huggingface.co/FunAudioLLM/SenseVoiceSmall", downloadSupported: true, benchmarkSupported: false, note: "Can cache locally; adds metadata potential." },
-  { id: "UsefulSensors/moonshine", label: "Moonshine", family: "Moonshine", runtime: "transformers", accuracyLabel: "80-88%", expectedLatencyLabel: "<500ms", sizeLabel: "TBD", sourceUrl: "https://huggingface.co/UsefulSensors/moonshine", downloadSupported: true, benchmarkSupported: false, note: "Can cache locally; promising realtime option." },
-  { id: "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", label: "Zipformer EN", family: "sherpa-onnx", runtime: "onnx", accuracyLabel: "82-90%", expectedLatencyLabel: "<500ms CPU", sizeLabel: "varies", sourceUrl: "https://huggingface.co/csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", downloadSupported: true, benchmarkSupported: false, note: "Can cache locally; needs ONNX runtime." },
+  { id: "nvidia/parakeet-tdt-0.6b-v3", label: "TDT 0.6B v3", family: "Parakeet", runtime: "nemo", accuracyLabel: "94-98%", expectedLatencyLabel: "<1s GPU/DirectML", sizeLabel: "~2.4 GB", sourceUrl: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3", downloadSupported: true, benchmarkSupported: true, note: "Best accuracy + speed on GPU/DirectML. Recommended for CUDA and AMD GPU." },
+  { id: "nvidia/parakeet-tdt-0.6b-v2", label: "TDT 0.6B v2", family: "Parakeet", runtime: "nemo", accuracyLabel: "93-97%", expectedLatencyLabel: "<1s GPU/DirectML", sizeLabel: "~2.4 GB", sourceUrl: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", downloadSupported: true, benchmarkSupported: true, note: "Previous Parakeet generation. Good fallback if v3 unavailable." },
+  { id: "nvidia/canary-1b-flash", label: "1B Flash", family: "Canary", runtime: "nemo", accuracyLabel: "93-97%", expectedLatencyLabel: "1-3s GPU/DirectML", sizeLabel: "~4.0 GB", sourceUrl: "https://huggingface.co/nvidia/canary-1b-flash", downloadSupported: true, benchmarkSupported: true, note: "Multilingual NeMo model. Slower than Parakeet but broader language support." },
+  { id: "distil-whisper/distil-large-v3.5", label: "large-v3.5", family: "Distil-Whisper", runtime: "transformers", accuracyLabel: "91-95%", expectedLatencyLabel: "1-2s GPU/DirectML", sizeLabel: "~1.5 GB", sourceUrl: "https://huggingface.co/distil-whisper/distil-large-v3.5", downloadSupported: true, benchmarkSupported: true, note: "Distilled Whisper — fast on GPU with near-large accuracy." },
+  { id: "FunAudioLLM/SenseVoiceSmall", label: "Small", family: "SenseVoice", runtime: "transformers", accuracyLabel: "85-92%", expectedLatencyLabel: "0.5-2s", sizeLabel: "~500 MB", sourceUrl: "https://huggingface.co/FunAudioLLM/SenseVoiceSmall", downloadSupported: true, benchmarkSupported: true, note: "Fast with emotion/language metadata. Uses FunASR runtime." },
+  { id: "UsefulSensors/moonshine", label: "Moonshine", family: "Moonshine", runtime: "transformers", accuracyLabel: "80-88%", expectedLatencyLabel: "<500ms", sizeLabel: "~200 MB", sourceUrl: "https://huggingface.co/UsefulSensors/moonshine", downloadSupported: true, benchmarkSupported: true, note: "Ultra-fast English model. Best CPU/DirectML speed option." },
+  { id: "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", label: "Zipformer EN", family: "sherpa-onnx", runtime: "onnx", accuracyLabel: "82-90%", expectedLatencyLabel: "<500ms CPU/NPU", sizeLabel: "~100 MB", sourceUrl: "https://huggingface.co/csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", downloadSupported: true, benchmarkSupported: true, note: "ONNX runtime — works on CPU, DirectML, and NPU. Smallest footprint." },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -264,6 +264,7 @@ function ModelsBenchmarkPanel({
             <Spec label="Disk free" value={hardware?.free_disk_gb != null ? `${hardware.free_disk_gb} GB` : "unknown"} width={92} />
             <Spec label="GPU" value={gpuSummary} width={230} />
             <Spec label="CUDA" value={hardware?.has_nvidia_cuda ? `yes · ${hardware.nvidia_vram_gb ?? 0} GB` : "no"} width={56} />
+            <Spec label="DirectML" value={hardware?.device_tier === "directml" ? "yes" : hardware?.device_str === "directml" ? "yes" : "no"} width={56} />
             <Spec label="AMD GPU" value={hardware?.has_amd_gpu ? "yes" : "no"} width={68} />
             <Spec label="AI / NPU" value={acceleratorSummary} width={275} />
             <Spec label="Recommended" value={hardware?.preferred_model ?? hardware?.model ?? "unknown"} width={104} />
@@ -627,13 +628,23 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
           } else if (msg.msg === "loading_model") {
             updateStage("model", { status: "active", detail: "Loading model from disk…" });
           } else if (msg.msg.startsWith("worker_ready")) {
-            // e.g. "worker_ready device=cuda compute=float16"
+            // e.g. "worker_ready device=cuda compute=float16 runtime=faster-whisper"
             const parts = Object.fromEntries(
               msg.msg.split(" ").slice(1).map(p => p.split("="))
             );
             const device  = parts.device  ?? "cpu";
             const compute = parts.compute ?? "int8";
-            const badge   = device === "cuda" ? `⚡ GPU · ${compute}` : `💻 CPU · ${compute}`;
+            const runtime = parts.runtime ?? "faster-whisper";
+            let badge: string;
+            if (device === "cuda") {
+              badge = `⚡ GPU · CUDA · ${compute}`;
+            } else if (device === "directml") {
+              badge = `🔷 GPU · DirectML · ${runtime}`;
+            } else if (device === "npu") {
+              badge = `🔮 NPU · ONNX`;
+            } else {
+              badge = `💻 CPU · ${compute}`;
+            }
             updateStage("model", { status: "done", detail: badge });
             addLog(`✅ Worker ready — ${badge}`);
           }

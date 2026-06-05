@@ -7,3 +7,12 @@ huggingface_hub>=0.23
 anthropic>=0.40
 websockets>=13
 requests>=2.32
+
+# Optional runtime deps — installed only if needed for specific models
+torch-directml; sys_platform == "win32"
+onnxruntime-directml; sys_platform == "win32"
+nemo_toolkit[asr]
+transformers>=4.40
+accelerate
+funasr
+sherpa-onnx

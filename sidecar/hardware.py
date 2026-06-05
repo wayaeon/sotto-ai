@@ -12,22 +12,64 @@ from enum import Enum
 
 
 class ModelTier(str, Enum):
-    TIER1 = "tier1"        # large-v3-turbo, ≥16GB RAM (or NVIDIA GPU ≥6GB VRAM)
-    TIER2 = "tier2"        # large-v3-turbo via GPU
-    TIER3_EN = "tier3_en"  # medium.en, 8-16GB RAM English-only
-    TIER3_ML = "tier3_ml"  # medium, 8-16GB RAM multilingual
-    TIER4_CLOUD = "tier4"  # small, <8GB RAM (still local — "cloud" tier name kept for compat)
+    TIER_CUDA_HIGH = "cuda_high"   # CUDA ≥6GB VRAM → Parakeet TDT v3
+    TIER_CUDA_LOW  = "cuda_low"    # CUDA <6GB VRAM → large-v3-turbo
+    TIER_DIRECTML  = "directml"    # AMD/Intel GPU → Parakeet TDT v3 via DirectML
+    TIER_NPU       = "npu"         # AMD/Intel NPU → sherpa-onnx
+    TIER_CPU       = "cpu"         # CPU only → small
+    # Legacy aliases kept for compat with any code that still references them
+    TIER1       = "cuda_high"
+    TIER2       = "cuda_low"
+    TIER3_EN    = "cpu"
+    TIER3_ML    = "cpu"
+    TIER4_CLOUD = "cpu"
+
+
+class DeviceTier(str, Enum):
+    CUDA     = "cuda"
+    DIRECTML = "directml"
+    NPU      = "npu"
+    CPU      = "cpu"
 
 
 # Model names must be exactly what faster-whisper / RealtimeSTT accepts:
 # short IDs (auto-download from HF) or local CTranslate2 directory paths.
 MODEL_NAMES: dict[ModelTier, str] = {
-    ModelTier.TIER1:       "large-v3-turbo",  # ~3.1 GB
-    ModelTier.TIER2:       "large-v3-turbo",  # same model, GPU accelerated
-    ModelTier.TIER3_EN:    "medium.en",       # ~1.5 GB, English only
-    ModelTier.TIER3_ML:    "medium",          # ~1.5 GB, multilingual
-    ModelTier.TIER4_CLOUD: "small",           # ~460 MB, lowest RAM
+    ModelTier.TIER_CUDA_HIGH: "nvidia/parakeet-tdt-0.6b-v3",
+    ModelTier.TIER_CUDA_LOW:  "large-v3-turbo",
+    ModelTier.TIER_DIRECTML:  "nvidia/parakeet-tdt-0.6b-v3",
+    ModelTier.TIER_NPU:       "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01",
+    ModelTier.TIER_CPU:       "small",
 }
+
+
+def detect_device(
+    has_nvidia_cuda: bool,
+    nvidia_vram_gb: float,
+    ai_accelerators: list[str],
+) -> tuple[DeviceTier, str]:
+    """Probe hardware in priority order and return (tier, device_str).
+
+    Priority: CUDA → DirectML → NPU → CPU
+    device_str is passed directly to runtime adapters.
+    """
+    if has_nvidia_cuda:
+        return (DeviceTier.CUDA, "cuda")
+
+    # Check DirectML (AMD/Intel GPU via onnxruntime)
+    try:
+        import onnxruntime
+        providers = onnxruntime.get_available_providers()
+        if "DmlExecutionProvider" in providers:
+            return (DeviceTier.DIRECTML, "directml")
+    except Exception:
+        pass
+
+    # Check NPU (AMD Ryzen AI / Intel NPU)
+    if ai_accelerators:
+        return (DeviceTier.NPU, "npu")
+
+    return (DeviceTier.CPU, "cpu")
 
 
 @dataclass
@@ -47,21 +89,33 @@ class HardwareInfo:
     machine: str = field(default_factory=platform_module.machine)
     tier: ModelTier = field(init=False)
     model_name: str = field(init=False)
+    device_tier: DeviceTier = field(init=False)
+    device_str: str = field(init=False)
 
     def __post_init__(self) -> None:
         self.tier = self._assign_tier()
-        self.model_name = MODEL_NAMES[self.tier]
+        self.model_name = MODEL_NAMES.get(self.tier, "small")
+        self.device_tier, self.device_str = detect_device(
+            self.has_nvidia_cuda, self.nvidia_vram_gb, self.ai_accelerators
+        )
 
     def _assign_tier(self) -> ModelTier:
         if self.free_disk_gb < 0.5 or self.ram_gb < 4:
-            return ModelTier.TIER4_CLOUD   # small model
-        if self.has_nvidia_cuda and self.nvidia_vram_gb >= 6:
-            return ModelTier.TIER2         # large-v3-turbo on GPU — fast
-        # CPU-only: large-v3-turbo is unusably slow without a GPU.
-        # Cap at medium.en regardless of RAM — it's the best CPU model.
-        if self.ram_gb >= 8:
-            return ModelTier.TIER3_EN      # medium.en, fast on CPU
-        return ModelTier.TIER4_CLOUD       # small model
+            return ModelTier.TIER_CPU
+        if self.has_nvidia_cuda:
+            if self.nvidia_vram_gb >= 6:
+                return ModelTier.TIER_CUDA_HIGH
+            return ModelTier.TIER_CUDA_LOW
+        # Check DirectML availability
+        try:
+            import onnxruntime
+            if "DmlExecutionProvider" in onnxruntime.get_available_providers():
+                return ModelTier.TIER_DIRECTML
+        except Exception:
+            pass
+        if self.ai_accelerators:
+            return ModelTier.TIER_NPU
+        return ModelTier.TIER_CPU
 
     def to_dict(self) -> dict:
         from .models import best_available_model
@@ -85,6 +139,8 @@ class HardwareInfo:
             "has_intel_gpu": any("intel" in str(gpu.get("name", "")).lower() for gpu in self.gpus),
             "ai_accelerators": self.ai_accelerators,
             "detection_notes": self.detection_notes,
+            "device_tier": self.device_tier.value,
+            "device_str": self.device_str,
         }
 
 

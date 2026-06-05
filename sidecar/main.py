@@ -14,7 +14,7 @@ def main() -> None:
     # Detect hardware and create recorder immediately — no IPC handshake needed
     hw = detect_hardware()
     ipc.send(Event.HARDWARE, **hw.to_dict())
-    recorder = Recorder(ipc=ipc, tier=hw.tier)
+    recorder = Recorder(ipc=ipc, hw=hw)
 
     ipc.send(Event.READY)
 

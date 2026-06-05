@@ -46,13 +46,13 @@ MODEL_CATALOG: dict[str, ModelSpec] = {
     "small": ModelSpec("Systran/faster-whisper-small", "faster-whisper", True, True, int(460 * 1024**2)),
     "base": ModelSpec("Systran/faster-whisper-base", "faster-whisper", True, True, int(145 * 1024**2)),
     "tiny": ModelSpec("Systran/faster-whisper-tiny", "faster-whisper", True, True, int(75 * 1024**2)),
-    "nvidia/parakeet-tdt-0.6b-v3": ModelSpec("nvidia/parakeet-tdt-0.6b-v3", "nemo", True, False),
-    "nvidia/parakeet-tdt-0.6b-v2": ModelSpec("nvidia/parakeet-tdt-0.6b-v2", "nemo", True, False),
-    "nvidia/canary-1b-flash": ModelSpec("nvidia/canary-1b-flash", "nemo", True, False),
-    "distil-whisper/distil-large-v3.5": ModelSpec("distil-whisper/distil-large-v3.5", "transformers", True, False),
-    "FunAudioLLM/SenseVoiceSmall": ModelSpec("FunAudioLLM/SenseVoiceSmall", "transformers", True, False),
-    "UsefulSensors/moonshine": ModelSpec("UsefulSensors/moonshine", "transformers", True, False),
-    "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01": ModelSpec("csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", "onnx", True, False),
+    "nvidia/parakeet-tdt-0.6b-v3": ModelSpec("nvidia/parakeet-tdt-0.6b-v3", "nemo", True, True, int(2.4 * 1024**3)),
+    "nvidia/parakeet-tdt-0.6b-v2": ModelSpec("nvidia/parakeet-tdt-0.6b-v2", "nemo", True, True, int(2.4 * 1024**3)),
+    "nvidia/canary-1b-flash": ModelSpec("nvidia/canary-1b-flash", "nemo", True, True, int(4.0 * 1024**3)),
+    "distil-whisper/distil-large-v3.5": ModelSpec("distil-whisper/distil-large-v3.5", "transformers", True, True, int(1.5 * 1024**3)),
+    "FunAudioLLM/SenseVoiceSmall": ModelSpec("FunAudioLLM/SenseVoiceSmall", "transformers", True, True, int(500 * 1024**2)),
+    "UsefulSensors/moonshine": ModelSpec("UsefulSensors/moonshine", "transformers", True, True, int(200 * 1024**2)),
+    "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01": ModelSpec("csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", "onnx", True, True, int(100 * 1024**2)),
 }
 
 MODEL_DOWNLOAD_SIZES: dict[str, int] = {
@@ -300,8 +300,8 @@ def _benchmark_model(
         ipc.send(Event.ERROR, msg=f"Unknown model: {model_name}")
         return
 
-    if not spec.benchmark_supported or spec.runtime != "faster-whisper":
-        ipc.send(Event.ERROR, msg=f"Benchmark runtime not wired for model: {model_name}")
+    if not spec.benchmark_supported:
+        ipc.send(Event.ERROR, msg=f"Benchmark not supported for model: {model_name}")
         return
 
     path = Path(audio_path)
@@ -314,21 +314,38 @@ def _benchmark_model(
         return
 
     try:
-        from faster_whisper import WhisperModel
-        import torch
-        model_path = str(model_dir(model_name))
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        from .runtimes import get_adapter
+        try:
+            import ctranslate2
+            has_cuda = ctranslate2.get_cuda_device_count() > 0
+        except Exception:
+            has_cuda = False
+
+        # Determine device using same priority as live pipeline
+        device = "cpu"
+        if has_cuda:
+            device = "cuda"
+        else:
+            try:
+                import onnxruntime
+                if "DmlExecutionProvider" in onnxruntime.get_available_providers():
+                    device = "directml"
+            except Exception:
+                pass
+
         compute_type = "float16" if device == "cuda" else "int8"
+        model_path_str = str(model_dir(model_name))
+
+        adapter = get_adapter(spec.runtime)
 
         load_start = time.perf_counter()
-        model = WhisperModel(model_path, device=device, compute_type=compute_type)
+        model = adapter.load_model(model_path_str, device, compute_type)
         load_ms = round((time.perf_counter() - load_start) * 1000)
 
         audio_duration_ms = _wav_duration_ms(path)
 
         transcribe_start = time.perf_counter()
-        segments, _ = model.transcribe(str(path), language=None)
-        text = " ".join(segment.text.strip() for segment in segments).strip()
+        text = adapter.transcribe(model, str(path))
         transcribe_ms = round((time.perf_counter() - transcribe_start) * 1000)
         rtf = round(transcribe_ms / max(audio_duration_ms, 1), 3)
         score = score_transcript(reference_text, text)
@@ -336,7 +353,7 @@ def _benchmark_model(
         ipc.send(
             Event.BENCHMARK_RESULT,
             model=model_name,
-            runtime="faster-whisper",
+            runtime=spec.runtime,
             device=device,
             compute_type=compute_type,
             mode=mode,

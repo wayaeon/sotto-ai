@@ -44,6 +44,8 @@ export interface HardwareInfo {
   has_intel_gpu?: boolean;
   ai_accelerators?: string[];
   detection_notes?: string[];
+  device_tier?: string;   // "cuda" | "directml" | "npu" | "cpu"
+  device_str?: string;    // same values, the string passed to runtime adapters
 }
 
 export interface BenchmarkResult {
