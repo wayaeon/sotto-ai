@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open as openPath } from "@tauri-apps/plugin-shell";
 import { listen } from "@tauri-apps/api/event";
-import { benchmarkModel, checkDownloads, detectHardware, downloadModel, onSidecarEvent, setModel } from "../lib/tauri";
+import { benchmarkModel, checkDownloads, detectHardware, downloadModel, pauseDownloadModel, onSidecarEvent, setModel } from "../lib/tauri";
 import type { BenchmarkResult, HardwareInfo, StageTiming } from "../lib/tauri";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -221,27 +221,35 @@ function ModelsBenchmarkPanel({
   selectedModel,
   downloading,
   downloadLabels,
+  pausedDownloads,
   benchmarkingModel,
   results,
   audioPath,
   onRefreshHardware,
   onDownload,
+  onPauseDownload,
   onActivate,
   onBenchmark,
   onOpenSource,
+  onCopyResults,
+  onClearResults,
 }: {
   hardware: HardwareInfo | null;
   selectedModel: string;
   downloading: Record<string, number>;
   downloadLabels: Record<string, string>;
+  pausedDownloads: Record<string, boolean>;
   benchmarkingModel: string | null;
   results: BenchmarkResult[];
   audioPath: string | null;
   onRefreshHardware: () => void;
   onDownload: (model: string) => void;
+  onPauseDownload: (model: string) => void;
   onActivate: (model: ModelCandidate) => void;
   onBenchmark: (model: string) => void;
   onOpenSource: (url: string) => void;
+  onCopyResults: () => void;
+  onClearResults: () => void;
 }) {
   const gpuSummary = hardware?.gpus?.length
     ? hardware.gpus.map((gpu) => `${gpu.name}${gpu.vram_gb ? ` · ${gpu.vram_gb} GB` : ""}`).join(" | ")
@@ -358,22 +366,27 @@ function ModelsBenchmarkPanel({
                   style={{
                     ...css.tableIconBtn,
                     ...(isDownloading ? css.tableIconBtnActive : {}),
+                    ...(isPaused ? css.tableIconBtnPaused : {}),
                     ...(isCachedThisSession ? css.tableIconBtnReady : {}),
                     ...(!model.downloadSupported ? css.disabledIconBtn : {}),
                     width: isDownloading ? 42 : 28,
                   }}
-                  disabled={!model.downloadSupported || isDownloading || isCachedThisSession}
+                  disabled={!model.downloadSupported || isCachedThisSession}
                   title={
                     !model.downloadSupported
                       ? "Local app download is not wired yet"
                       : isCachedThisSession
                         ? "Cached locally for this session"
-                        : `Download/cache locally (${model.sizeLabel})`
+                        : isPaused
+                          ? "Resume download"
+                          : isDownloading
+                            ? "Pause download"
+                            : `Download/cache locally (${model.sizeLabel})`
                   }
                   aria-label={model.downloadSupported ? `Download ${model.label} locally` : `${model.label} local download is not wired`}
-                  onClick={() => onDownload(model.id)}
+                  onClick={() => isDownloading && !isPaused ? onPauseDownload(model.id) : onDownload(model.id)}
                 >
-                  {isDownloading ? `${progress.toFixed(0)}%` : isCachedThisSession ? "✓" : "↓"}
+                  {isPaused ? "▶" : isDownloading ? "||" : isCachedThisSession ? "✓" : "↓"}
                 </button>
                 <button
                   style={css.tableIconBtn}
@@ -404,7 +417,13 @@ function ModelsBenchmarkPanel({
       </div>
 
       <div style={css.resultsPanel}>
-        <div style={css.panelEyebrow}>Benchmark Results</div>
+        <div style={css.resultsHeader}>
+          <div style={css.panelEyebrow}>Benchmark Results</div>
+          <div style={css.resultsActions}>
+            <button style={{ ...css.smallBtn, ...(results.length === 0 ? css.disabledIconBtn : {}) }} disabled={results.length === 0} onClick={onCopyResults} title="Copy results to clipboard">📋 Copy</button>
+            <button style={{ ...css.smallBtn, ...(results.length === 0 ? css.disabledIconBtn : {}) }} disabled={results.length === 0} onClick={onClearResults} title="Clear results">🧹 Clear</button>
+          </div>
+        </div>
         {results.length === 0 ? (
           <div style={css.logEmpty}>No benchmark results yet.</div>
         ) : (
@@ -519,6 +538,11 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
     downloadModel(model).catch(() => addLog(`🔴 Failed to request download for ${model}`));
   }
 
+  function handlePauseDownload(model: string) {
+    setPausedDownloads(prev => ({ ...prev, [model]: true }));
+    pauseDownloadModel(model).catch(() => addLog(`🔴 Failed to pause download for ${model}`));
+  }
+
   function handleActivateModel(model: ModelCandidate) {
     setSelectedModel(model.id);
     if (!model.benchmarkSupported) {
@@ -536,6 +560,21 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
       window.open(url, "_blank", "noopener,noreferrer");
       addLog(`↗️ Opened source link: ${url}`);
     });
+  }
+
+  function handleCopyResults() {
+    if (benchmarkResults.length === 0) return;
+    const text = benchmarkResults.map(r =>
+      `${r.model}\t${r.device}\t${fmtMs(r.load_ms)}\t${fmtMs(r.transcribe_ms)}\t${r.rtf}x\t${r.text}`
+    ).join("\n");
+    navigator.clipboard.writeText(text)
+      .then(() => addLog(`📋 Copied ${benchmarkResults.length} result${benchmarkResults.length === 1 ? "" : "s"}`))
+      .catch(() => addLog("🔴 Failed to copy results"));
+  }
+
+  function handleClearResults() {
+    setBenchmarkResults([]);
+    addLog("🧹 Cleared benchmark results");
   }
 
   function handleBenchmark(model: string) {
@@ -705,15 +744,18 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
         case "download_progress": {
           const pct = (msg as any).percent as number;
           const mdl = (msg as any).model as string;
+          const paused = !!(msg as any).paused;
           setDownloading(prev => ({ ...prev, [mdl]: pct }));
-          if (msg.downloaded_label || msg.total_label) {
+          setPausedDownloads(prev => ({ ...prev, [mdl]: paused }));
+          if ((msg as any).downloaded_label || (msg as any).total_label) {
             setDownloadLabels(prev => ({
               ...prev,
-              [mdl]: `${msg.downloaded_label ?? "0 B"} / ${msg.total_label ?? "unknown"}`,
+              [mdl]: `${(msg as any).downloaded_label ?? "0 B"} / ${(msg as any).total_label ?? "unknown"}`,
             }));
           }
-          updateStage("model", { status: "active", detail: `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`, progress: pct });
-          if (pct >= 100) setTimeout(() => updateStage("model", { status: "done", detail: `${modelLabel(mdl)} · ready`, progress: undefined }), 800);
+          const status = paused ? "idle" : pct >= 100 ? "done" : "active";
+          const detail = paused ? `${modelLabel(mdl)} paused` : pct >= 100 ? `${modelLabel(mdl)} · ready` : `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`;
+          updateStage("model", { status: status as any, detail, progress: pct >= 100 ? undefined : pct });
           break;
         }
 
@@ -875,14 +917,18 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
             selectedModel={selectedModel}
             downloading={downloading}
             downloadLabels={downloadLabels}
+            pausedDownloads={pausedDownloads}
             benchmarkingModel={benchmarkingModel}
             results={benchmarkResults}
             audioPath={audioPath}
             onRefreshHardware={handleRefreshHardware}
             onDownload={handleDownload}
+            onPauseDownload={handlePauseDownload}
             onActivate={handleActivateModel}
             onBenchmark={handleBenchmark}
             onOpenSource={handleOpenModelSource}
+            onCopyResults={handleCopyResults}
+            onClearResults={handleClearResults}
           />
         </div>
       )}

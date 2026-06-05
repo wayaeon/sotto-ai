@@ -14,8 +14,8 @@ from .hardware import ModelTier
 if TYPE_CHECKING:
     from .ipc import IPC
 
-# Models are stored in user data dir
-_DATA_DIR = Path(os.environ.get("WISPR_DATA_DIR", Path.home() / ".sotto"))
+# Models are stored in ~/.verba
+_DATA_DIR = Path(os.environ.get("WISPR_DATA_DIR", Path.home() / ".verba"))
 MODELS_DIR = _DATA_DIR / "models"
 
 
@@ -176,7 +176,7 @@ def _http_get(
     with session.get(url, headers=headers, stream=True, timeout=60) as r:
         r.raise_for_status()
         with open(dest, "wb") as f:
-            for chunk in r.iter_content(chunk_size=4 * 1024 * 1024):
+            for chunk in r.iter_content(chunk_size=256 * 1024):
                 if not chunk:
                     continue
                 f.write(chunk)
@@ -269,57 +269,66 @@ def _snapshot_download_model(
     ipc: "IPC",
     token: str | None = None,
 ) -> None:
+    """Download via snapshot_download (handles LFS/auth) with disk-polling progress."""
+    import threading
     from .ipc import Event
 
     bytes_total = spec.approx_size_bytes or 0
-    state = {"bytes_done": 0}
+    done_event = threading.Event()
+    error: list[Exception] = []
 
-    def _emit(pct: float) -> None:
-        ipc.send(
-            Event.DOWNLOAD_PROGRESS,
-            model=model_name,
-            percent=pct,
-            bytes_downloaded=state["bytes_done"],
-            bytes_total=bytes_total,
-            downloaded_label=format_bytes(state["bytes_done"]),
-            total_label=format_bytes(bytes_total) if bytes_total else "unknown",
-        )
-
-    _emit(2.0)
-
-    try:
-        from huggingface_hub import snapshot_download
-        from tqdm.auto import tqdm as _BaseTqdm
-
-        class _ProgressTqdm(_BaseTqdm):
-            def update(self, n=1):
-                super().update(n)
-                if n and n > 0:
-                    state["bytes_done"] += n
-                    pct = min(99.0, state["bytes_done"] / bytes_total * 97 + 2.0) if bytes_total else 50.0
-                    _emit(pct)
-
+    def _download() -> None:
         try:
+            from huggingface_hub import snapshot_download
             snapshot_download(
                 repo_id=spec.repo_id,
                 local_dir=str(local_dir),
                 token=token,
-                tqdm_class=_ProgressTqdm,
+                ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
             )
-        except TypeError:
-            # huggingface_hub < 0.16 doesn't have tqdm_class
-            snapshot_download(repo_id=spec.repo_id, local_dir=str(local_dir), token=token)
+        except Exception as exc:
+            error.append(exc)
+        finally:
+            done_event.set()
 
+    thread = threading.Thread(target=_download, daemon=True)
+    thread.start()
+
+    def _dir_bytes() -> int:
+        try:
+            return sum(
+                f.stat().st_size for f in local_dir.rglob("*")
+                if f.is_file() and not f.suffix == ".incomplete"
+            )
+        except Exception:
+            return 0
+
+    while not done_event.wait(timeout=0.4):
+        bytes_done = _dir_bytes()
+        pct = min(99.0, bytes_done / bytes_total * 99.0) if bytes_total else 50.0
         ipc.send(
             Event.DOWNLOAD_PROGRESS,
             model=model_name,
-            percent=100.0,
+            percent=round(pct, 1),
+            bytes_downloaded=bytes_done,
             bytes_total=bytes_total,
-            downloaded_label="cached",
+            downloaded_label=format_bytes(bytes_done),
             total_label=format_bytes(bytes_total) if bytes_total else "unknown",
         )
-    except Exception as exc:
-        ipc.send(Event.ERROR, msg=f"Download failed for {model_name}: {exc}")
+
+    if error:
+        ipc.send(Event.ERROR, msg=f"Download failed for {model_name}: {error[0]}")
+        return
+
+    ipc.send(
+        Event.DOWNLOAD_PROGRESS,
+        model=model_name,
+        percent=100.0,
+        bytes_downloaded=_dir_bytes(),
+        bytes_total=bytes_total,
+        downloaded_label="cached",
+        total_label=format_bytes(bytes_total) if bytes_total else "unknown",
+    )
 
 
 def _benchmark_model(
