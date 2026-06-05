@@ -11,9 +11,11 @@ class Command(str, Enum):
     TOGGLE_HANDSFREE = "toggle_handsfree"
     DETECT_HARDWARE = "detect_hardware"
     DOWNLOAD_MODEL = "download_model"
+    PAUSE_DOWNLOAD_MODEL = "pause_download_model"
     SET_MODEL = "set_model"
     BENCHMARK_MODEL = "benchmark_model"
     SET_DICTIONARY = "set_dictionary"
+    CHECK_DOWNLOADS = "check_downloads"
     PING = "ping"
     QUIT = "quit"
 
@@ -29,6 +31,7 @@ class Event(str, Enum):
     DOWNLOAD_PROGRESS = "download_progress"
     BENCHMARK_RESULT = "benchmark_result"
     AUDIO_RECORDED = "audio_recorded"
+    AUDIO_LEVEL = "audio_level"
 
 
 class IPC:

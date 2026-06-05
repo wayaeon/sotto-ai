@@ -6,6 +6,7 @@ export const stopPtt = () => invoke("stop_ptt");
 export const toggleHandsfree = () => invoke("toggle_handsfree");
 export const pingSidecar = () => invoke("ping_sidecar");
 export const detectHardware = () => invoke("detect_hardware");
+export const checkDownloads = () => invoke("check_downloads");
 export const downloadModel = (model?: string, token?: string) => invoke("download_model", { model, token });
 export const setModel = (model: string) => invoke("set_model", { model });
 export const benchmarkModel = (model: string, audioPath?: string | null) => invoke("benchmark_model", { model, audioPath });

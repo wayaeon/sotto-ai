@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open as openPath } from "@tauri-apps/plugin-shell";
 import { listen } from "@tauri-apps/api/event";
-import { benchmarkModel, detectHardware, downloadModel, onSidecarEvent, setModel } from "../lib/tauri";
+import { benchmarkModel, checkDownloads, detectHardware, downloadModel, onSidecarEvent, setModel } from "../lib/tauri";
 import type { BenchmarkResult, HardwareInfo, StageTiming } from "../lib/tauri";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -733,6 +733,9 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   }, []);
 
   useEffect(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, [log]);
+
+  // Populate cached state for already-downloaded models on mount
+  useEffect(() => { checkDownloads(); }, []);
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 

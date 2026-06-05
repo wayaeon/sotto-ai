@@ -5,7 +5,7 @@ import sys
 from sidecar.ipc import IPC, Command, Event
 from sidecar.hardware import detect as detect_hardware
 from sidecar.recorder import Recorder
-from sidecar.models import benchmark_model_async, download_model_async
+from sidecar.models import benchmark_model_async, download_model_async, MODEL_CATALOG, is_downloaded
 
 
 def main() -> None:
@@ -28,7 +28,12 @@ def main() -> None:
             ipc.send(Event.ERROR, msg=f"Unknown command: {line!r}")
             continue
 
-        if cmd == Command.PING:
+        if cmd == Command.CHECK_DOWNLOADS:
+            for model_name in MODEL_CATALOG:
+                if is_downloaded(model_name):
+                    ipc.send(Event.DOWNLOAD_PROGRESS, model=model_name, percent=100.0, downloaded_label="cached")
+
+        elif cmd == Command.PING:
             ipc.send(Event.PONG)
 
         elif cmd == Command.DETECT_HARDWARE:
