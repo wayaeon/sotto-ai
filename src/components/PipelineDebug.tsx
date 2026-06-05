@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open as openPath } from "@tauri-apps/plugin-shell";
 import { listen } from "@tauri-apps/api/event";
-import { benchmarkModel, checkDownloads, detectHardware, downloadModel, pauseDownloadModel, onSidecarEvent, setModel } from "../lib/tauri";
+import { benchmarkModel, checkDownloads, detectHardware, downloadModel, onSidecarEvent, setModel } from "../lib/tauri";
+import { applyDownloadProgress, type DownloadProgressState } from "../lib/downloadProgress";
+import { modelDownloadStatus } from "../lib/modelStatus";
 import type { BenchmarkResult, HardwareInfo, StageTiming } from "../lib/tauri";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -227,7 +229,6 @@ function ModelsBenchmarkPanel({
   audioPath,
   onRefreshHardware,
   onDownload,
-  onPauseDownload,
   onActivate,
   onBenchmark,
   onOpenSource,
@@ -244,7 +245,6 @@ function ModelsBenchmarkPanel({
   audioPath: string | null;
   onRefreshHardware: () => void;
   onDownload: (model: string) => void;
-  onPauseDownload: (model: string) => void;
   onActivate: (model: ModelCandidate) => void;
   onBenchmark: (model: string) => void;
   onOpenSource: (url: string) => void;
@@ -313,15 +313,18 @@ function ModelsBenchmarkPanel({
           const progress = downloading[model.id];
           const downloadLabel = downloadLabels[model.id];
           const isDownloading = progress !== undefined && progress < 100;
-          const isCachedThisSession = progress !== undefined && progress >= 100;
+          const isDownloaded = progress !== undefined && progress >= 100;
+          const isPaused = !!pausedDownloads[model.id];
           const isBenchmarking = benchmarkingModel === model.id;
           const active = selectedModel === model.id;
           const result = latestResultByModel.get(model.id);
-          const supportLabel = active && model.benchmarkSupported ? "Active" : model.benchmarkSupported ? "Ready" : "Needs adapter";
-          const supportIcon = active && model.benchmarkSupported ? "●" : model.benchmarkSupported ? "✓" : "!";
-          const supportColor = active && model.benchmarkSupported ? "#818cf8" : model.benchmarkSupported ? "#34d399" : "#f59e0b";
-          const supportBg = active && model.benchmarkSupported ? "rgba(129,140,248,0.14)" : model.benchmarkSupported ? "rgba(52,211,153,0.10)" : "rgba(245,158,11,0.10)";
-          const supportBorder = active && model.benchmarkSupported ? "rgba(129,140,248,0.34)" : model.benchmarkSupported ? "rgba(52,211,153,0.28)" : "rgba(245,158,11,0.28)";
+          const downloadStatus = modelDownloadStatus({
+            active,
+            downloaded: isDownloaded,
+            downloading: isDownloading,
+            paused: isPaused,
+            downloadSupported: model.downloadSupported,
+          });
           return (
             <React.Fragment key={model.id}>
               <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActiveFirst : {}) }}>
@@ -353,11 +356,16 @@ function ModelsBenchmarkPanel({
               <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNumericCell }}>{result ? `${result.rtf}x` : "—"}</div>
               <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}) }}>
                 <span
-                  style={{ ...css.supportIconBadge, color: supportColor, background: supportBg, borderColor: supportBorder }}
-                  title={supportLabel}
-                  aria-label={supportLabel}
+                  style={{
+                    ...css.supportIconBadge,
+                    color: downloadStatus.color,
+                    background: downloadStatus.background,
+                    borderColor: downloadStatus.borderColor,
+                  }}
+                  title={downloadStatus.label}
+                  aria-label={downloadStatus.label}
                 >
-                  {supportIcon}
+                  {downloadStatus.icon}
                 </span>
               </div>
               <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNoteCell }} title={model.note}>{model.note}</div>
@@ -367,26 +375,26 @@ function ModelsBenchmarkPanel({
                     ...css.tableIconBtn,
                     ...(isDownloading ? css.tableIconBtnActive : {}),
                     ...(isPaused ? css.tableIconBtnPaused : {}),
-                    ...(isCachedThisSession ? css.tableIconBtnReady : {}),
+                    ...(isDownloaded ? css.tableIconBtnReady : {}),
                     ...(!model.downloadSupported ? css.disabledIconBtn : {}),
                     width: isDownloading ? 42 : 28,
                   }}
-                  disabled={!model.downloadSupported || isCachedThisSession}
+                  disabled={!model.downloadSupported || isDownloaded || (isDownloading && !isPaused)}
                   title={
                     !model.downloadSupported
                       ? "Local app download is not wired yet"
-                      : isCachedThisSession
-                        ? "Cached locally for this session"
+                      : isDownloaded
+                        ? "Downloaded locally"
                         : isPaused
                           ? "Resume download"
                           : isDownloading
-                            ? "Pause download"
+                            ? "Download in progress"
                             : `Download/cache locally (${model.sizeLabel})`
                   }
                   aria-label={model.downloadSupported ? `Download ${model.label} locally` : `${model.label} local download is not wired`}
-                  onClick={() => isDownloading && !isPaused ? onPauseDownload(model.id) : onDownload(model.id)}
+                  onClick={() => onDownload(model.id)}
                 >
-                  {isPaused ? "▶" : isDownloading ? "||" : isCachedThisSession ? "✓" : "↓"}
+                  {isPaused ? "▶" : isDownloading ? "…" : isDownloaded ? "✓" : "↓"}
                 </button>
                 <button
                   style={css.tableIconBtn}
@@ -466,8 +474,11 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<DebugTab>("pipeline");
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [selectedModel, setSelectedModel] = useState("large-v3-turbo");
-  const [downloading, setDownloading] = useState<Record<string, number>>({});
-  const [downloadLabels, setDownloadLabels] = useState<Record<string, string>>({});
+  const [downloadState, setDownloadState] = useState<DownloadProgressState>({
+    progress: {},
+    labels: {},
+    paused: {},
+  });
   const [benchmarkingModel, setBenchmarkingModel] = useState<string | null>(null);
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
 
@@ -534,13 +545,12 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   }
 
   function handleDownload(model: string) {
-    setDownloading(prev => ({ ...prev, [model]: 0 }));
+    setDownloadState(prev => ({
+      progress: { ...prev.progress, [model]: 0 },
+      labels: { ...prev.labels },
+      paused: { ...prev.paused, [model]: false },
+    }));
     downloadModel(model).catch(() => addLog(`🔴 Failed to request download for ${model}`));
-  }
-
-  function handlePauseDownload(model: string) {
-    setPausedDownloads(prev => ({ ...prev, [model]: true }));
-    pauseDownloadModel(model).catch(() => addLog(`🔴 Failed to pause download for ${model}`));
   }
 
   function handleActivateModel(model: ModelCandidate) {
@@ -621,6 +631,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
       switch (msg.event) {
         case "ready":
           addLog("🟢 Sidecar ready");
+          checkDownloads().catch(() => addLog("🔴 Failed to refresh downloaded models"));
           break;
 
         case "hardware": {
@@ -742,17 +753,10 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
         }
 
         case "download_progress": {
-          const pct = (msg as any).percent as number;
-          const mdl = (msg as any).model as string;
-          const paused = !!(msg as any).paused;
-          setDownloading(prev => ({ ...prev, [mdl]: pct }));
-          setPausedDownloads(prev => ({ ...prev, [mdl]: paused }));
-          if ((msg as any).downloaded_label || (msg as any).total_label) {
-            setDownloadLabels(prev => ({
-              ...prev,
-              [mdl]: `${(msg as any).downloaded_label ?? "0 B"} / ${(msg as any).total_label ?? "unknown"}`,
-            }));
-          }
+          const pct = msg.percent;
+          const mdl = msg.model;
+          const paused = !!msg.paused && pct < 100;
+          setDownloadState(prev => applyDownloadProgress(prev, msg));
           const status = paused ? "idle" : pct >= 100 ? "done" : "active";
           const detail = paused ? `${modelLabel(mdl)} paused` : pct >= 100 ? `${modelLabel(mdl)} · ready` : `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`;
           updateStage("model", { status: status as any, detail, progress: pct >= 100 ? undefined : pct });
@@ -784,6 +788,11 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
 
   // Populate cached state for already-downloaded models on mount
   useEffect(() => { checkDownloads(); }, []);
+
+  useEffect(() => {
+    if (activeTab !== "models") return;
+    checkDownloads().catch(() => addLog("🔴 Failed to refresh downloaded models"));
+  }, [activeTab]);
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
@@ -915,15 +924,14 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
           <ModelsBenchmarkPanel
             hardware={hardware}
             selectedModel={selectedModel}
-            downloading={downloading}
-            downloadLabels={downloadLabels}
-            pausedDownloads={pausedDownloads}
+            downloading={downloadState.progress}
+            downloadLabels={downloadState.labels}
+            pausedDownloads={downloadState.paused}
             benchmarkingModel={benchmarkingModel}
             results={benchmarkResults}
             audioPath={audioPath}
             onRefreshHardware={handleRefreshHardware}
             onDownload={handleDownload}
-            onPauseDownload={handlePauseDownload}
             onActivate={handleActivateModel}
             onBenchmark={handleBenchmark}
             onOpenSource={handleOpenModelSource}

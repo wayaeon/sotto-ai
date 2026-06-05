@@ -37,6 +37,20 @@ except Exception:
     pass
 
 
+def _pcm16_level(data: bytes) -> float:
+    """Return RMS level for mono 16-bit PCM bytes, normalized to 0..1."""
+    sample_count = len(data) // _SAMPLE_WIDTH
+    if sample_count <= 0:
+        return 0.0
+    total = 0
+    usable_bytes = sample_count * _SAMPLE_WIDTH
+    for index in range(0, usable_bytes, _SAMPLE_WIDTH):
+        sample = int.from_bytes(data[index:index + _SAMPLE_WIDTH], "little", signed=True)
+        total += sample * sample
+    rms = (total / sample_count) ** 0.5
+    return min(1.0, rms / 32768.0)
+
+
 # ── Module-level worker loop ─────────────────────────────────────────────────
 
 def _worker_loop(model_name: str, model_path: str, runtime: str, device: str, task_q, result_q) -> None:  # type: ignore[type-arg]

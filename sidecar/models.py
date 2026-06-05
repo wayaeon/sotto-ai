@@ -5,6 +5,7 @@ import os
 import time
 import threading
 import wave
+from fnmatch import fnmatch
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -79,6 +80,30 @@ def model_dir(model_name: str) -> Path:
     return MODELS_DIR / model_name
 
 
+def _dir_bytes(path: Path) -> int:
+    try:
+        return sum(
+            f.stat().st_size for f in path.rglob("*")
+            if f.is_file() and f.suffix != ".incomplete"
+        )
+    except Exception:
+        return 0
+
+
+def _faster_whisper_model_bin_is_complete(model_name: str, path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return False
+    expected = MODEL_DOWNLOAD_SIZES.get(model_name, 0)
+    if expected <= 0:
+        return size > 0
+    minimum_weight_size = max(16 * 1024**2, int(expected * 0.35))
+    return size >= minimum_weight_size
+
+
 def is_downloaded(model_name: str) -> bool:
     d = model_dir(model_name)
     if not d.exists():
@@ -86,7 +111,7 @@ def is_downloaded(model_name: str) -> bool:
     spec = MODEL_CATALOG.get(model_name)
     runtime = spec.runtime if spec else "faster-whisper"
     if runtime == "faster-whisper":
-        return (d / "model.bin").exists()
+        return _faster_whisper_model_bin_is_complete(model_name, d / "model.bin")
     elif runtime == "nemo":
         return any(d.glob("*.nemo"))
     elif runtime == "onnx":
@@ -98,6 +123,23 @@ def is_downloaded(model_name: str) -> bool:
             or (d / "model.pt").exists()
         )
     return any(d.iterdir())
+
+
+def download_status_payload(model_name: str) -> dict:
+    downloaded = is_downloaded(model_name)
+    spec = MODEL_CATALOG.get(model_name)
+    bytes_total = spec.approx_size_bytes if spec else MODEL_DOWNLOAD_SIZES.get(model_name, 0)
+    d = model_dir(model_name)
+    return {
+        "model": model_name,
+        "percent": 100.0 if downloaded else 0.0,
+        "checked": True,
+        "downloaded": downloaded,
+        "bytes_downloaded": _dir_bytes(d) if downloaded else 0,
+        "bytes_total": bytes_total,
+        "downloaded_label": "cached" if downloaded else "not downloaded",
+        "total_label": format_bytes(bytes_total) if bytes_total else "unknown",
+    }
 
 
 def best_available_model(preferred: str) -> str:
@@ -155,6 +197,8 @@ _MODEL_FILES = [
     "preprocessor_config.json",
 ]
 
+_SNAPSHOT_IGNORE_PATTERNS = ["*.msgpack", "flax_model*", "tf_model*", "rust_model*"]
+
 
 def _http_get(
     url: str,
@@ -186,11 +230,32 @@ def _http_get(
     return bytes_written
 
 
+def _should_ignore_snapshot_file(filename: str) -> bool:
+    return any(fnmatch(filename, pattern) or fnmatch(Path(filename).name, pattern) for pattern in _SNAPSHOT_IGNORE_PATTERNS)
+
+
+def _snapshot_repo_files(repo_id: str, token: str | None = None) -> list[tuple[str, int | None]]:
+    from huggingface_hub import HfApi
+
+    info = HfApi().model_info(repo_id, token=token, files_metadata=True)
+    files: list[tuple[str, int | None]] = []
+    for sibling in info.siblings:
+        filename = sibling.rfilename
+        if not filename or _should_ignore_snapshot_file(filename):
+            continue
+        size = getattr(sibling, "size", None)
+        if size is None:
+            lfs = getattr(sibling, "lfs", None)
+            size = getattr(lfs, "size", None) if lfs else None
+        files.append((filename, int(size) if size is not None else None))
+    return files
+
+
 def _download_model(model_name: str, ipc: "IPC", token: str | None = None) -> None:
     from .ipc import Event
 
     if is_downloaded(model_name):
-        ipc.send(Event.DOWNLOAD_PROGRESS, model=model_name, percent=100.0)
+        ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
         return
 
     spec = MODEL_CATALOG.get(model_name)
@@ -235,31 +300,41 @@ def _download_model(model_name: str, ipc: "IPC", token: str | None = None) -> No
         for filename in _MODEL_FILES:
             url = f"{base_url}/{filename}"
             dest = local_dir / filename
-            if dest.exists() and dest.stat().st_size > 100:
+            required = filename == "model.bin"
+            if required and _faster_whisper_model_bin_is_complete(model_name, dest):
+                downloaded += 1
+                bytes_downloaded += dest.stat().st_size
+                send_progress()
+                continue
+            if not required and dest.exists() and dest.stat().st_size > 100:
                 downloaded += 1
                 bytes_downloaded += dest.stat().st_size
                 send_progress()
                 continue
             try:
-                _http_get(url, dest, token=token, on_chunk=count_chunk)
+                tmp_dest = dest.with_name(f"{dest.name}.incomplete")
+                if tmp_dest.exists():
+                    tmp_dest.unlink()
+                _http_get(url, tmp_dest, token=token, on_chunk=count_chunk)
+                tmp_dest.replace(dest)
                 downloaded += 1
                 send_progress()
-            except Exception:
-                # File doesn't exist in this model's repo — skip it
+            except Exception as exc:
+                if required:
+                    raise RuntimeError(f"required file {filename} failed: {exc}") from exc
+                # Optional companion files vary by repo.
                 downloaded += 1
 
-        ipc.send(
-            Event.DOWNLOAD_PROGRESS,
-            model=model_name,
-            percent=100.0,
-            bytes_downloaded=bytes_downloaded,
-            bytes_total=bytes_total,
-            downloaded_label="cached",
-            total_label=format_bytes(bytes_total),
-        )
+        if not is_downloaded(model_name):
+            ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
+            ipc.send(Event.ERROR, msg=f"Download incomplete for {model_name}: required model files are missing or incomplete")
+            return
+
+        ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
 
     except Exception as exc:
-        ipc.send(Event.ERROR, msg=f"Download failed: {exc}")
+        ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
+        ipc.send(Event.ERROR, msg=f"Download incomplete for {model_name}: {exc}")
 
 
 def _snapshot_download_model(
@@ -269,66 +344,68 @@ def _snapshot_download_model(
     ipc: "IPC",
     token: str | None = None,
 ) -> None:
-    """Download via snapshot_download (handles LFS/auth) with disk-polling progress."""
-    import threading
+    """Download snapshot files directly so IPC receives chunk-level progress."""
     from .ipc import Event
+    from huggingface_hub import hf_hub_url
 
-    bytes_total = spec.approx_size_bytes or 0
-    done_event = threading.Event()
-    error: list[Exception] = []
+    try:
+        repo_files = _snapshot_repo_files(spec.repo_id, token=token)
+    except Exception as exc:
+        ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
+        ipc.send(Event.ERROR, msg=f"Download failed for {model_name}: could not list repo files: {exc}")
+        return
 
-    def _download() -> None:
-        try:
-            from huggingface_hub import snapshot_download
-            snapshot_download(
-                repo_id=spec.repo_id,
-                local_dir=str(local_dir),
-                token=token,
-                ignore_patterns=["*.msgpack", "flax_model*", "tf_model*", "rust_model*"],
-            )
-        except Exception as exc:
-            error.append(exc)
-        finally:
-            done_event.set()
+    known_total = sum(size for _, size in repo_files if size is not None)
+    bytes_total = known_total or spec.approx_size_bytes or 0
+    bytes_downloaded = 0
 
-    thread = threading.Thread(target=_download, daemon=True)
-    thread.start()
-
-    def _dir_bytes() -> int:
-        try:
-            return sum(
-                f.stat().st_size for f in local_dir.rglob("*")
-                if f.is_file() and not f.suffix == ".incomplete"
-            )
-        except Exception:
-            return 0
-
-    while not done_event.wait(timeout=0.4):
-        bytes_done = _dir_bytes()
-        pct = min(99.0, bytes_done / bytes_total * 99.0) if bytes_total else 50.0
+    def send_progress() -> None:
+        percent = round(bytes_downloaded / bytes_total * 99.0, 1) if bytes_total else 50.0
+        percent = min(99.0, max(0.0, percent))
         ipc.send(
             Event.DOWNLOAD_PROGRESS,
             model=model_name,
-            percent=round(pct, 1),
-            bytes_downloaded=bytes_done,
+            percent=percent,
+            bytes_downloaded=bytes_downloaded,
             bytes_total=bytes_total,
-            downloaded_label=format_bytes(bytes_done),
+            downloaded_label=format_bytes(bytes_downloaded),
             total_label=format_bytes(bytes_total) if bytes_total else "unknown",
         )
 
-    if error:
-        ipc.send(Event.ERROR, msg=f"Download failed for {model_name}: {error[0]}")
+    def count_chunk(size: int) -> None:
+        nonlocal bytes_downloaded
+        bytes_downloaded += size
+        send_progress()
+
+    try:
+        for filename, expected_size in repo_files:
+            dest = local_dir / filename
+            if dest.exists() and dest.is_file() and (expected_size is None or dest.stat().st_size == expected_size):
+                bytes_downloaded += dest.stat().st_size
+                send_progress()
+                continue
+
+            tmp_dest = dest.with_name(f"{dest.name}.incomplete")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if tmp_dest.exists():
+                tmp_dest.unlink()
+
+            url = hf_hub_url(repo_id=spec.repo_id, filename=filename)
+            _http_get(url, tmp_dest, token=token, on_chunk=count_chunk)
+            if expected_size is not None and tmp_dest.stat().st_size != expected_size:
+                raise RuntimeError(f"{filename} downloaded {tmp_dest.stat().st_size} bytes, expected {expected_size}")
+            tmp_dest.replace(dest)
+    except Exception as exc:
+        ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
+        ipc.send(Event.ERROR, msg=f"Download failed for {model_name}: {exc}")
         return
 
-    ipc.send(
-        Event.DOWNLOAD_PROGRESS,
-        model=model_name,
-        percent=100.0,
-        bytes_downloaded=_dir_bytes(),
-        bytes_total=bytes_total,
-        downloaded_label="cached",
-        total_label=format_bytes(bytes_total) if bytes_total else "unknown",
-    )
+    if not is_downloaded(model_name):
+        ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
+        ipc.send(Event.ERROR, msg=f"Download incomplete for {model_name}: required model files are missing or incomplete")
+        return
+
+    ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
 
 
 def _benchmark_model(

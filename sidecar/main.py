@@ -5,7 +5,7 @@ import sys
 from sidecar.ipc import IPC, Command, Event
 from sidecar.hardware import detect as detect_hardware
 from sidecar.recorder import Recorder
-from sidecar.models import benchmark_model_async, download_model_async, MODEL_CATALOG, is_downloaded
+from sidecar.models import benchmark_model_async, download_model_async, MODEL_CATALOG, download_status_payload
 
 
 def main() -> None:
@@ -30,8 +30,7 @@ def main() -> None:
 
         if cmd == Command.CHECK_DOWNLOADS:
             for model_name in MODEL_CATALOG:
-                if is_downloaded(model_name):
-                    ipc.send(Event.DOWNLOAD_PROGRESS, model=model_name, percent=100.0, downloaded_label="cached")
+                ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
 
         elif cmd == Command.PING:
             ipc.send(Event.PONG)
@@ -44,6 +43,9 @@ def main() -> None:
             token = payload.get("token") or None
             model_name = payload.get("model") or hw.model_name
             download_model_async(model_name, ipc, token=token)
+
+        elif cmd == Command.PAUSE_DOWNLOAD_MODEL:
+            ipc.send(Event.ERROR, msg="Pause/resume downloads is not supported yet")
 
         elif cmd == Command.SET_MODEL:
             model_name = payload.get("model", "")
