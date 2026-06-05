@@ -271,30 +271,52 @@ def _snapshot_download_model(
 ) -> None:
     from .ipc import Event
 
-    ipc.send(
-        Event.DOWNLOAD_PROGRESS,
-        model=model_name,
-        percent=5.0,
-        bytes_downloaded=0,
-        bytes_total=spec.approx_size_bytes,
-        downloaded_label="starting",
-        total_label=format_bytes(spec.approx_size_bytes) if spec.approx_size_bytes else "unknown",
-    )
+    bytes_total = spec.approx_size_bytes or 0
+    state = {"bytes_done": 0}
+
+    def _emit(pct: float) -> None:
+        ipc.send(
+            Event.DOWNLOAD_PROGRESS,
+            model=model_name,
+            percent=pct,
+            bytes_downloaded=state["bytes_done"],
+            bytes_total=bytes_total,
+            downloaded_label=format_bytes(state["bytes_done"]),
+            total_label=format_bytes(bytes_total) if bytes_total else "unknown",
+        )
+
+    _emit(2.0)
+
     try:
         from huggingface_hub import snapshot_download
+        from tqdm.auto import tqdm as _BaseTqdm
 
-        snapshot_download(
-            repo_id=spec.repo_id,
-            local_dir=str(local_dir),
-            token=token,
-        )
+        class _ProgressTqdm(_BaseTqdm):
+            def update(self, n=1):
+                super().update(n)
+                if n and n > 0:
+                    state["bytes_done"] += n
+                    pct = min(99.0, state["bytes_done"] / bytes_total * 97 + 2.0) if bytes_total else 50.0
+                    _emit(pct)
+
+        try:
+            snapshot_download(
+                repo_id=spec.repo_id,
+                local_dir=str(local_dir),
+                token=token,
+                tqdm_class=_ProgressTqdm,
+            )
+        except TypeError:
+            # huggingface_hub < 0.16 doesn't have tqdm_class
+            snapshot_download(repo_id=spec.repo_id, local_dir=str(local_dir), token=token)
+
         ipc.send(
             Event.DOWNLOAD_PROGRESS,
             model=model_name,
             percent=100.0,
-            bytes_total=spec.approx_size_bytes,
+            bytes_total=bytes_total,
             downloaded_label="cached",
-            total_label=format_bytes(spec.approx_size_bytes) if spec.approx_size_bytes else "unknown",
+            total_label=format_bytes(bytes_total) if bytes_total else "unknown",
         )
     except Exception as exc:
         ipc.send(Event.ERROR, msg=f"Download failed for {model_name}: {exc}")
