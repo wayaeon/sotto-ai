@@ -51,6 +51,7 @@ fn main() {
                 .resizable(false)
                 .inner_size(60.0, 56.0)
                 .shadow(false)
+                .visible(false)   // hidden until model is ready — no loading flash
                 .build()?;
 
             // Position pill window at bottom-center of primary monitor (collapsed width)

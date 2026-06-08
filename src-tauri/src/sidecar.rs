@@ -52,6 +52,14 @@ pub fn spawn_sidecar(app: &AppHandle) {
                     match event {
                         CommandEvent::Stdout(line) => {
                             let line = String::from_utf8_lossy(&line).to_string();
+                            // Show the pill the moment the model is in memory.
+                            // The window is created hidden (visible: false) so the user
+                            // never sees the loading state — it just appears ready.
+                            if line.contains("worker_ready") {
+                                if let Some(pill) = app_handle.get_webview_window("pill") {
+                                    pill.show().ok();
+                                }
+                            }
                             app_handle.emit("sidecar-event", line).ok();
                         }
                         CommandEvent::Stderr(line) => {
