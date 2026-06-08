@@ -52,12 +52,15 @@ pub fn spawn_sidecar(app: &AppHandle) {
                     match event {
                         CommandEvent::Stdout(line) => {
                             let line = String::from_utf8_lossy(&line).to_string();
-                            // Show the pill the moment the model is in memory.
-                            // The window is created hidden (visible: false) so the user
-                            // never sees the loading state — it just appears ready.
-                            if line.contains("worker_ready") {
+                            // Show the pill once the sidecar is done with its first
+                            // load attempt — either worker_ready (success) or the idle
+                            // that follows a failed/errored load. Guard with is_visible
+                            // so subsequent idle events during normal use are ignored.
+                            if line.contains("worker_ready") || line.contains("\"idle\"") {
                                 if let Some(pill) = app_handle.get_webview_window("pill") {
-                                    pill.show().ok();
+                                    if !pill.is_visible().unwrap_or(true) {
+                                        pill.show().ok();
+                                    }
                                 }
                             }
                             app_handle.emit("sidecar-event", line).ok();

@@ -624,7 +624,7 @@ function Spec({ label, value, width }: { label: string; value: string; width: nu
 export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<DebugTab>("pipeline");
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
-  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem("sotto_model") || "large-v3-turbo");
+  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem("sotto_model") || "nvidia/parakeet-tdt-0.6b-v3");
   // Ref mirrors selectedModel so stale-closure event handlers can read the latest value.
   const selectedModelRef = useRef(selectedModel);
   const [downloadState, setDownloadState] = useState<DownloadProgressState>({
