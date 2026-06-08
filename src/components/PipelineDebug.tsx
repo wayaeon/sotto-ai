@@ -625,6 +625,8 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<DebugTab>("pipeline");
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem("sotto_model") || "large-v3-turbo");
+  // Ref mirrors selectedModel so stale-closure event handlers can read the latest value.
+  const selectedModelRef = useRef(selectedModel);
   const [downloadState, setDownloadState] = useState<DownloadProgressState>({
     progress: {},
     labels: {},
@@ -994,18 +996,22 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               },
             }));
           }
-          // Only update the "model" pipeline stage while the download is actively
-          // in progress or paused. Do NOT mark "model" as done here — worker_ready
-          // is the authoritative signal for that. Without this guard, check_downloads
-          // on startup re-broadcasts 100% events for every previously-downloaded model
-          // (e.g. Voxtral from a prior session) and overwrites the real active-model
-          // status that worker_ready already set correctly.
-          if (pct < 100 || paused) {
-            const status = paused ? "idle" : "active";
-            const detail = paused
-              ? `${modelLabel(mdl)} paused`
-              : `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`;
-            updateStage("model", { status, detail, progress: pct });
+          // Only update the "model" pipeline stage for the currently active model.
+          // check_downloads on startup broadcasts download_progress for EVERY model in the
+          // catalog (at 0% for undownloaded ones, 100% for previously-downloaded ones).
+          // The sidecar-event listener uses a stale closure ([] deps) so we can't read
+          // `selectedModel` state directly — we use `selectedModelRef` which is always
+          // current. worker_ready / model_selected remain the sole sources of truth for
+          // the "X · ready" done state; we never set "done" from download_progress.
+          if (mdl === selectedModelRef.current) {
+            if (pct >= 100) {
+              // Download complete — worker_ready will set "done"; show "loading from disk" now
+              updateStage("model", { status: "active", detail: "Loading model from disk…" });
+            } else if (paused) {
+              updateStage("model", { status: "idle", detail: `${modelLabel(mdl)} paused`, progress: pct });
+            } else {
+              updateStage("model", { status: "active", detail: `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`, progress: pct });
+            }
           }
           break;
         }
@@ -1046,6 +1052,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
     return () => { unsub.then(fn => fn()); };
   }, []);
 
+  useEffect(() => { selectedModelRef.current = selectedModel; }, [selectedModel]);
   useEffect(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, [log]);
 
   // Populate cached state for already-downloaded models on mount
