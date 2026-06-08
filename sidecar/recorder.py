@@ -460,13 +460,11 @@ class Recorder:
         if self._transcription_active:
             self._ipc.send(Event.ERROR, msg=f"Cannot switch models while {self._model_name} is transcribing")
             return False
-        if (
-            model_name == self._model_name
-            and self._worker_proc is not None
-            and self._worker_proc.is_alive()
-            and self._loaded_model_name == model_name
-        ):
-            self._ipc.send(Event.STATUS, msg=f"model_selected model={model_name}")
+        if model_name == self._model_name and self._worker_proc is not None and self._worker_proc.is_alive():
+            # Already loaded or currently loading the same model — don't kill/restart.
+            # If fully loaded, confirm immediately; if still loading, worker_ready will fire when done.
+            if self._loaded_model_name == model_name:
+                self._ipc.send(Event.STATUS, msg=f"model_selected model={model_name}")
             return True
 
         with self._lock:

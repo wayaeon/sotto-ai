@@ -32,14 +32,17 @@ class DeviceTier(str, Enum):
     CPU      = "cpu"
 
 
+# Default model — always parakeet TDT v3 (ONNX, runs on any hardware).
+DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
+
 # Model names must be exactly what faster-whisper / RealtimeSTT accepts:
 # short IDs (auto-download from HF) or local CTranslate2 directory paths.
 MODEL_NAMES: dict[ModelTier, str] = {
-    ModelTier.TIER_CUDA_HIGH: "nvidia/parakeet-tdt-0.6b-v3",
-    ModelTier.TIER_CUDA_LOW:  "large-v3-turbo",
-    ModelTier.TIER_DIRECTML:  "nvidia/parakeet-tdt-0.6b-v3",
-    ModelTier.TIER_NPU:       "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01",
-    ModelTier.TIER_CPU:       "small",
+    ModelTier.TIER_CUDA_HIGH: DEFAULT_MODEL,
+    ModelTier.TIER_CUDA_LOW:  DEFAULT_MODEL,
+    ModelTier.TIER_DIRECTML:  DEFAULT_MODEL,
+    ModelTier.TIER_NPU:       DEFAULT_MODEL,
+    ModelTier.TIER_CPU:       DEFAULT_MODEL,
 }
 
 

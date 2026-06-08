@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 import { onSidecarEvent, injectText, setModel as setModelIpc, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type RecordingState } from "../stores/appStore";
+
+// Single source of truth for the default model.
+// Always parakeet TDT v3 — ONNX runtime, works on any hardware.
+const DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3";
 import { insertTranscription, updateMetrics } from "../lib/db";
 
 export const useDownloadProgress = () => useAppStore((s) => s.downloadProgress);
@@ -33,8 +37,11 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
         case "ready":
           setSidecarReady(true);
           {
-            const persistedModel = localStorage.getItem("sotto_model");
-            if (persistedModel) setModelIpc(persistedModel).catch((e) => console.warn("[set_model]", e));
+            // Always load the default model on startup.
+            // Clear any stale value (e.g. a previous session saved the wrong model).
+            localStorage.setItem("sotto_model", DEFAULT_MODEL);
+            setModel(DEFAULT_MODEL);
+            setModelIpc(DEFAULT_MODEL).catch((e) => console.warn("[set_model]", e));
           }
           break;
 
@@ -115,9 +122,10 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
 
         case "hardware":
           setTier(msg.tier as any);
-          if (!localStorage.getItem("sotto_model")) setModel(msg.model);
+          // Always pin to the default model — never inherit whatever hardware recommends.
+          setModel(DEFAULT_MODEL);
+          localStorage.setItem("sotto_model", DEFAULT_MODEL);
           localStorage.setItem("sotto_tier", msg.tier);
-          if (!localStorage.getItem("sotto_model")) localStorage.setItem("sotto_model", msg.model);
           break;
 
         case "download_progress": {
