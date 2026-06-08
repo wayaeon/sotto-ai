@@ -8,47 +8,47 @@ const LANGUAGES = [
   { code: "EN", label: "English",            flag: "🇺🇸" },
   { code: "ES", label: "Spanish (Español)",  flag: "🇪🇸" },
   { code: "FR", label: "French (Français)",  flag: "🇫🇷" },
-  { code: "DE", label: "German (Deutsch)",   flag: "🇩🇪" },
-  { code: "JA", label: "Japanese (日本語)", flag: "🇯🇵" },
-  { code: "ZH", label: "Chinese (中文)",    flag: "🇨🇳" },
-  { code: "PT", label: "Portuguese",         flag: "🇧🇷" },
-  { code: "IT", label: "Italian (Italiano)", flag: "🇮🇹" },
 ];
 
 // Right side = wand(32) + gap(5) + notes(32) = 69px.
 // Left side must match so wavepill lands at exact center.
 const SIDE_W = 69;
-const PILL_WINDOW_W = 380;
-// Collapsed window is narrow so the transparent Tauri window doesn't block
-// the full 380px strip — Windows ignores CSS pointer-events at the OS level.
+const PILL_WINDOW_W           = 380;
 const PILL_WINDOW_COLLAPSED_W = 60;
 const PILL_WINDOW_COLLAPSED_H = 56;
-const PILL_WINDOW_BAR_H = 124;
-const PILL_WINDOW_ACTIVE_H = 136;
-const PILL_WINDOW_PANEL_H = 380;
+const PILL_WINDOW_BAR_H       = 124;
+const PILL_WINDOW_ACTIVE_H    = 136;
+const PILL_WINDOW_PANEL_H     = 380;
 
-// Animation duration in ms. Exit is slightly shorter (feels snappier).
 const ANIM_IN_MS  = 190;
 const ANIM_OUT_MS = 160;
 
-type Hovered = null | "lang" | "dictate" | "enhance" | "history";
+// PillPhase drives which surfaces are visible.
+// The key invariant: handle is ONLY visible in "collapsed".
+// This prevents the handle from re-appearing inside the old expanded window.
+type PillPhase = "collapsed" | "expanding" | "expanded" | "collapsing";
+type Hovered   = null | "lang" | "dictate" | "enhance" | "history";
 
-// Cache monitor data after first fetch — avoids an extra IPC round-trip on
-// every resize. `undefined` = not fetched yet, `null` = fetched but no monitor.
+// Monitor cache — avoids a redundant IPC call on every resize.
 let monitorCache: Awaited<ReturnType<typeof currentMonitor>> | undefined;
 
 async function resizePillWindow(width: number, height: number) {
   const win = getCurrentWindow();
   if (monitorCache === undefined) monitorCache = await currentMonitor() ?? null;
   const monitor = monitorCache;
-  const scale = monitor?.scaleFactor ?? await win.scaleFactor();
+  const scale   = monitor?.scaleFactor ?? await win.scaleFactor();
 
   const widthPx  = Math.round(width  * scale);
   const heightPx = Math.round(height * scale);
 
-  // Fire setSize and setPosition in parallel — one round-trip each, overlapped.
-  const x = monitor ? monitor.workArea.position.x + Math.round((monitor.workArea.size.width  - widthPx)  / 2) : 0;
-  const y = monitor ? monitor.workArea.position.y +              monitor.workArea.size.height - heightPx       : 0;
+  const x = monitor
+    ? monitor.workArea.position.x + Math.round((monitor.workArea.size.width - widthPx) / 2)
+    : 0;
+  const y = monitor
+    ? monitor.workArea.position.y + monitor.workArea.size.height - heightPx
+    : 0;
+
+  // Parallel IPC — setSize + setPosition in one overlapped round-trip.
   await Promise.all([
     win.setSize(new PhysicalSize(widthPx, heightPx)),
     monitor ? win.setPosition(new PhysicalPosition(x, y)) : Promise.resolve(),
@@ -58,17 +58,23 @@ async function resizePillWindow(width: number, height: number) {
 export default function Pill() {
   useSidecar({ primary: true });
   const { recordingState, sidecarReady, modelReady, setRecordingState, downloadProgress, downloadModel } = useAppStore();
+
   const pttActive  = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [bottomPad,     setBottomPad]     = useState(52); // updated on mount from real taskbar height
-  const [expanded,      setExpanded]      = useState(false);
-  // Two-phase animation: barMounted keeps DOM alive during exit, barIn drives the CSS transition.
+
+  const [bottomPad,     setBottomPad]     = useState(52);
+  const [phase,         setPhase]         = useState<PillPhase>("collapsed");
   const [barMounted,    setBarMounted]    = useState(false);
   const [barIn,         setBarIn]         = useState(false);
   const [hoveredEl,     setHoveredEl]     = useState<Hovered>(null);
-  const [langIdx,       setLangIdx]       = useState(-1); // -1 = ALL (globe)
+  const [expanded,      setExpanded]      = useState(false);
+  const [langIdx,       setLangIdx]       = useState(-1);
   const [showLangPanel, setShowLangPanel] = useState(false);
   const [activeLangs,   setActiveLangs]   = useState<Set<string>>(new Set(["EN", "ES"]));
+
+  // Refs so async callbacks never read stale closure values.
+  const phaseRef     = useRef<PillPhase>("collapsed");
+  const expandGenRef = useRef(0);
 
   useEffect(() => {
     document.documentElement.style.background = "transparent";
@@ -83,57 +89,90 @@ export default function Pill() {
   const isLoading    = recordingState === "loading";
   const shouldShowBar = expanded || isRecording || isProcessing || isLoading;
 
-  // Generation counter: incremented on every collapse to cancel stale expand
-  // callbacks that finish after the user has already moused away.
-  const expandGenRef = useRef(0);
-
-  // EXPAND: resize window first, THEN mount + animate.
-  // This is the critical sequencing fix — if we start the CSS transition while
-  // the Tauri window is still resizing/repositioning (IPC async), the whole
-  // window visually jumps mid-animation (the stutter). Awaiting the resize
-  // before touching the DOM means the window is at its final position before
-  // any pixel moves on screen.
+  // ─── Phase state machine ──────────────────────────────────────────────────
+  //
+  // EXPAND path:
+  //   1. Immediately: phase → "expanding", barMounted=true.
+  //      Handle starts fading out right away (phase !== "collapsed") for
+  //      instant visual response before the resize IPC completes.
+  //   2. Await resize (window at correct position before any pixel moves).
+  //   3. rAF → barIn=true, phase → "expanded".
+  //
+  // COLLAPSE path:
+  //   1. Immediately: phase → "collapsing", barIn=false (CSS exit starts).
+  //      Handle stays hidden (phase !== "collapsed") — no jump.
+  //   2. After ANIM_OUT_MS: unmount bar, resize window.
+  //   3. After resize: phase → "collapsed". Only NOW does the handle appear.
+  //
+  // This guarantees the handle is NEVER visible inside the expanded window.
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!shouldShowBar) return;
+    const targetHeight = showLangPanel
+      ? PILL_WINDOW_PANEL_H
+      : isRecording || isProcessing || isLoading
+        ? PILL_WINDOW_ACTIVE_H
+        : PILL_WINDOW_BAR_H;
 
-    const gen = ++expandGenRef.current;
-    const height =
-      showLangPanel                              ? PILL_WINDOW_PANEL_H
-      : isRecording || isProcessing || isLoading ? PILL_WINDOW_ACTIVE_H
-      : PILL_WINDOW_BAR_H;
+    if (shouldShowBar) {
+      // Already expanded/expanding — just resize for height change (no gen bump).
+      if (phaseRef.current === "expanded" || phaseRef.current === "expanding") {
+        resizePillWindow(PILL_WINDOW_W, targetHeight).catch(() => {});
+        return;
+      }
 
-    resizePillWindow(PILL_WINDOW_W, height)
-      .then(() => {
-        if (expandGenRef.current !== gen) return; // collapsed while resize was in flight
-        setBarMounted(true);
-        // Two rAFs: first flushes the mount paint, second starts the transition.
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          if (expandGenRef.current === gen) setBarIn(true);
-        }));
-      })
-      .catch(() => {
-        // Resize failed — still show the bar, just at best-effort position.
+      // Collapsed or collapsing → full expand.
+      const gen = ++expandGenRef.current;
+      phaseRef.current = "expanding";
+      setPhase("expanding");
+      setBarMounted(true);
+      setBarIn(false); // bar starts transparent; resize must finish before fade-in
+
+      resizePillWindow(PILL_WINDOW_W, targetHeight)
+        .then(() => {
+          if (expandGenRef.current !== gen) return;
+          // One rAF is enough — bar has been mounted for the full resize duration.
+          requestAnimationFrame(() => {
+            if (expandGenRef.current !== gen) return;
+            setBarIn(true);
+            phaseRef.current = "expanded";
+            setPhase("expanded");
+          });
+        })
+        .catch(() => {
+          if (expandGenRef.current !== gen) return;
+          requestAnimationFrame(() => {
+            if (expandGenRef.current !== gen) return;
+            setBarIn(true);
+            phaseRef.current = "expanded";
+            setPhase("expanded");
+          });
+        });
+
+    } else {
+      // Already collapsed/collapsing — nothing to do.
+      if (phaseRef.current === "collapsed" || phaseRef.current === "collapsing") return;
+
+      // Expanded or expanding → collapse.
+      const gen = ++expandGenRef.current;
+      phaseRef.current = "collapsing";
+      setPhase("collapsing");
+      setBarIn(false); // start CSS exit transition
+
+      const t = setTimeout(async () => {
         if (expandGenRef.current !== gen) return;
-        setBarMounted(true);
-        requestAnimationFrame(() => requestAnimationFrame(() => setBarIn(true)));
-      });
+        setBarMounted(false);
+        // Resize while handle is still hidden (phase = "collapsing").
+        await resizePillWindow(PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H).catch(() => {});
+        // Only after window is at collapsed size does the handle appear.
+        if (expandGenRef.current !== gen) return;
+        phaseRef.current = "collapsed";
+        setPhase("collapsed");
+      }, ANIM_OUT_MS);
+
+      return () => clearTimeout(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldShowBar, isRecording, isProcessing, isLoading, showLangPanel]);
-
-  // COLLAPSE: animate out first, THEN unmount + resize.
-  // Window stays at 380px while content fades so it doesn't clip the animation.
-  useEffect(() => {
-    if (shouldShowBar) return;
-
-    expandGenRef.current++; // cancel any in-flight expand
-    setBarIn(false);        // start CSS exit transition
-
-    const t = setTimeout(() => {
-      setBarMounted(false);
-      resizePillWindow(PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H).catch(() => {});
-    }, ANIM_OUT_MS);
-
-    return () => clearTimeout(t);
-  }, [shouldShowBar]);
 
   // Recording timer
   const [recSecs, setRecSecs] = useState(0);
@@ -150,6 +189,7 @@ export default function Pill() {
       recStartRef.current = null;
     }
   }, [isRecording]);
+
   const allActive = langIdx === -1;
 
   const scheduleHide = () => {
@@ -210,27 +250,20 @@ export default function Pill() {
     });
   };
 
-  // Transition strings — separate enter/exit curves.
-  const barEnterTransition = `opacity ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1), transform ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1)`;
-  const barExitTransition  = `opacity ${ANIM_OUT_MS}ms ease-in, transform ${ANIM_OUT_MS}ms ease-in`;
-  const handleTransition   = `opacity ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1), transform ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1)`;
+  const isCollapsed = phase === "collapsed";
+  const barEnter    = `opacity ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1), transform ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1)`;
+  const barExit     = `opacity ${ANIM_OUT_MS}ms ease-in, transform ${ANIM_OUT_MS}ms ease-in`;
+  const handleTx    = `opacity ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1), transform ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1)`;
 
   return (
-    <div style={{ ...s.root, paddingBottom: bottomPad }}>
+    <div style={s.root}>
       <style>{`
         * { cursor: default !important; }
 
         @media (prefers-reduced-motion: reduce) {
-          * {
-            transition-duration: 0.01ms !important;
-            animation-duration:  0.01ms !important;
-          }
+          * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
         }
 
-        @keyframes waveBar {
-          0%, 100% { transform: scaleY(0.3); opacity: 0.4; }
-          50%       { transform: scaleY(1);   opacity: 1; }
-        }
         @keyframes dotPulse {
           0%, 100% { opacity: 0.2; }
           50%       { opacity: 0.85; }
@@ -241,7 +274,7 @@ export default function Pill() {
         }
         @keyframes panelIn {
           from { opacity: 0; transform: translateX(-50%) translateY(5px) scale(0.97); }
-          to   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
         }
         @keyframes drawerWipe {
           from { clip-path: inset(0 0 0 100%); }
@@ -258,214 +291,196 @@ export default function Pill() {
         }
         @keyframes micPulse {
           0%, 100% { opacity: 0.6; transform: scale(1); }
-          50%       { opacity: 1;   transform: scale(1.15); }
+          50%       { opacity: 1; transform: scale(1.15); }
         }
 
         .pbtn { outline: none; border: none; }
         .pbtn:active { transform: scale(0.9); }
       `}</style>
 
-      {/* Collapsed handle — fades + scales out when bar is present */}
-      <div
-        style={{
-          ...s.handle,
-          opacity:       shouldShowBar ? 0 : 1,
-          transform:     shouldShowBar ? "scale(0.78)" : "scale(1)",
-          transition:    handleTransition,
-          pointerEvents: shouldShowBar ? "none" : "auto",
-        }}
-        onMouseEnter={() => { cancelHide(); setExpanded(true); }}
-        onMouseLeave={scheduleHide}
-      />
+      {/*
+        Single anchor point — both handle and bar are absolutely positioned
+        relative to this element. They share the same bottom-center origin,
+        so they can never push each other around in flex flow.
+      */}
+      <div style={{ ...s.anchor, bottom: bottomPad }}>
 
-      {/* Expanded bar — kept mounted during exit so it can animate out */}
-      {barMounted && (
+        {/* ── Collapsed handle ────────────────────────────────────────────
+            Visible ONLY in "collapsed" phase.
+            During any other phase it is hidden and non-interactive —
+            including during "collapsing", so it cannot jump above the
+            exiting bar while the window is still expanded.
+        ─────────────────────────────────────────────────────────────────── */}
         <div
           style={{
-            ...s.barRow,
-            opacity:    barIn ? 1 : 0,
-            transform:  barIn ? "translateY(0) scale(1)" : "translateY(6px) scale(0.96)",
-            transition: barIn ? barEnterTransition : barExitTransition,
+            ...s.handle,
+            opacity:       isCollapsed ? 1 : 0,
+            transform:     isCollapsed
+              ? "translateX(-50%) scale(1)"
+              : "translateX(-50%) scale(0.78)",
+            transition:    handleTx,
+            pointerEvents: isCollapsed ? "auto" : "none",
           }}
-          onMouseEnter={cancelHide}
+          onMouseEnter={() => { cancelHide(); setExpanded(true); }}
           onMouseLeave={scheduleHide}
-        >
+        />
 
-          {isLoading ? (
-            <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={s.dictatingBubble}>
-                <span style={{ ...s.dictatingDot, background: "rgba(251,191,36,0.9)", animation: "dotPulse 1s ease-in-out infinite" }} />
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  <span style={s.dictatingText}>
-                    {downloadProgress !== null
-                      ? `Downloading ${downloadModel ?? "model"} — ${Math.round(downloadProgress)}%`
-                      : "Loading transcription model…"}
-                  </span>
-                  {downloadProgress !== null && (
-                    <div style={s.progressTrack}>
-                      <div style={{ ...s.progressFill, width: `${downloadProgress}%` }} />
-                    </div>
-                  )}
-                </div>
-              </div>
-              <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
-                <XIcon />
-              </button>
-              <div style={{ ...s.wavePill, border: "1px solid rgba(251,191,36,0.4)", minWidth: 100 }}>
-                <WaveVisual state="processing" />
-              </div>
-            </div>
-          ) : isRecording || isProcessing ? (
-            <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
+        {/* ── Expanded bar ─────────────────────────────────────────────── */}
+        {barMounted && (
+          <div
+            style={{
+              ...s.barRow,
+              opacity:    barIn ? 1 : 0,
+              transform:  barIn
+                ? "translateX(-50%) translateY(0) scale(1)"
+                : "translateX(-50%) translateY(6px) scale(0.96)",
+              transition: barIn ? barEnter : barExit,
+              pointerEvents: barMounted ? "auto" : "none",
+            }}
+            onMouseEnter={cancelHide}
+            onMouseLeave={scheduleHide}
+          >
 
-              {/* Cancel button */}
-              <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
-                <XIcon />
-              </button>
-
-              {/* Active wave pill */}
-              <div style={{
-                ...s.wavePill,
-                border: isRecording
-                  ? "1px solid rgba(167,139,250,0.6)"
-                  : "1px solid rgba(251,191,36,0.4)",
-                animation: isRecording ? "pulseGlow 1.8s ease-in-out infinite" : "none",
-                minWidth: 100,
-                gap: 8,
-              }}>
-                {isRecording && (
-                  <span style={s.recTimer}>
-                    {`${Math.floor(recSecs / 60)}:${String(recSecs % 60).padStart(2, "0")}`}
-                  </span>
-                )}
-                <WaveVisual state={recordingState} />
-              </div>
-
-              {/* Done button */}
-              <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(34,197,94,0.35)" }} onClick={stopPtt}>
-                <CheckIcon />
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* LEFT side (SIDE_W wide) — globe button right-aligned, drawer slides out left */}
-              <div style={{ width: SIDE_W, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-                <div
-                  style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
-                  onMouseEnter={() => setHoveredEl("lang")}
-                  onMouseLeave={() => setHoveredEl(null)}
-                >
-                  {/* Tooltip above globe */}
-                  {hoveredEl === "lang" && !showLangPanel && (
-                    <div style={s.tooltip}>
-                      <span style={s.tooltipText}>Change language</span>
-                    </div>
-                  )}
-
-                  {/* Drawer — slides left from under the globe */}
-                  {hoveredEl === "lang" && (
-                    <button
-                      className="pbtn"
-                      style={s.arrowDrawer}
-                      onClick={() => setShowLangPanel(p => !p)}
-                    >
-                      <ChevronIcon />
-                    </button>
-                  )}
-
-                  {/* Globe / lang button — sits on top of drawer */}
-                  <button
-                    className="pbtn"
-                    style={{ ...s.iconBtn, position: "relative", zIndex: 1 }}
-                    onClick={cycleLang}
-                  >
-                    {allActive
-                      ? <GlobeIcon key="all" />
-                      : <span key={langIdx} style={s.langCode}>{LANGUAGES[langIdx].code}</span>
-                    }
-                  </button>
-
-                  {/* Language panel */}
-                  {showLangPanel && (
-                    <div style={s.langPanel} onMouseEnter={cancelHide}>
-                      {LANGUAGES.map(lang => (
-                        <button
-                          key={lang.code}
-                          className="pbtn"
-                          style={s.langRow}
-                          onClick={() => toggleLang(lang.code)}
-                        >
-                          <span style={s.langRowFlag}>{lang.flag}</span>
-                          <span style={s.langRowLabel}>{lang.label}</span>
-                          {activeLangs.has(lang.code) && <LangCheck />}
-                        </button>
-                      ))}
-                      <div style={s.langDivider} />
-                      <button
-                        className="pbtn"
-                        style={s.langAction}
-                        onClick={() => setActiveLangs(new Set(LANGUAGES.map(l => l.code)))}
-                      >
-                        Enable all
-                      </button>
-                      <button className="pbtn" style={s.langAction}>Add more</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* CENTER — dictate wavepill */}
-              <div
-                style={{ position: "relative" }}
-                onMouseEnter={() => setHoveredEl("dictate")}
-                onMouseLeave={() => setHoveredEl(null)}
-              >
-                {hoveredEl === "dictate" && (
-                  <div style={s.tooltip}>
-                    <span style={s.tooltipText}>Dictate</span>
-                    <span style={{ ...s.tooltipText, color: "#a78bfa", fontWeight: 600 }}>Ctrl+Win</span>
+            {isLoading ? (
+              <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={s.dictatingBubble}>
+                  <span style={{ ...s.dictatingDot, background: "rgba(251,191,36,0.9)", animation: "dotPulse 1s ease-in-out infinite" }} />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <span style={s.dictatingText}>
+                      {downloadProgress !== null
+                        ? `Downloading ${downloadModel ?? "model"} — ${Math.round(downloadProgress)}%`
+                        : "Loading transcription model…"}
+                    </span>
+                    {downloadProgress !== null && (
+                      <div style={s.progressTrack}>
+                        <div style={{ ...s.progressFill, width: `${downloadProgress}%` }} />
+                      </div>
+                    )}
                   </div>
-                )}
-                <button className="pbtn" style={s.wavePill} onClick={startPtt}>
+                </div>
+                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
+                  <XIcon />
+                </button>
+                <div style={{ ...s.wavePill, border: "1px solid rgba(251,191,36,0.4)", minWidth: 100 }}>
+                  <WaveVisual state="processing" />
+                </div>
+              </div>
+
+            ) : isRecording || isProcessing ? (
+              <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
+                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
+                  <XIcon />
+                </button>
+                <div style={{
+                  ...s.wavePill,
+                  border: isRecording ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(251,191,36,0.4)",
+                  animation: isRecording ? "pulseGlow 1.8s ease-in-out infinite" : "none",
+                  minWidth: 100, gap: 8,
+                }}>
+                  {isRecording && (
+                    <span style={s.recTimer}>
+                      {`${Math.floor(recSecs / 60)}:${String(recSecs % 60).padStart(2, "0")}`}
+                    </span>
+                  )}
                   <WaveVisual state={recordingState} />
+                </div>
+                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(34,197,94,0.35)" }} onClick={stopPtt}>
+                  <CheckIcon />
                 </button>
               </div>
 
-              {/* RIGHT side (SIDE_W wide) — wand + notes */}
-              <div style={{ width: SIDE_W, display: "flex", gap: 5, alignItems: "center" }}>
+            ) : (
+              <>
+                {/* LEFT — globe / lang */}
+                <div style={{ width: SIDE_W, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+                  <div
+                    style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
+                    onMouseEnter={() => setHoveredEl("lang")}
+                    onMouseLeave={() => setHoveredEl(null)}
+                  >
+                    {hoveredEl === "lang" && !showLangPanel && (
+                      <div style={s.tooltip}><span style={s.tooltipText}>Change language</span></div>
+                    )}
+                    {hoveredEl === "lang" && (
+                      <button className="pbtn" style={s.arrowDrawer} onClick={() => setShowLangPanel(p => !p)}>
+                        <ChevronIcon />
+                      </button>
+                    )}
+                    <button
+                      className="pbtn"
+                      style={{ ...s.iconBtn, position: "relative", zIndex: 1 }}
+                      onClick={cycleLang}
+                    >
+                      {allActive
+                        ? <GlobeIcon key="all" />
+                        : <span key={langIdx} style={s.langCode}>{LANGUAGES[langIdx].code}</span>
+                      }
+                    </button>
+                    {showLangPanel && (
+                      <div style={s.langPanel} onMouseEnter={cancelHide}>
+                        {LANGUAGES.map(lang => (
+                          <button key={lang.code} className="pbtn" style={s.langRow} onClick={() => toggleLang(lang.code)}>
+                            <span style={s.langRowFlag}>{lang.flag}</span>
+                            <span style={s.langRowLabel}>{lang.label}</span>
+                            {activeLangs.has(lang.code) && <LangCheck />}
+                          </button>
+                        ))}
+                        <div style={s.langDivider} />
+                        <button className="pbtn" style={s.langAction}
+                          onClick={() => setActiveLangs(new Set(LANGUAGES.map(l => l.code)))}>
+                          Enable all
+                        </button>
+                        <button className="pbtn" style={s.langAction}>Add more</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* CENTER — dictate */}
                 <div
                   style={{ position: "relative" }}
-                  onMouseEnter={() => setHoveredEl("enhance")}
+                  onMouseEnter={() => setHoveredEl("dictate")}
                   onMouseLeave={() => setHoveredEl(null)}
                 >
-                  {hoveredEl === "enhance" && (
+                  {hoveredEl === "dictate" && (
                     <div style={s.tooltip}>
-                      <span style={s.tooltipText}>Enhance</span>
+                      <span style={s.tooltipText}>Dictate</span>
+                      <span style={{ ...s.tooltipText, color: "#a78bfa", fontWeight: 600 }}>Ctrl+Win</span>
                     </div>
                   )}
-                  <button className="pbtn" style={s.iconBtn}>
-                    <WandIcon />
+                  <button className="pbtn" style={s.wavePill} onClick={startPtt}>
+                    <WaveVisual state={recordingState} />
                   </button>
                 </div>
-                <div
-                  style={{ position: "relative" }}
-                  onMouseEnter={() => setHoveredEl("history")}
-                  onMouseLeave={() => setHoveredEl(null)}
-                >
-                  {hoveredEl === "history" && (
-                    <div style={s.tooltip}>
-                      <span style={s.tooltipText}>Copy recent</span>
-                    </div>
-                  )}
-                  <button className="pbtn" style={s.iconBtn} onClick={copyRecent}>
-                    <NotesIcon />
-                  </button>
+
+                {/* RIGHT — wand + notes */}
+                <div style={{ width: SIDE_W, display: "flex", gap: 5, alignItems: "center" }}>
+                  <div
+                    style={{ position: "relative" }}
+                    onMouseEnter={() => setHoveredEl("enhance")}
+                    onMouseLeave={() => setHoveredEl(null)}
+                  >
+                    {hoveredEl === "enhance" && (
+                      <div style={s.tooltip}><span style={s.tooltipText}>Enhance</span></div>
+                    )}
+                    <button className="pbtn" style={s.iconBtn}><WandIcon /></button>
+                  </div>
+                  <div
+                    style={{ position: "relative" }}
+                    onMouseEnter={() => setHoveredEl("history")}
+                    onMouseLeave={() => setHoveredEl(null)}
+                  >
+                    {hoveredEl === "history" && (
+                      <div style={s.tooltip}><span style={s.tooltipText}>Copy recent</span></div>
+                    )}
+                    <button className="pbtn" style={s.iconBtn} onClick={copyRecent}><NotesIcon /></button>
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -489,9 +504,9 @@ function WaveVisual({ state }: { state: string }) {
       cancelAnimationFrame(rafRef.current);
       streamRef.current?.getTracks().forEach(t => t.stop());
       ctxRef.current?.close();
-      ctxRef.current    = null;
+      ctxRef.current     = null;
       analyserRef.current = null;
-      streamRef.current = null;
+      streamRef.current  = null;
       setLevels(Array(BAR_COUNT).fill(0));
       return;
     }
@@ -499,7 +514,7 @@ function WaveVisual({ state }: { state: string }) {
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       .then(stream => {
         streamRef.current = stream;
-        const ctx = new AudioContext();
+        const ctx         = new AudioContext();
         ctxRef.current    = ctx;
         const analyser    = ctx.createAnalyser();
         analyser.fftSize  = 256;
@@ -507,23 +522,19 @@ function WaveVisual({ state }: { state: string }) {
         analyserRef.current = analyser;
         ctx.createMediaStreamSource(stream).connect(analyser);
 
-        const data = new Uint8Array(analyser.frequencyBinCount); // 128 bins
-
+        const data = new Uint8Array(analyser.frequencyBinCount);
         const tick = () => {
           analyser.getByteFrequencyData(data);
-          // Sample BAR_COUNT evenly-spaced bins from the lower half (voice frequencies)
           const newLevels = Array.from({ length: BAR_COUNT }, (_, i) => {
             const bin = Math.floor((i / BAR_COUNT) * (data.length / 2));
-            return data[bin] / 255; // 0–1
+            return data[bin] / 255;
           });
           setLevels(newLevels);
           rafRef.current = requestAnimationFrame(tick);
         };
         rafRef.current = requestAnimationFrame(tick);
       })
-      .catch(() => {
-        // mic unavailable — levels stay at 0, bars stay static
-      });
+      .catch(() => {});
 
     return () => {
       cancelAnimationFrame(rafRef.current);
@@ -536,8 +547,7 @@ function WaveVisual({ state }: { state: string }) {
     <div style={{ display: "flex", alignItems: "center", gap: 2, height: 14 }}>
       {Array.from({ length: BAR_COUNT }).map((_, i) => {
         if (isRecording) {
-          const level = levels[i];
-          const h     = Math.max(0.15, level);
+          const h = Math.max(0.15, levels[i]);
           return (
             <div key={i} style={{
               width: 1.5, height: "100%", borderRadius: 2,
@@ -556,7 +566,12 @@ function WaveVisual({ state }: { state: string }) {
             animationDelay: `${i * 0.07}s`,
           }} />
         );
-        return <div key={i} style={{ width: 2, height: 2, borderRadius: "50%", background: "rgba(255,255,255,0.28)" }} />;
+        return (
+          <div key={i} style={{
+            width: 2, height: 2, borderRadius: "50%",
+            background: "rgba(255,255,255,0.28)",
+          }} />
+        );
       })}
     </div>
   );
@@ -633,30 +648,52 @@ function CheckIcon() {
 
 const s: Record<string, React.CSSProperties> = {
   root: {
+    // position: relative so the absolute anchor is contained within it.
+    // No flex layout — handle + bar use absolute positioning via anchor.
     width: "100vw", height: "100vh",
-    display: "flex", flexDirection: "column",
-    alignItems: "center", justifyContent: "flex-end",
-    paddingBottom: 5,
+    position: "relative",
     background: "transparent",
     fontFamily: "'Inter', system-ui, sans-serif",
-    gap: 5,
     pointerEvents: "none",
+    overflow: "visible",
+  },
+  // Single anchor: a zero-size absolute point at bottom-center.
+  // Both handle and bar are absolutely positioned inside it, sharing
+  // the same bottom-center origin. They cannot push each other in flow.
+  anchor: {
+    position: "absolute",
+    left: "50%",
+    // bottom is set inline with `bottomPad`.
+    width: 0,
+    height: 0,
+    pointerEvents: "none",
+    overflow: "visible",
   },
   handle: {
-    width: 40, height: 10, borderRadius: 99, flexShrink: 0,
+    // Absolutely positioned relative to anchor (bottom-center).
+    position: "absolute",
+    left: 0,
+    bottom: 0,
+    width: 40, height: 10,
+    borderRadius: 99,
     background: "#000",
     border: "1.5px solid rgba(255,255,255,0.55)",
-    pointerEvents: "auto",
-    // transform + opacity driven by inline style; transition set inline too.
+    // transform + opacity driven inline; transition set inline too.
     transformOrigin: "center bottom",
+    // Horizontal centering via translateX(-50%) baked into inline transform.
   },
   barRow: {
-    display: "flex", alignItems: "center", gap: 5,
+    // Absolutely positioned relative to anchor (bottom-center).
+    position: "absolute",
+    left: 0,
+    bottom: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
     background: "transparent",
-    // No keyframe animation here — transitions are applied inline so enter/exit
-    // can use different curves without remounting.
-    pointerEvents: "auto",
+    // transform + opacity driven inline.
     transformOrigin: "center bottom",
+    // Horizontal centering via translateX(-50%) baked into inline transform.
   },
   iconBtn: {
     display: "flex", alignItems: "center", justifyContent: "center",
@@ -734,9 +771,9 @@ const s: Record<string, React.CSSProperties> = {
     background: "transparent",
     width: "100%", textAlign: "left" as const,
   },
-  langRowFlag: { fontSize: 14, lineHeight: 1, flexShrink: 0 },
+  langRowFlag:  { fontSize: 14, lineHeight: 1, flexShrink: 0 },
   langRowLabel: { color: "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: 500, flex: 1 },
-  langDivider: { height: 1, background: "rgba(255,255,255,0.07)", margin: "4px 0" },
+  langDivider:  { height: 1, background: "rgba(255,255,255,0.07)", margin: "4px 0" },
   langAction: {
     display: "flex", alignItems: "center",
     padding: "7px 14px",
@@ -770,29 +807,18 @@ const s: Record<string, React.CSSProperties> = {
     animation: "micPulse 1.2s ease-in-out infinite",
   } as React.CSSProperties,
   dictatingText: {
-    color: "rgba(255,255,255,0.88)",
-    fontSize: 12,
-    fontWeight: 600,
-    letterSpacing: 0.1,
+    color: "rgba(255,255,255,0.88)", fontSize: 12, fontWeight: 600, letterSpacing: 0.1,
   },
   recTimer: {
-    color: "rgba(167,139,250,0.9)",
-    fontSize: 12,
-    fontWeight: 600,
-    fontVariantNumeric: "tabular-nums",
-    letterSpacing: 0.5,
-    flexShrink: 0,
+    color: "rgba(167,139,250,0.9)", fontSize: 12, fontWeight: 600,
+    fontVariantNumeric: "tabular-nums", letterSpacing: 0.5, flexShrink: 0,
   },
   progressTrack: {
-    width: 180,
-    height: 3,
-    borderRadius: 99,
-    background: "rgba(255,255,255,0.1)",
-    overflow: "hidden",
+    width: 180, height: 3, borderRadius: 99,
+    background: "rgba(255,255,255,0.1)", overflow: "hidden",
   },
   progressFill: {
-    height: "100%",
-    borderRadius: 99,
+    height: "100%", borderRadius: 99,
     background: "linear-gradient(90deg, rgba(167,139,250,0.9), rgba(251,191,36,0.9))",
     transition: "width 0.4s ease",
   },
