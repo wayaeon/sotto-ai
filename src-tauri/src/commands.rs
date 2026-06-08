@@ -4,6 +4,26 @@ use crate::sidecar::send_command;
 use crate::injection::Injector;
 
 #[tauri::command]
+pub fn open_url(url: String) {
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("cmd").args(["/c", "start", &url]).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&url).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+}
+
+#[tauri::command]
+pub fn open_path(path: String) {
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("cmd").args(["/c", "start", "", &path]).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&path).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+}
+
+#[tauri::command]
 pub fn start_ptt(app: AppHandle) {
     send_command(&app, json!({"cmd": "start_ptt"}));
 }

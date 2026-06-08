@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { onSidecarEvent, injectText, type SidecarMessage } from "../lib/tauri";
+import { onSidecarEvent, injectText, setModel as setModelIpc, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 
@@ -32,6 +32,10 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
       switch (msg.event) {
         case "ready":
           setSidecarReady(true);
+          {
+            const persistedModel = localStorage.getItem("sotto_model");
+            if (persistedModel) setModelIpc(persistedModel).catch((e) => console.warn("[set_model]", e));
+          }
           break;
 
         case "word":
@@ -57,7 +61,6 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             const currentTier  = useAppStore.getState().tier  ?? "";
 
             localStorage.setItem("sotto_last_transcription", raw);
-            navigator.clipboard.writeText(raw).catch(() => {});
 
             // inject_text Rust command emits "inject-done" to all windows after completing
             injectText(raw).catch((e) => console.warn("[inject_text]", e));
@@ -88,14 +91,33 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           // Track model load lifecycle
           if (msg.msg === "idle") setModelReady(true);
           else if (msg.msg === "loading_model") setModelReady(false);
+          else if (msg.msg.startsWith("worker_ready")) {
+            const parts = Object.fromEntries(
+              msg.msg.split(" ").slice(1).map((p) => p.split("="))
+            );
+            if (parts.model) {
+              setModel(parts.model);
+              localStorage.setItem("sotto_model", parts.model);
+            }
+            setModelReady(true);
+          }
+          else if (msg.msg.startsWith("model_selected")) {
+            const parts = Object.fromEntries(
+              msg.msg.split(" ").slice(1).map((p) => p.split("="))
+            );
+            if (parts.model) {
+              setModel(parts.model);
+              localStorage.setItem("sotto_model", parts.model);
+            }
+          }
           break;
         }
 
         case "hardware":
           setTier(msg.tier as any);
-          setModel(msg.model);
+          if (!localStorage.getItem("sotto_model")) setModel(msg.model);
           localStorage.setItem("sotto_tier", msg.tier);
-          localStorage.setItem("sotto_model", msg.model);
+          if (!localStorage.getItem("sotto_model")) localStorage.setItem("sotto_model", msg.model);
           break;
 
         case "download_progress": {

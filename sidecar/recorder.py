@@ -21,13 +21,13 @@ from datetime import datetime
 from pathlib import Path
 from .ipc import IPC, Event
 from .hardware import ModelTier, HardwareInfo
-from .models import tier_to_model, model_dir
+from .models import best_available_model, model_dir
 
 _RECORDINGS_DIR  = Path.home() / ".sotto" / "recordings"
 _SAMPLE_RATE     = 16000
 _SAMPLE_WIDTH    = 2       # 16-bit PCM
 _CHUNK_SIZE      = 1024
-_WORKER_TIMEOUT  = 120     # seconds to wait for transcription result
+_WORKER_TIMEOUT  = 1800    # allow slow CPU models to finish without unloading
 _WORKER_INIT_S   = 120     # seconds to wait for model load (GPU can take ~30 s)
 
 try:
@@ -56,7 +56,8 @@ def _pcm16_level(data: bytes) -> float:
 def _worker_loop(model_name: str, model_path: str, runtime: str, device: str, task_q, result_q) -> None:  # type: ignore[type-arg]
     """Long-lived subprocess: loads model once via adapter, transcribes on demand."""
     try:
-        from sidecar.runtimes import get_adapter
+        from sidecar.runtimes import get_adapter, resolve_device
+        device = resolve_device(runtime, device)
         compute_type = "float16" if device == "cuda" else "int8"
         adapter = get_adapter(runtime)
         model = adapter.load_model(model_path, device, compute_type)
@@ -81,7 +82,7 @@ class Recorder:
         self._ipc        = ipc
         self._tier       = hw.tier
         self._device     = hw.device_str
-        self._model_name = tier_to_model(hw.tier)
+        self._model_name = best_available_model(hw.model_name)
         self._initial_prompt = ""
 
         # ── always-on audio pump ──────────────────────────────────────────────
@@ -100,6 +101,9 @@ class Recorder:
         self._worker_proc:  multiprocessing.Process | None = None
         self._task_q:       multiprocessing.Queue | None = None
         self._result_q:     multiprocessing.Queue | None = None
+        self._worker_error:  str | None = None
+        self._loaded_model_name: str | None = None
+        self._transcription_active = False
 
         # ── hands-free (AudioToTextRecorder) ─────────────────────────────────
         self._recorder  = None
@@ -179,6 +183,19 @@ class Recorder:
         d = model_dir(self._model_name)
         return str(d) if d.exists() else self._model_name
 
+    def _runtime(self) -> str:
+        from .models import MODEL_CATALOG
+
+        spec = MODEL_CATALOG.get(self._model_name)
+        return spec.runtime if spec else "faster-whisper"
+
+    def _postprocess_transcript(self, text: str) -> str:
+        if self._runtime() != "onnx":
+            return text.strip()
+        from .cleanup import restore_readable_transcript
+
+        return restore_readable_transcript(text)
+
     def _ensure_model_downloaded(self) -> None:
         from .models import is_downloaded, _download_model
         if not is_downloaded(self._model_name):
@@ -186,12 +203,12 @@ class Recorder:
             _download_model(self._model_name, self._ipc)
 
     def _start_worker(self) -> None:
+        self._worker_error = None
+        self._loaded_model_name = None
         self._ensure_model_downloaded()
         model_path = self._get_model_path()
 
-        from .models import MODEL_CATALOG
-        spec = MODEL_CATALOG.get(self._model_name)
-        runtime = spec.runtime if spec else "faster-whisper"
+        runtime = self._runtime()
 
         ctx = multiprocessing.get_context("spawn")
         self._task_q   = ctx.Queue()
@@ -212,10 +229,15 @@ class Recorder:
                     info = msg if isinstance(msg, dict) else {}
                     device  = info.get("device", "cpu")
                     compute = info.get("compute_type", "int8")
+                    runtime = info.get("runtime", runtime)
                     self._ipc.send(
                         Event.STATUS,
-                        msg=f"worker_ready device={device} compute={compute}",
+                        msg=(
+                            f"worker_ready model={self._model_name} "
+                            f"device={device} compute={compute} runtime={runtime}"
+                        ),
                     )
+                    self._loaded_model_name = self._model_name
                     return
                 elif status == "error":
                     raise RuntimeError(msg)
@@ -227,14 +249,24 @@ class Recorder:
         raise RuntimeError(f"Worker did not become ready within {_WORKER_INIT_S} s")
 
     def _ensure_worker(self) -> bool:
-        if self._worker_proc is not None and self._worker_proc.is_alive():
+        if (
+            self._worker_proc is not None
+            and self._worker_proc.is_alive()
+            and self._loaded_model_name == self._model_name
+        ):
             return True
+        if self._worker_proc is not None:
+            self._stop_worker()
+        if self._worker_error:
+            self._ipc.send(Event.ERROR, msg=f"Selected model unavailable: {self._worker_error}")
+            return False
         try:
             self._ipc.send(Event.STATUS, msg="loading_model")
             self._start_worker()
             self._ipc.send(Event.STATUS, msg="idle")
             return True
         except Exception as e:
+            self._worker_error = str(e)
             self._ipc.send(Event.ERROR, msg=f"Worker respawn failed: {e}")
             return False
 
@@ -274,6 +306,12 @@ class Recorder:
 
     def start_ptt(self) -> None:
         """Instant PTT start — pump is already running, just open WAV and flip flag."""
+        if self._worker_error:
+            self._ipc.send(Event.ERROR, msg=f"Cannot record with selected model: {self._worker_error}")
+            return
+        if self._transcription_active:
+            self._ipc.send(Event.ERROR, msg=f"{self._model_name} is still transcribing the previous recording")
+            return
         with self._lock:
             if self._recording_active:
                 return  # already recording
@@ -318,6 +356,7 @@ class Recorder:
             "wav_write_ms":        round(t_wav_ready_ms - t_capture_end_ms),
         }
 
+        self._transcription_active = True
         threading.Thread(
             target=self._fetch_transcription,
             args=(audio_path, timing_ctx),
@@ -349,6 +388,7 @@ class Recorder:
                     status, value = self._result_q.get(timeout=2)
                     t_transcription_done_ms = time.time() * 1000
                     if status == "ok":
+                        value = self._postprocess_transcript(value)
                         if value:
                             timing: dict = {}
                             if timing_ctx:
@@ -385,6 +425,7 @@ class Recorder:
         except Exception as e:
             self._ipc.send(Event.ERROR, msg=f"Transcription error: {e}")
         finally:
+            self._transcription_active = False
             self._ipc.send(Event.STATUS, msg="idle")
 
     # ── hands-free ────────────────────────────────────────────────────────────
@@ -406,24 +447,53 @@ class Recorder:
         while self._handsfree and self._recorder is not None:
             text = self._recorder.text()
             if text and text.strip():
-                self._ipc.send(Event.SEGMENT_DONE, text=text.strip())
+                self._ipc.send(Event.SEGMENT_DONE, text=self._postprocess_transcript(text))
 
     # ── model/dictionary swap ─────────────────────────────────────────────────
 
-    def set_model(self, model_name: str) -> None:
+    def set_model(self, model_name: str) -> bool:
+        from .models import MODEL_CATALOG
+
+        if model_name not in MODEL_CATALOG:
+            self._ipc.send(Event.ERROR, msg=f"Unknown model: {model_name}")
+            return False
+        if self._transcription_active:
+            self._ipc.send(Event.ERROR, msg=f"Cannot switch models while {self._model_name} is transcribing")
+            return False
+        if (
+            model_name == self._model_name
+            and self._worker_proc is not None
+            and self._worker_proc.is_alive()
+            and self._loaded_model_name == model_name
+        ):
+            self._ipc.send(Event.STATUS, msg=f"model_selected model={model_name}")
+            return True
+
         with self._lock:
             self._model_name = model_name
             self._stop_worker()
+        try:
+            self._ipc.send(Event.STATUS, msg="loading_model")
             self._start_worker()
+        except Exception as e:
+            self._worker_error = str(e)
+            self._ipc.send(Event.ERROR, msg=f"Model switch failed for {model_name}: {e}")
+            self._ipc.send(Event.STATUS, msg="idle")
+            return False
+
+        with self._lock:
+            was_handsfree = self._handsfree
             if self._recorder is not None:
-                was_handsfree = self._handsfree
                 self._handsfree = False
                 self._recorder.shutdown()
                 self._recorder = None
                 self._recorder = self._make_recorder()
-                if was_handsfree:
-                    self._handsfree = True
-                    threading.Thread(target=self._handsfree_loop, daemon=True).start()
+            if was_handsfree:
+                self._handsfree = True
+                threading.Thread(target=self._handsfree_loop, daemon=True).start()
+        self._ipc.send(Event.STATUS, msg=f"model_selected model={model_name}")
+        self._ipc.send(Event.STATUS, msg="idle")
+        return True
 
     def set_dictionary(self, words: list[str]) -> None:
         self._initial_prompt = ", ".join(words) if words else ""
@@ -453,6 +523,7 @@ class Recorder:
         self._worker_proc = None
         self._task_q      = None
         self._result_q    = None
+        self._loaded_model_name = None
 
     def shutdown(self) -> None:
         with self._lock:

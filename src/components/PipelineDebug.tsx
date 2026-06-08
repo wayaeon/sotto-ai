@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { open as openPath } from "@tauri-apps/plugin-shell";
 import { listen } from "@tauri-apps/api/event";
-import { benchmarkModel, checkDownloads, detectHardware, downloadModel, onSidecarEvent, setModel } from "../lib/tauri";
+import { benchmarkModel, checkDownloads, detectHardware, downloadModel, onSidecarEvent, openPath, openUrl, pauseDownloadModel, setModel } from "../lib/tauri";
 import { applyDownloadProgress, type DownloadProgressState } from "../lib/downloadProgress";
 import { modelDownloadStatus } from "../lib/modelStatus";
 import type { BenchmarkResult, HardwareInfo, StageTiming } from "../lib/tauri";
@@ -32,7 +31,7 @@ interface ModelCandidate {
   id: string;
   label: string;
   family: string;
-  runtime: "faster-whisper" | "nemo" | "transformers" | "onnx" | "mlx" | "cloud";
+  runtime: "faster-whisper" | "nemo" | "transformers" | "qwen-asr" | "onnx" | "onnx-asr";
   accuracyLabel: string;
   expectedLatencyLabel: string;
   sizeLabel: string;
@@ -42,6 +41,11 @@ interface ModelCandidate {
   note: string;
 }
 
+interface BenchmarkRuntimeStatus {
+  available: boolean;
+  reason: string;
+}
+
 const MODEL_CANDIDATES: ModelCandidate[] = [
   { id: "large-v3-turbo", label: "large-v3 turbo CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "94-97%", expectedLatencyLabel: "3-8s CPU", sizeLabel: "~3.1 GB", sourceUrl: "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2", downloadSupported: true, benchmarkSupported: true, note: "Highest-quality local baseline; best with GPU." },
   { id: "medium.en", label: "medium.en CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "92-96%", expectedLatencyLabel: "1.5-4s CPU", sizeLabel: "~1.5 GB", sourceUrl: "https://huggingface.co/Systran/faster-whisper-medium.en", downloadSupported: true, benchmarkSupported: true, note: "Strong English baseline for CPU testing." },
@@ -49,13 +53,20 @@ const MODEL_CANDIDATES: ModelCandidate[] = [
   { id: "small", label: "small CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "86-92%", expectedLatencyLabel: "0.8-2s CPU", sizeLabel: "~460 MB", sourceUrl: "https://huggingface.co/Systran/faster-whisper-small", downloadSupported: true, benchmarkSupported: true, note: "Fast local fallback for lower-power PCs." },
   { id: "base", label: "base CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "78-86%", expectedLatencyLabel: "0.3-1s CPU", sizeLabel: "~145 MB", sourceUrl: "https://huggingface.co/Systran/faster-whisper-base", downloadSupported: true, benchmarkSupported: true, note: "Speed test model; accuracy is limited." },
   { id: "tiny", label: "tiny CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "65-78%", expectedLatencyLabel: "<500ms CPU", sizeLabel: "~75 MB", sourceUrl: "https://huggingface.co/Systran/faster-whisper-tiny", downloadSupported: true, benchmarkSupported: true, note: "Smallest fallback for quick smoke tests." },
-  { id: "nvidia/parakeet-tdt-0.6b-v3", label: "TDT 0.6B v3", family: "Parakeet", runtime: "nemo", accuracyLabel: "94-98%", expectedLatencyLabel: "<1s GPU/DirectML", sizeLabel: "~2.4 GB", sourceUrl: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3", downloadSupported: true, benchmarkSupported: true, note: "Best accuracy + speed on GPU/DirectML. Recommended for CUDA and AMD GPU." },
+  { id: "nvidia/parakeet-tdt-0.6b-v3", label: "TDT 0.6B v3", family: "Parakeet", runtime: "onnx-asr", accuracyLabel: "94-98%", expectedLatencyLabel: "<500ms CPU", sizeLabel: "~640 MB", sourceUrl: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx", downloadSupported: true, benchmarkSupported: true, note: "Optimized int8 ONNX Parakeet; fast local dictation on ordinary CPUs." },
   { id: "nvidia/parakeet-tdt-0.6b-v2", label: "TDT 0.6B v2", family: "Parakeet", runtime: "nemo", accuracyLabel: "93-97%", expectedLatencyLabel: "<1s GPU/DirectML", sizeLabel: "~2.4 GB", sourceUrl: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", downloadSupported: true, benchmarkSupported: true, note: "Previous Parakeet generation. Good fallback if v3 unavailable." },
+  { id: "nvidia/nemotron-speech-streaming-en-0.6b", label: "Streaming 0.6B", family: "Nemotron", runtime: "nemo", accuracyLabel: "94-98%", expectedLatencyLabel: "<1s streaming", sizeLabel: "~1.5 GB", sourceUrl: "https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b", downloadSupported: true, benchmarkSupported: true, note: "Streaming-first English ASR candidate for lower-latency dictation." },
+  { id: "nvidia/nemotron-3.5-asr-streaming-0.6b", label: "3.5 ASR Streaming 0.6B", family: "Nemotron", runtime: "nemo", accuracyLabel: "94-98%", expectedLatencyLabel: "<1s streaming", sizeLabel: "~1.5 GB", sourceUrl: "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b", downloadSupported: true, benchmarkSupported: true, note: "Updated Nemotron streaming ASR model." },
   { id: "nvidia/canary-1b-flash", label: "1B Flash", family: "Canary", runtime: "nemo", accuracyLabel: "93-97%", expectedLatencyLabel: "1-3s GPU/DirectML", sizeLabel: "~4.0 GB", sourceUrl: "https://huggingface.co/nvidia/canary-1b-flash", downloadSupported: true, benchmarkSupported: true, note: "Multilingual NeMo model. Slower than Parakeet but broader language support." },
+  { id: "nvidia/canary-1b-v2", label: "1B v2", family: "Canary", runtime: "nemo", accuracyLabel: "94-98%", expectedLatencyLabel: "1-3s GPU/DirectML", sizeLabel: "~4.0 GB", sourceUrl: "https://huggingface.co/nvidia/canary-1b-v2", downloadSupported: true, benchmarkSupported: true, note: "Newer multilingual Canary ASR + translation candidate." },
+  { id: "CohereLabs/cohere-transcribe-03-2026", label: "Transcribe 03-2026", family: "Cohere", runtime: "transformers", accuracyLabel: "96-99%", expectedLatencyLabel: "1-4s GPU", sizeLabel: "~3.9 GB", sourceUrl: "https://huggingface.co/CohereLabs/cohere-transcribe-03-2026", downloadSupported: true, benchmarkSupported: true, note: "Gated HF model; requires access approval and saved token." },
   { id: "distil-whisper/distil-large-v3.5", label: "large-v3.5", family: "Distil-Whisper", runtime: "transformers", accuracyLabel: "91-95%", expectedLatencyLabel: "1-2s GPU/DirectML", sizeLabel: "~1.5 GB", sourceUrl: "https://huggingface.co/distil-whisper/distil-large-v3.5", downloadSupported: true, benchmarkSupported: true, note: "Distilled Whisper — fast on GPU with near-large accuracy." },
+  { id: "ibm-granite/granite-4.0-1b-speech", label: "4.0 1B Speech", family: "Granite", runtime: "transformers", accuracyLabel: "90-96%", expectedLatencyLabel: "1-3s GPU", sizeLabel: "~4.3 GB", sourceUrl: "https://huggingface.co/ibm-granite/granite-4.0-1b-speech", downloadSupported: true, benchmarkSupported: true, note: "Compact speech-language model; interesting for keyword-biased ASR." },
   { id: "FunAudioLLM/SenseVoiceSmall", label: "Small", family: "SenseVoice", runtime: "transformers", accuracyLabel: "85-92%", expectedLatencyLabel: "0.5-2s", sizeLabel: "~500 MB", sourceUrl: "https://huggingface.co/FunAudioLLM/SenseVoiceSmall", downloadSupported: true, benchmarkSupported: true, note: "Fast with emotion/language metadata. Uses FunASR runtime." },
   { id: "UsefulSensors/moonshine-base", label: "Moonshine", family: "Moonshine", runtime: "transformers", accuracyLabel: "80-88%", expectedLatencyLabel: "<500ms", sizeLabel: "~200 MB", sourceUrl: "https://huggingface.co/UsefulSensors/moonshine-base", downloadSupported: true, benchmarkSupported: true, note: "Ultra-fast English model. Best CPU/DirectML speed option." },
+  { id: "Qwen/Qwen3-ASR-1.7B", label: "Qwen3-ASR 1.7B", family: "Qwen", runtime: "qwen-asr", accuracyLabel: "92-97%", expectedLatencyLabel: "2-5s GPU", sizeLabel: "~4.4 GB", sourceUrl: "https://huggingface.co/Qwen/Qwen3-ASR-1.7B", downloadSupported: true, benchmarkSupported: true, note: "Experimental multilingual ASR candidate; dedicated runtime required." },
   { id: "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", label: "Zipformer EN", family: "sherpa-onnx", runtime: "onnx", accuracyLabel: "82-90%", expectedLatencyLabel: "<500ms CPU/NPU", sizeLabel: "~100 MB", sourceUrl: "https://huggingface.co/csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", downloadSupported: true, benchmarkSupported: true, note: "ONNX runtime — works on CPU, DirectML, and NPU. Smallest footprint." },
+  { id: "mistralai/Voxtral-Mini-4B-Realtime-2602", label: "Voxtral Mini 4B Realtime", family: "Voxtral", runtime: "transformers", accuracyLabel: "95-99%", expectedLatencyLabel: "1-3s GPU · 60-90s CPU", sizeLabel: "~8.3 GB", sourceUrl: "https://huggingface.co/mistralai/Voxtral-Mini-4B-Realtime-2602", downloadSupported: true, benchmarkSupported: true, note: "Realtime requires a supported GPU; CPU inference is substantially slower." },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -178,7 +189,7 @@ function TimingPanel({ timing, waitingForInject }: TimingPanelProps) {
           </>
         )}
         <TimingBarRow
-          label="Whisper inference"
+          label="Model inference"
           sublabel={hasSidecarData ? "model only" : "approx (includes wav+queue)"}
           ms={whisperMs}
           maxMs={maxMs}
@@ -223,33 +234,43 @@ function ModelsBenchmarkPanel({
   selectedModel,
   downloading,
   downloadLabels,
+  downloadEtaLabels,
   pausedDownloads,
   benchmarkingModel,
+  benchmarkAllProgress,
   results,
   audioPath,
   onRefreshHardware,
   onDownload,
-  onActivate,
+  onPauseDownload,
   onBenchmark,
+  onBenchmarkAll,
   onOpenSource,
   onCopyResults,
   onClearResults,
+  resultsCollapsed,
+  onToggleResultsCollapsed,
 }: {
   hardware: HardwareInfo | null;
   selectedModel: string;
   downloading: Record<string, number>;
   downloadLabels: Record<string, string>;
+  downloadEtaLabels: Record<string, string>;
   pausedDownloads: Record<string, boolean>;
   benchmarkingModel: string | null;
+  benchmarkAllProgress: { completed: number; total: number } | null;
   results: BenchmarkResult[];
   audioPath: string | null;
   onRefreshHardware: () => void;
   onDownload: (model: string) => void;
-  onActivate: (model: ModelCandidate) => void;
+  onPauseDownload: (model: string) => void;
   onBenchmark: (model: string) => void;
+  onBenchmarkAll: () => void;
   onOpenSource: (url: string) => void;
   onCopyResults: () => void;
   onClearResults: () => void;
+  resultsCollapsed: boolean;
+  onToggleResultsCollapsed: () => void;
 }) {
   const gpuSummary = hardware?.gpus?.length
     ? hardware.gpus.map((gpu) => `${gpu.name}${gpu.vram_gb ? ` · ${gpu.vram_gb} GB` : ""}`).join(" | ")
@@ -264,27 +285,186 @@ function ModelsBenchmarkPanel({
   results.forEach((result) => {
     if (!latestResultByModel.has(result.model)) latestResultByModel.set(result.model, result);
   });
+  const [hoveredDownloadModel, setHoveredDownloadModel] = useState<string | null>(null);
+  const modelDisplayGroups = [
+    {
+      key: "downloaded",
+      title: "Downloaded locally",
+      detail: "Ready for activation or benchmarking when the runtime is available.",
+      models: MODEL_CANDIDATES.filter((model) => downloading[model.id] >= 100),
+    },
+    {
+      key: "available",
+      title: "Available to download",
+      detail: "Cached status is refreshed from the local models folder.",
+      models: MODEL_CANDIDATES.filter((model) => !(downloading[model.id] >= 100)),
+    },
+  ];
+  const renderModelRow = (model: ModelCandidate) => {
+    const progress = downloading[model.id];
+    const downloadLabel = downloadLabels[model.id];
+    const downloadEtaLabel = downloadEtaLabels[model.id];
+    const isDownloading = progress !== undefined && progress < 100;
+    const isDownloaded = progress !== undefined && progress >= 100;
+    const isPaused = !!pausedDownloads[model.id];
+    const showPause = isDownloading && !isPaused && hoveredDownloadModel === model.id;
+    const isBenchmarking = benchmarkingModel === model.id;
+    const active = selectedModel === model.id;
+    const result = latestResultByModel.get(model.id);
+    const benchmarkBlockedReason = !model.benchmarkSupported
+      ? "Benchmark requires a runtime adapter"
+      : !audioPath
+        ? "Record a sample first"
+        : !isDownloaded
+          ? "Download model before benchmarking"
+          : "";
+    const canBenchmark = !benchmarkBlockedReason && !benchmarkingModel;
+    const downloadStatus = modelDownloadStatus({
+      active,
+      downloaded: isDownloaded,
+      downloading: isDownloading,
+      paused: isPaused,
+      downloadSupported: model.downloadSupported,
+    });
+
+    return (
+      <React.Fragment key={model.id}>
+        <div style={{ ...css.modelTableCell, ...css.modelCenterCell, ...(active ? css.modelTableCellActiveFirst : {}) }}>
+          <span style={css.modelFamilyBadge}>{model.family}</span>
+        </div>
+        <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), flexDirection: "column", alignItems: "flex-start" }}>
+          <div style={css.modelNameBtn}>
+            <span style={css.modelNameText}>{model.label}</span>
+            {active && <span style={css.activeModelBadge}>Active</span>}
+          </div>
+          {progress !== undefined && (
+            <div style={css.inlineProgress}>
+              <div style={css.progressTrack}>
+                <div style={{ ...css.progressFill, width: `${progress}%` }} />
+              </div>
+              <div
+                style={css.downloadLabel}
+                title={[downloadLabel ?? `${progress.toFixed(0)}%`, progress < 100 ? downloadEtaLabel : ""].filter(Boolean).join(" · ")}
+              >
+                {progress >= 100
+                  ? "cached"
+                  : [downloadLabel ?? `${progress.toFixed(0)}%`, downloadEtaLabel].filter(Boolean).join(" · ")}
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ ...css.modelTableCell, ...css.modelRuntimeCell, ...(active ? css.modelTableCellActive : {}) }}>{model.runtime}</div>
+        <div style={{ ...css.modelTableCell, ...css.modelSizeCell, ...(active ? css.modelTableCellActive : {}) }}>{model.sizeLabel}</div>
+        <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNumericCell }}>{model.accuracyLabel}</div>
+        <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNumericCell, ...css.modelLatencyCell }}>{model.expectedLatencyLabel}</div>
+        <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNumericCell }}>
+          {isBenchmarking ? "running" : result ? fmtMs(result.transcribe_ms) : "—"}
+        </div>
+        <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNumericCell }}>{result ? `${result.rtf}x` : "—"}</div>
+        <div style={{ ...css.modelTableCell, ...css.modelCenterCell, ...(active ? css.modelTableCellActive : {}) }}>
+          <span
+            style={{
+              ...css.supportIconBadge,
+              color: downloadStatus.color,
+              background: downloadStatus.background,
+              borderColor: downloadStatus.borderColor,
+            }}
+            title={downloadStatus.label}
+            aria-label={downloadStatus.label}
+          >
+            {downloadStatus.icon}
+          </span>
+        </div>
+        <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNoteCell }} title={model.note}>{model.note}</div>
+        <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActiveLast : {}), ...css.modelActions }}>
+          <button
+            style={{
+              ...css.tableIconBtn,
+              ...(isDownloading ? css.tableIconBtnActive : {}),
+              ...(isPaused ? css.tableIconBtnPaused : {}),
+              ...(isDownloaded ? css.tableIconBtnReady : {}),
+              ...(!model.downloadSupported ? css.disabledIconBtn : {}),
+            }}
+            disabled={!model.downloadSupported || isDownloaded}
+            onMouseEnter={() => setHoveredDownloadModel(model.id)}
+            onMouseLeave={() => setHoveredDownloadModel(current => current === model.id ? null : current)}
+            title={
+              !model.downloadSupported
+                ? "Local app download is not wired yet"
+                : isDownloaded
+                  ? "Downloaded locally"
+                  : isPaused
+                    ? "Resume download"
+                    : isDownloading
+                      ? "Pause download"
+                      : `Download/cache locally (${model.sizeLabel})`
+            }
+            aria-label={model.downloadSupported ? `Download ${model.label} locally` : `${model.label} local download is not wired`}
+            onClick={() => isDownloading && !isPaused ? onPauseDownload(model.id) : onDownload(model.id)}
+          >
+            {isPaused ? (
+              "▶"
+            ) : showPause ? (
+              "Ⅱ"
+            ) : isDownloading ? (
+              <span style={css.downloadAnimIcon} aria-hidden="true">↓</span>
+            ) : isDownloaded ? (
+              "✓"
+            ) : (
+              "↓"
+            )}
+          </button>
+          <button
+            style={css.tableIconBtn}
+            title="Open model page"
+            aria-label={`Open ${model.label} model page`}
+            onClick={() => onOpenSource(model.sourceUrl)}
+          >
+            <span style={css.linkIcon} aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+                <path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" />
+              </svg>
+            </span>
+          </button>
+          <button
+            style={{
+              ...css.tablePrimaryIconBtn,
+              ...(!canBenchmark ? css.disabledIconBtn : {}),
+              ...(isBenchmarking ? css.tableIconBtnActive : {}),
+            }}
+            disabled={!canBenchmark}
+            title={benchmarkBlockedReason || "Benchmark latest WAV"}
+            aria-label={`Benchmark ${model.label} against latest WAV`}
+            onClick={() => onBenchmark(model.id)}
+          >
+            {isBenchmarking ? <span style={css.benchmarkSpinner} aria-hidden="true" /> : "▶"}
+          </button>
+        </div>
+      </React.Fragment>
+    );
+  };
 
   return (
     <div style={css.modelsRoot}>
       <div style={css.specPanel}>
-        <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={css.panelHeader}>
           <div style={css.panelEyebrow}>Machine Specs</div>
-          <div style={css.specGrid}>
-            <Spec label="OS" value={osSummary} width={118} />
-            <Spec label="CPU" value={hardware?.cpu_name ?? "unknown"} width={255} />
-            <Spec label="Cores" value={hardware?.cpu_cores && hardware?.cpu_threads ? `${hardware.cpu_cores}C / ${hardware.cpu_threads}T` : "unknown"} width={78} />
-            <Spec label="RAM" value={hardware ? `${hardware.ram_gb} GB` : "unknown"} width={78} />
-            <Spec label="Disk free" value={hardware?.free_disk_gb != null ? `${hardware.free_disk_gb} GB` : "unknown"} width={92} />
-            <Spec label="GPU" value={gpuSummary} width={230} />
-            <Spec label="CUDA" value={hardware?.has_nvidia_cuda ? `yes · ${hardware.nvidia_vram_gb ?? 0} GB` : "no"} width={56} />
-            <Spec label="DirectML" value={hardware?.device_tier === "directml" ? "yes" : hardware?.device_str === "directml" ? "yes" : "no"} width={56} />
-            <Spec label="AMD GPU" value={hardware?.has_amd_gpu ? "yes" : "no"} width={68} />
-            <Spec label="AI / NPU" value={acceleratorSummary} width={275} />
-            <Spec label="Recommended" value={hardware?.preferred_model ?? hardware?.model ?? "unknown"} width={104} />
-          </div>
+          <button style={css.headerIconBtn} onClick={onRefreshHardware} title="Refresh machine specs" aria-label="Refresh machine specs">↻</button>
         </div>
-        <button style={css.smallBtn} onClick={onRefreshHardware}>Refresh specs</button>
+        <div style={css.specGrid}>
+          <Spec label="OS" value={osSummary} width={118} />
+          <Spec label="CPU" value={hardware?.cpu_name ?? "unknown"} width={255} />
+          <Spec label="Cores" value={hardware?.cpu_cores && hardware?.cpu_threads ? `${hardware.cpu_cores}C / ${hardware.cpu_threads}T` : "unknown"} width={78} />
+          <Spec label="RAM" value={hardware ? `${hardware.ram_gb} GB` : "unknown"} width={78} />
+          <Spec label="Disk free" value={hardware?.free_disk_gb != null ? `${hardware.free_disk_gb} GB` : "unknown"} width={92} />
+          <Spec label="GPU" value={gpuSummary} width={230} />
+          <Spec label="CUDA" value={hardware?.has_nvidia_cuda ? `yes · ${hardware.nvidia_vram_gb ?? 0} GB` : "no"} width={56} />
+          <Spec label="DirectML" value={hardware?.device_tier === "directml" ? "yes" : hardware?.device_str === "directml" ? "yes" : "no"} width={56} />
+          <Spec label="AMD GPU" value={hardware?.has_amd_gpu ? "yes" : "no"} width={68} />
+          <Spec label="AI / NPU" value={acceleratorSummary} width={275} />
+          <Spec label="Recommended" value={hardware?.preferred_model ?? hardware?.model ?? "unknown"} width={104} />
+        </div>
       </div>
 
       <div style={css.modelsToolbar}>
@@ -292,147 +472,118 @@ function ModelsBenchmarkPanel({
           <div style={css.panelEyebrow}>Models</div>
           <div style={css.mutedText}>Download saves the model locally. Benchmark is available for faster-whisper models today.</div>
         </div>
-        <div style={css.audioBadge}>{audioPath ? "Benchmark WAV ready" : "Record a sample"}</div>
+        <div style={css.modelsToolbarActions}>
+          <div style={css.audioBadge}>{audioPath ? "Benchmark WAV ready" : "Record a sample"}</div>
+          <button
+            style={{
+              ...css.benchmarkAllBtn,
+              ...(!audioPath || !!benchmarkingModel ? css.disabledIconBtn : {}),
+            }}
+            disabled={!audioPath || !!benchmarkingModel}
+            onClick={onBenchmarkAll}
+            title="Benchmark every downloaded model with an available runtime"
+          >
+            {benchmarkAllProgress ? (
+              <>
+                <span style={css.benchmarkSpinner} aria-hidden="true" />
+                {`Benchmarking ${benchmarkAllProgress.completed + 1} / ${benchmarkAllProgress.total}`}
+              </>
+            ) : (
+              <>
+                <span aria-hidden="true">▶</span>
+                Benchmark all
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <div style={css.modelsTableWrap}>
         <div style={css.modelsTable}>
-          <div style={css.modelTableHead}>Family</div>
+          <div style={{ ...css.modelTableHead, ...css.modelHeadCenter }}>Family</div>
           <div style={css.modelTableHead}>Model</div>
           <div style={css.modelTableHead}>Runtime</div>
-          <div style={css.modelTableHead}>Size</div>
-          <div style={css.modelTableHead}>Accuracy</div>
-          <div style={css.modelTableHead}>Latency</div>
-          <div style={css.modelTableHead}>Bench</div>
-          <div style={css.modelTableHead}>RTF</div>
-          <div style={css.modelTableHead}>State</div>
+          <div style={{ ...css.modelTableHead, ...css.modelHeadRight }}>Size</div>
+          <div style={{ ...css.modelTableHead, ...css.modelHeadRight }}>Accuracy</div>
+          <div style={{ ...css.modelTableHead, ...css.modelHeadRight }}>Latency</div>
+          <div style={{ ...css.modelTableHead, ...css.modelHeadRight }}>Bench</div>
+          <div style={{ ...css.modelTableHead, ...css.modelHeadRight }}>RTF</div>
+          <div style={{ ...css.modelTableHead, ...css.modelHeadCenter }}>State</div>
           <div style={css.modelTableHead}>Notes</div>
-          <div style={css.modelTableHead}>Actions</div>
+          <div style={{ ...css.modelTableHead, ...css.modelHeadRight }}>Actions</div>
 
-        {MODEL_CANDIDATES.map((model) => {
-          const progress = downloading[model.id];
-          const downloadLabel = downloadLabels[model.id];
-          const isDownloading = progress !== undefined && progress < 100;
-          const isDownloaded = progress !== undefined && progress >= 100;
-          const isPaused = !!pausedDownloads[model.id];
-          const isBenchmarking = benchmarkingModel === model.id;
-          const active = selectedModel === model.id;
-          const result = latestResultByModel.get(model.id);
-          const downloadStatus = modelDownloadStatus({
-            active,
-            downloaded: isDownloaded,
-            downloading: isDownloading,
-            paused: isPaused,
-            downloadSupported: model.downloadSupported,
-          });
-          return (
-            <React.Fragment key={model.id}>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActiveFirst : {}) }}>
-                <span style={css.modelFamilyBadge}>{model.family}</span>
+          {modelDisplayGroups.map((group) => (
+            <React.Fragment key={group.key}>
+              <div style={css.modelSectionRow}>
+                <span style={css.modelSectionTitle}>{group.title}</span>
+                <span style={css.modelSectionCount}>{group.models.length}</span>
+                <span style={css.modelSectionDetail}>{group.detail}</span>
               </div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), flexDirection: "column", alignItems: "flex-start" }}>
-                <button style={css.modelNameBtn} onClick={() => onActivate(model)}>
-                  <span style={{ ...css.radioDot, background: active ? "#818cf8" : "rgba(255,255,255,0.14)" }} />
-                  <span style={css.modelNameText}>{model.label}</span>
-                </button>
-                {progress !== undefined && (
-                  <div style={css.inlineProgress}>
-                    <div style={css.progressTrack}>
-                      <div style={{ ...css.progressFill, width: `${progress}%` }} />
-                    </div>
-                    <div style={css.downloadLabel} title={downloadLabel ?? `${progress.toFixed(0)}%`}>
-                      {progress >= 100 ? "cached" : downloadLabel ?? `${progress.toFixed(0)}%`}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}) }}>{model.runtime}</div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}) }}>{model.sizeLabel}</div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNumericCell }}>{model.accuracyLabel}</div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNumericCell }}>{model.expectedLatencyLabel}</div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNumericCell }}>
-                {isBenchmarking ? "running" : result ? fmtMs(result.transcribe_ms) : "—"}
-              </div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNumericCell }}>{result ? `${result.rtf}x` : "—"}</div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}) }}>
-                <span
-                  style={{
-                    ...css.supportIconBadge,
-                    color: downloadStatus.color,
-                    background: downloadStatus.background,
-                    borderColor: downloadStatus.borderColor,
-                  }}
-                  title={downloadStatus.label}
-                  aria-label={downloadStatus.label}
-                >
-                  {downloadStatus.icon}
-                </span>
-              </div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNoteCell }} title={model.note}>{model.note}</div>
-              <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActiveLast : {}), ...css.modelActions }}>
-                <button
-                  style={{
-                    ...css.tableIconBtn,
-                    ...(isDownloading ? css.tableIconBtnActive : {}),
-                    ...(isPaused ? css.tableIconBtnPaused : {}),
-                    ...(isDownloaded ? css.tableIconBtnReady : {}),
-                    ...(!model.downloadSupported ? css.disabledIconBtn : {}),
-                    width: isDownloading ? 42 : 28,
-                  }}
-                  disabled={!model.downloadSupported || isDownloaded || (isDownloading && !isPaused)}
-                  title={
-                    !model.downloadSupported
-                      ? "Local app download is not wired yet"
-                      : isDownloaded
-                        ? "Downloaded locally"
-                        : isPaused
-                          ? "Resume download"
-                          : isDownloading
-                            ? "Download in progress"
-                            : `Download/cache locally (${model.sizeLabel})`
-                  }
-                  aria-label={model.downloadSupported ? `Download ${model.label} locally` : `${model.label} local download is not wired`}
-                  onClick={() => onDownload(model.id)}
-                >
-                  {isPaused ? "▶" : isDownloading ? "…" : isDownloaded ? "✓" : "↓"}
-                </button>
-                <button
-                  style={css.tableIconBtn}
-                  title="Open model page"
-                  aria-label={`Open ${model.label} model page`}
-                  onClick={() => onOpenSource(model.sourceUrl)}
-                >
-                  ↗
-                </button>
-                <button
-                  style={{
-                    ...css.tablePrimaryIconBtn,
-                    ...((!model.benchmarkSupported || !audioPath || isBenchmarking) ? css.disabledIconBtn : {}),
-                    ...(isBenchmarking ? css.tableIconBtnActive : {}),
-                  }}
-                  disabled={!model.benchmarkSupported || !audioPath || isBenchmarking}
-                  title={!model.benchmarkSupported ? "Benchmark requires a runtime adapter" : audioPath ? "Benchmark latest WAV" : "Record a sample first"}
-                  aria-label={`Benchmark ${model.label} against latest WAV`}
-                  onClick={() => onBenchmark(model.id)}
-                >
-                  {isBenchmarking ? "…" : "▶"}
-                </button>
-              </div>
+              {group.models.length ? group.models.map(renderModelRow) : (
+                <div style={css.modelEmptyRow}>
+                  {group.key === "downloaded" ? "No downloaded models detected yet." : "Every listed model is downloaded."}
+                </div>
+              )}
             </React.Fragment>
-          );
-        })}
+          ))}
         </div>
       </div>
 
       <div style={css.resultsPanel}>
-        <div style={css.resultsHeader}>
+        <div style={css.panelHeader}>
           <div style={css.panelEyebrow}>Benchmark Results</div>
           <div style={css.resultsActions}>
-            <button style={{ ...css.smallBtn, ...(results.length === 0 ? css.disabledIconBtn : {}) }} disabled={results.length === 0} onClick={onCopyResults} title="Copy results to clipboard">📋 Copy</button>
-            <button style={{ ...css.smallBtn, ...(results.length === 0 ? css.disabledIconBtn : {}) }} disabled={results.length === 0} onClick={onClearResults} title="Clear results">🧹 Clear</button>
+            <button
+              style={css.resultsIconBtn}
+              onClick={onToggleResultsCollapsed}
+              title={resultsCollapsed ? "Expand benchmark results" : "Collapse benchmark results"}
+              aria-label={resultsCollapsed ? "Expand benchmark results" : "Collapse benchmark results"}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ transform: resultsCollapsed ? "rotate(180deg)" : "none", transition: "transform 160ms ease" }}
+                aria-hidden="true"
+              >
+                <path d="m18 15-6-6-6 6" />
+              </svg>
+            </button>
+            <button
+              style={{ ...css.resultsIconBtn, ...(results.length === 0 ? css.disabledIconBtn : {}) }}
+              disabled={results.length === 0}
+              onClick={onCopyResults}
+              title="Copy results to clipboard"
+              aria-label="Copy benchmark results"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect width="14" height="14" x="8" y="8" rx="2" />
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+              </svg>
+            </button>
+            <button
+              style={{ ...css.resultsIconBtn, ...(results.length === 0 ? css.disabledIconBtn : {}) }}
+              disabled={results.length === 0}
+              onClick={onClearResults}
+              title="Clear results"
+              aria-label="Clear benchmark results"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="m19 6-1 14H6L5 6" />
+                <path d="M10 11v5" />
+                <path d="M14 11v5" />
+              </svg>
+            </button>
           </div>
         </div>
-        {results.length === 0 ? (
+        {resultsCollapsed ? null : results.length === 0 ? (
           <div style={css.logEmpty}>No benchmark results yet.</div>
         ) : (
           <div style={css.resultsTable}>
@@ -473,19 +624,26 @@ function Spec({ label, value, width }: { label: string; value: string; width: nu
 export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<DebugTab>("pipeline");
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
-  const [selectedModel, setSelectedModel] = useState("large-v3-turbo");
+  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem("sotto_model") || "large-v3-turbo");
   const [downloadState, setDownloadState] = useState<DownloadProgressState>({
     progress: {},
     labels: {},
     paused: {},
+    etaLabels: {},
+    samples: {},
   });
+  const [benchmarkRuntimeStatus, setBenchmarkRuntimeStatus] = useState<Record<string, BenchmarkRuntimeStatus>>({});
   const [benchmarkingModel, setBenchmarkingModel] = useState<string | null>(null);
+  const [benchmarkAllProgress, setBenchmarkAllProgress] = useState<{ completed: number; total: number } | null>(null);
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
+  const [resultsCollapsed, setResultsCollapsed] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
 
   const [stages, setStages] = useState<Stage[]>([
     { id: "model",        label: "1 · Model",     status: "idle" },
     { id: "recording",    label: "2 · Recording", status: "idle" },
-    { id: "transcribing", label: "3 · Whisper",   status: "idle" },
+    { id: "transcribing", label: "3 · Transcription", status: "idle" },
     { id: "output",       label: "4 · Output",    status: "idle" },
   ]);
 
@@ -519,6 +677,30 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   const audioPathRef           = useRef<string | null>(null);
   const transcriptionFailedRef = useRef(false);
   const logRef                 = useRef<HTMLDivElement>(null);
+  const benchmarkQueueRef      = useRef<string[]>([]);
+  const benchmarkBatchRef      = useRef<{ completed: number; total: number } | null>(null);
+
+  function runNextBatchBenchmark() {
+    const batch = benchmarkBatchRef.current;
+    const nextModel = benchmarkQueueRef.current.shift();
+    if (!batch || !nextModel || !audioPathRef.current) {
+      if (batch) addLog(`✅ Benchmark all complete — ${batch.completed} model${batch.completed === 1 ? "" : "s"} tested`);
+      benchmarkBatchRef.current = null;
+      benchmarkQueueRef.current = [];
+      setBenchmarkAllProgress(null);
+      setBenchmarkingModel(null);
+      return;
+    }
+
+    setBenchmarkAllProgress({ ...batch });
+    setBenchmarkingModel(nextModel);
+    addLog(`🧪 Benchmarking ${modelLabel(nextModel)} (${batch.completed + 1}/${batch.total})`);
+    benchmarkModel(nextModel, audioPathRef.current).catch(() => {
+      addLog(`🔴 Failed to start benchmark for ${nextModel}`);
+      batch.completed += 1;
+      setTimeout(runNextBatchBenchmark, 0);
+    });
+  }
 
   useEffect(() => {
     if (pipelineStartMs === null || pipelineDoneMs !== null) return;
@@ -546,15 +728,25 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
 
   function handleDownload(model: string) {
     setDownloadState(prev => ({
-      progress: { ...prev.progress, [model]: 0 },
+      progress: { ...prev.progress, [model]: prev.progress[model] ?? 0 },
       labels: { ...prev.labels },
       paused: { ...prev.paused, [model]: false },
+      etaLabels: { ...prev.etaLabels },
+      samples: { ...prev.samples },
     }));
-    downloadModel(model).catch(() => addLog(`🔴 Failed to request download for ${model}`));
+    const token = localStorage.getItem("sotto_hf_token")?.trim() || undefined;
+    downloadModel(model, token).catch(() => addLog(`🔴 Failed to request download for ${model}`));
+  }
+
+  function handlePauseDownload(model: string) {
+    setDownloadState(prev => ({
+      ...prev,
+      paused: { ...prev.paused, [model]: true },
+    }));
+    pauseDownloadModel(model).catch(() => addLog(`🔴 Failed to pause download for ${model}`));
   }
 
   function handleActivateModel(model: ModelCandidate) {
-    setSelectedModel(model.id);
     if (!model.benchmarkSupported) {
       addLog(`⚠️ ${model.label} can download, but needs a ${model.runtime} benchmark/runtime adapter before activation`);
       return;
@@ -566,10 +758,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   }
 
   function handleOpenModelSource(url: string) {
-    openPath(url).catch(() => {
-      window.open(url, "_blank", "noopener,noreferrer");
-      addLog(`↗️ Opened source link: ${url}`);
-    });
+    openUrl(url).catch(() => addLog(`🔴 Failed to open: ${url}`));
   }
 
   function handleCopyResults() {
@@ -592,13 +781,34 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
       addLog("🔴 Record audio before benchmarking");
       return;
     }
-    setSelectedModel(model);
     setBenchmarkingModel(model);
     addLog(`🧪 Benchmarking ${model}`);
     benchmarkModel(model, audioPathRef.current).catch(() => {
       setBenchmarkingModel(null);
       addLog(`🔴 Failed to start benchmark for ${model}`);
     });
+  }
+
+  function handleBenchmarkAll() {
+    if (!audioPathRef.current || benchmarkingModel) return;
+    const models = MODEL_CANDIDATES
+      .filter(model =>
+        model.benchmarkSupported
+        && downloadState.progress[model.id] >= 100
+        && benchmarkRuntimeStatus[model.id]?.available !== false
+      )
+      .map(model => model.id);
+
+    if (!models.length) {
+      addLog("🔴 No downloaded models with available benchmark runtimes");
+      return;
+    }
+
+    benchmarkQueueRef.current = models;
+    benchmarkBatchRef.current = { completed: 0, total: models.length };
+    setBenchmarkAllProgress({ completed: 0, total: models.length });
+    addLog(`🧪 Benchmark all started — ${models.length} models queued`);
+    runNextBatchBenchmark();
   }
 
   function setRecordingAudio(path: string) {
@@ -636,6 +846,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
 
         case "hardware": {
           setHardware(msg);
+          // Hardware.model is the sidecar's initial active model, not merely a recommendation.
           setSelectedModel(msg.model);
           const preferred = (msg as any).preferred_model as string | undefined;
           const detail = preferred && preferred !== msg.model
@@ -670,7 +881,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
             processingStartRef.current = Date.now();
             const recMs = recordingStartRef.current ? Date.now() - recordingStartRef.current : undefined;
             updateStage("recording",    { status: "done",   detail: "Audio captured" });
-            updateStage("transcribing", { status: "active", detail: "Running Whisper…" });
+            updateStage("transcribing", { status: "active", detail: "Running transcription model…" });
             setTranscribeStart(Date.now());
             // Pre-populate frontend-measured recording duration
             if (recMs !== undefined) {
@@ -683,14 +894,31 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               updateStage("transcribing", { status: "idle", detail: "⚠️ No speech detected" });
           } else if (msg.msg === "loading_model") {
             updateStage("model", { status: "active", detail: "Loading model from disk…" });
-          } else if (msg.msg.startsWith("worker_ready")) {
-            // e.g. "worker_ready device=cuda compute=float16 runtime=faster-whisper"
+          } else if (msg.msg.startsWith("model_selected")) {
             const parts = Object.fromEntries(
               msg.msg.split(" ").slice(1).map(p => p.split("="))
             );
+            const model = parts.model;
+            if (model) {
+              setSelectedModel(model);
+              localStorage.setItem("sotto_model", model);
+              updateStage("model", { status: "done", detail: `${modelLabel(model)} ready` });
+              addLog(`✅ Active transcription model: ${modelLabel(model)}`);
+            }
+          } else if (msg.msg.startsWith("worker_ready")) {
+            // The worker-ready event is authoritative about the model actually in memory.
+            const parts = Object.fromEntries(
+              msg.msg.split(" ").slice(1).map(p => p.split("="))
+            );
+            const model = parts.model;
             const device  = parts.device  ?? "cpu";
             const compute = parts.compute ?? "int8";
             const runtime = parts.runtime ?? "faster-whisper";
+            if (model) {
+              setSelectedModel(model);
+              localStorage.setItem("sotto_model", model);
+              updateStage("model", { status: "done", detail: `${modelLabel(model)} ready` });
+            }
             let badge: string;
             if (device === "cuda") {
               badge = `⚡ GPU · CUDA · ${compute}`;
@@ -738,7 +966,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
           if (sidecarTiming && Object.keys(sidecarTiming).length > 0) {
             // Sidecar has instrumented timing — use it
             setLastTiming({ ...sidecarTiming, _source: "sidecar" });
-            addLog(`⏱ Whisper: ${fmtMs(sidecarTiming.whisper_ms)} | WAV: ${fmtMs(sidecarTiming.wav_write_ms)} | Queue: ${fmtMs(sidecarTiming.queue_ms)}`);
+            addLog(`⏱ Model: ${fmtMs(sidecarTiming.whisper_ms)} | WAV: ${fmtMs(sidecarTiming.wav_write_ms)} | Queue: ${fmtMs(sidecarTiming.queue_ms)}`);
           } else {
             // Sidecar binary not rebuilt yet — use frontend measurements
             setLastTiming(prev => ({
@@ -747,7 +975,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               _fe_whisper_ms:   feWhisperMs,
               _source: "frontend",
             }));
-            addLog(`⏱ ~Whisper: ${fmtMs(feWhisperMs)} (frontend approx)`);
+            addLog(`⏱ ~Model: ${fmtMs(feWhisperMs)} (frontend approx)`);
           }
           break;
         }
@@ -757,6 +985,15 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
           const mdl = msg.model;
           const paused = !!msg.paused && pct < 100;
           setDownloadState(prev => applyDownloadProgress(prev, msg));
+          if (msg.benchmark_available !== undefined) {
+            setBenchmarkRuntimeStatus(prev => ({
+              ...prev,
+              [mdl]: {
+                available: msg.benchmark_available ?? false,
+                reason: msg.benchmark_unavailable_reason || "Benchmark runtime unavailable",
+              },
+            }));
+          }
           const status = paused ? "idle" : pct >= 100 ? "done" : "active";
           const detail = paused ? `${modelLabel(mdl)} paused` : pct >= 100 ? `${modelLabel(mdl)} · ready` : `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`;
           updateStage("model", { status: status as any, detail, progress: pct >= 100 ? undefined : pct });
@@ -765,14 +1002,29 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
 
         case "benchmark_result": {
           setBenchmarkingModel(prev => prev === msg.model ? null : prev);
-          setBenchmarkResults(prev => [msg, ...prev].slice(0, 12));
+          setBenchmarkResults(prev => [msg, ...prev]);
           addLog(`✅ Benchmark ${modelLabel(msg.model)}: ${fmtMs(msg.transcribe_ms)} · RTF ${msg.rtf}x`);
+          if (benchmarkBatchRef.current) {
+            benchmarkBatchRef.current.completed += 1;
+            setTimeout(runNextBatchBenchmark, 0);
+          }
           break;
         }
 
         case "error":
           addLog(`🔴 ${msg.msg}`);
           setBenchmarkingModel(prev => prev ? null : prev);
+          if (benchmarkBatchRef.current && msg.msg.startsWith("Benchmark failed for")) {
+            benchmarkBatchRef.current.completed += 1;
+            setTimeout(runNextBatchBenchmark, 0);
+          }
+          if (
+            msg.msg.startsWith("Model switch failed")
+            || msg.msg.startsWith("Selected model unavailable")
+            || msg.msg.startsWith("Cannot record with selected model")
+          ) {
+            updateStage("model", { status: "error", detail: msg.msg });
+          }
           if (msg.msg.startsWith("Transcription error:")) {
             transcriptionFailedRef.current = true;
             setTranscribeStart(null);
@@ -792,18 +1044,137 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (activeTab !== "models") return;
     checkDownloads().catch(() => addLog("🔴 Failed to refresh downloaded models"));
+    detectHardware().catch(() => addLog("🔴 Failed to refresh machine specs"));
   }, [activeTab]);
 
   // ─── Render ──────────────────────────────────────────────────────────────────
+  const selectedCandidate = MODEL_CANDIDATES.find(model => model.id === selectedModel);
+  const activeDownloadEntries = Object.entries(downloadState.progress)
+    .filter(([, progress]) => progress < 100)
+    .sort(([a], [b]) => modelLabel(a).localeCompare(modelLabel(b)));
+  const activeDownloadCount = activeDownloadEntries.length;
+  const downloadHeaderTitle = activeDownloadEntries.length
+    ? activeDownloadEntries.map(([model, progress]) => {
+        const label = downloadState.labels[model] ?? `${progress.toFixed(0)}%`;
+        const eta = downloadState.etaLabels[model];
+        const paused = downloadState.paused[model] ? "paused" : "downloading";
+        return `${modelLabel(model)}: ${paused}, ${label}${eta ? `, ${eta}` : ""}`;
+      }).join("\n")
+    : "No active downloads";
+  const downloadHeaderLabel = activeDownloadEntries.length
+    ? activeDownloadEntries.length === 1
+      ? `${modelLabel(activeDownloadEntries[0][0])} ${activeDownloadEntries[0][1].toFixed(0)}%`
+      : `${activeDownloadEntries.length} downloads`
+    : "No downloads";
+  const selectableModelEntries = MODEL_CANDIDATES
+    .filter(model => model.id !== selectedModel)
+    .map(model => ({
+      model,
+      downloaded: downloadState.progress[model.id] >= 100,
+    }));
 
   return (
     <div style={css.root}>
+      <style>{`
+        @keyframes verba-download-bounce {
+          0%, 100% { transform: translateY(-2px); opacity: 0.62; }
+          45% { transform: translateY(3px); opacity: 1; }
+        }
+        @keyframes verba-download-pulse {
+          0%, 100% { opacity: 0.72; transform: scale(0.92); }
+          50% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes verba-benchmark-spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
       {/* Header */}
       <div style={css.header}>
         <span style={css.headerTitle}>Pipeline Debug</span>
         <div style={css.tabs}>
           <button style={activeTab === "pipeline" ? css.tabActive : css.tabIdle} onClick={() => setActiveTab("pipeline")}>Pipeline</button>
           <button style={activeTab === "models" ? css.tabActive : css.tabIdle} onClick={() => setActiveTab("models")}>Models Benchmark</button>
+        </div>
+        <div
+          style={css.modelPicker}
+          onBlur={(event) => {
+            const nextTarget = event.relatedTarget as Node | null;
+            if (!nextTarget || !event.currentTarget.contains(nextTarget)) setModelMenuOpen(false);
+          }}
+        >
+          <button
+            type="button"
+            style={{ ...css.modelPickerButton, ...(modelMenuOpen ? css.modelPickerButtonOpen : {}) }}
+            onClick={() => setModelMenuOpen(open => !open)}
+            title={selectedCandidate ? `App transcription model: ${selectedCandidate.label}` : "App transcription model"}
+            aria-haspopup="listbox"
+            aria-expanded={modelMenuOpen}
+          >
+            <span style={css.modelPickerIcon} aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3Z" />
+                <path d="M5 15l.9 2.1L8 18l-2.1.9L5 21l-.9-2.1L2 18l2.1-.9L5 15Z" />
+                <path d="M19 14l.8 1.8 1.7.7-1.7.7L19 19l-.8-1.8-1.7-.7 1.7-.7L19 14Z" />
+              </svg>
+            </span>
+            <span style={css.modelPickerTextGroup}>
+              <span style={css.modelPickerEyebrow}>Transcription model</span>
+              <span style={css.modelPickerName}>{selectedCandidate?.label ?? modelLabel(selectedModel)}</span>
+            </span>
+            <span style={css.modelPickerChevron}>▾</span>
+          </button>
+          {modelMenuOpen && (
+            <div style={css.modelPickerMenu} role="listbox" aria-label="Select transcription model">
+              {selectedCandidate && (
+                <div style={css.modelPickerSection}>
+                  <div style={css.modelPickerSectionLabel}>Active now</div>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected
+                    style={{ ...css.modelPickerOption, ...css.modelPickerOptionActive, ...css.modelPickerActiveOption }}
+                    onClick={() => setModelMenuOpen(false)}
+                  >
+                    <span style={{ ...css.modelPickerOptionDot, background: "#34d399" }} />
+                    <span style={css.modelPickerOptionBody}>
+                      <span style={css.modelPickerOptionName}>{selectedCandidate.label}</span>
+                      <span style={css.modelPickerOptionMeta}>{selectedCandidate.family} · {selectedCandidate.runtime} · used for app transcription</span>
+                    </span>
+                    <span style={css.modelPickerOptionCheck}>✓</span>
+                  </button>
+                </div>
+              )}
+              <div style={css.modelPickerSection}>
+                <div style={css.modelPickerSectionLabel}>Other models</div>
+                {selectableModelEntries.map(({ model, downloaded }) => (
+                  <button
+                    key={model.id}
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    disabled={!downloaded}
+                    style={{
+                      ...css.modelPickerOption,
+                      ...(!downloaded ? css.modelPickerOptionDisabled : {}),
+                    }}
+                    onClick={() => {
+                      if (!downloaded) return;
+                      handleActivateModel(model);
+                      setModelMenuOpen(false);
+                    }}
+                  >
+                    <span style={{ ...css.modelPickerOptionDot, background: downloaded ? "#475569" : "#1e293b" }} />
+                    <span style={css.modelPickerOptionBody}>
+                      <span style={css.modelPickerOptionName}>{model.label}</span>
+                      <span style={css.modelPickerOptionMeta}>
+                        {downloaded ? `${model.family} · ${model.runtime}` : `${model.family} · download first`}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         {pipelineStartMs !== null && (
           <span style={{
@@ -815,7 +1186,69 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               : `⏱ ${((pipelineElapsed ?? 0) / 1000).toFixed(1)}s`}
           </span>
         )}
-        <button style={css.closeBtn} onClick={onClose}>✕ Close</button>
+        <div style={css.headerRight}>
+          <div
+            style={css.downloadMenuWrap}
+            onBlur={(event) => {
+              const nextTarget = event.relatedTarget as Node | null;
+              if (!nextTarget || !event.currentTarget.contains(nextTarget)) setDownloadMenuOpen(false);
+            }}
+          >
+            <button
+              type="button"
+              style={{
+                ...css.downloadIconButton,
+                ...(activeDownloadCount ? css.downloadIconButtonActive : {}),
+                ...(downloadMenuOpen ? css.downloadIconButtonOpen : {}),
+              }}
+              onClick={() => setDownloadMenuOpen(open => !open)}
+              title={downloadHeaderTitle}
+              aria-label={downloadHeaderTitle}
+              aria-haspopup="dialog"
+              aria-expanded={downloadMenuOpen}
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3v11" />
+                <path d="m7 9 5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+              {activeDownloadCount > 0 && <span style={css.downloadIconBadge}>{activeDownloadCount}</span>}
+            </button>
+            {downloadMenuOpen && (
+              <div style={css.downloadPopover}>
+                <div style={css.downloadPopoverHeader}>
+                  <span style={css.downloadPopoverTitle}>Downloads</span>
+                  <span style={activeDownloadCount ? css.downloadPopoverStateActive : css.downloadPopoverState}>
+                    {activeDownloadCount ? downloadHeaderLabel : "Idle"}
+                  </span>
+                </div>
+                {activeDownloadEntries.length ? activeDownloadEntries.map(([model, progress]) => {
+                  const label = downloadState.labels[model] ?? `${progress.toFixed(0)}%`;
+                  const eta = downloadState.etaLabels[model];
+                  const paused = !!downloadState.paused[model];
+                  return (
+                    <div key={model} style={css.downloadPopoverItem}>
+                      <div style={css.downloadPopoverItemTop}>
+                        <span style={css.downloadPopoverModel}>{modelLabel(model)}</span>
+                        <span style={css.downloadPopoverPct}>{progress.toFixed(0)}%</span>
+                      </div>
+                      <div style={css.downloadPopoverTrack}>
+                        <div style={{ ...css.downloadPopoverFill, width: `${progress}%` }} />
+                      </div>
+                      <div style={css.downloadPopoverMeta}>
+                        <span>{paused ? "Paused" : label}</span>
+                        {eta && !paused && <span>{eta}</span>}
+                      </div>
+                    </div>
+                  );
+                }) : (
+                  <div style={css.downloadPopoverEmpty}>No background downloads running.</div>
+                )}
+              </div>
+            )}
+          </div>
+          <button style={css.closeBtn} onClick={onClose}>✕ Close</button>
+        </div>
       </div>
 
       {activeTab === "pipeline" ? (
@@ -840,7 +1273,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
                 <div style={css.detailBox}>
                   {rawWords
                     ? <><span style={css.detailLabel}>Live: </span><span style={css.detailText}>{rawWords}</span></>
-                    : <span style={css.detailLabel}>Running Whisper… {elapsedSec > 0 ? `${elapsedSec}s` : ""}</span>}
+                    : <span style={css.detailLabel}>Running transcription model… {elapsedSec > 0 ? `${elapsedSec}s` : ""}</span>}
                 </div>
               )}
               {st.id === "transcribing" && st.status === "idle" && st.detail && (
@@ -907,10 +1340,13 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
           <div style={css.logPanel}>
             <div style={{ ...css.logHeader, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span>Event Log</span>
-              <button
-                onClick={() => navigator.clipboard.writeText(log.join("\n")).catch(() => {})}
-                style={css.logCopyBtn}
-              >Copy</button>
+              <div style={css.logActions}>
+                <button
+                  onClick={() => navigator.clipboard.writeText(log.join("\n")).catch(() => {})}
+                  style={css.logCopyBtn}
+                >Copy</button>
+                <button onClick={() => setLog([])} style={css.logCopyBtn}>Clear</button>
+              </div>
             </div>
             <div style={css.logBody} ref={logRef}>
               {log.length === 0 && <div style={css.logEmpty}>Waiting — press Ctrl+Win to dictate</div>}
@@ -926,17 +1362,22 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
             selectedModel={selectedModel}
             downloading={downloadState.progress}
             downloadLabels={downloadState.labels}
+            downloadEtaLabels={downloadState.etaLabels}
             pausedDownloads={downloadState.paused}
             benchmarkingModel={benchmarkingModel}
+            benchmarkAllProgress={benchmarkAllProgress}
             results={benchmarkResults}
             audioPath={audioPath}
             onRefreshHardware={handleRefreshHardware}
             onDownload={handleDownload}
-            onActivate={handleActivateModel}
+            onPauseDownload={handlePauseDownload}
             onBenchmark={handleBenchmark}
+            onBenchmarkAll={handleBenchmarkAll}
             onOpenSource={handleOpenModelSource}
             onCopyResults={handleCopyResults}
             onClearResults={handleClearResults}
+            resultsCollapsed={resultsCollapsed}
+            onToggleResultsCollapsed={() => setResultsCollapsed(collapsed => !collapsed)}
           />
         </div>
       )}
@@ -965,8 +1406,47 @@ const css: Record<string, React.CSSProperties> = {
   tabs: { display: "flex", gap: 6, marginLeft: 10, padding: 3, borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" },
   tabActive: { background: "#1d2440", border: "1px solid rgba(129,140,248,0.45)", borderRadius: 6, color: "#dbe4ff", fontSize: 12, padding: "4px 10px", cursor: "pointer", fontWeight: 700 },
   tabIdle: { background: "transparent", border: "1px solid transparent", borderRadius: 6, color: "#64748b", fontSize: 12, padding: "4px 10px", cursor: "pointer", fontWeight: 600 },
+  headerRight: { marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, minWidth: 0 },
+  modelPicker: { position: "relative", width: 190, flex: "0 0 auto" },
+  modelPickerButton: { width: "100%", height: 34, display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 7, border: "1px solid rgba(96,165,250,0.16)", background: "rgba(15,23,42,0.72)", color: "#dbeafe", cursor: "pointer", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.035)" },
+  modelPickerButtonOpen: { border: "1px solid rgba(129,140,248,0.36)", background: "rgba(17,24,39,0.88)", boxShadow: "0 0 0 2px rgba(129,140,248,0.10), inset 0 1px 0 rgba(255,255,255,0.05)" },
+  modelPickerIcon: { width: 20, height: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 6, color: "#7dd3fc", background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.16)", flex: "0 0 auto" },
+  modelPickerTextGroup: { minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.15, flex: 1 },
+  modelPickerEyebrow: { color: "#60a5fa", fontSize: 8, fontWeight: 900, letterSpacing: "0.11em", textTransform: "uppercase" as const },
+  modelPickerName: { maxWidth: "100%", color: "#f8fafc", fontSize: 11, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  modelPickerChevron: { color: "#93c5fd", fontSize: 11, lineHeight: 1, flex: "0 0 auto" },
+  modelPickerMenu: { position: "absolute", top: 39, left: 0, width: 310, maxHeight: 430, overflowY: "auto", padding: 7, borderRadius: 9, border: "1px solid rgba(96,165,250,0.20)", background: "#08111f", boxShadow: "0 18px 46px rgba(0,0,0,0.48)", zIndex: 20 },
+  modelPickerSection: { display: "flex", flexDirection: "column", gap: 4, paddingBottom: 6, marginBottom: 5, borderBottom: "1px solid rgba(255,255,255,0.06)" },
+  modelPickerSectionLabel: { color: "#64748b", fontSize: 9, fontWeight: 900, letterSpacing: "0.12em", textTransform: "uppercase" as const, padding: "3px 7px 1px" },
+  modelPickerOption: { width: "100%", minHeight: 42, display: "flex", alignItems: "center", gap: 9, padding: "7px 9px", border: "1px solid transparent", borderRadius: 7, background: "transparent", color: "#cbd5e1", cursor: "pointer", textAlign: "left" as const },
+  modelPickerOptionActive: { border: "1px solid rgba(52,211,153,0.30)", background: "rgba(52,211,153,0.10)", color: "#ecfdf5" },
+  modelPickerActiveOption: { minHeight: 48 },
+  modelPickerOptionDisabled: { opacity: 0.46, cursor: "not-allowed" },
+  modelPickerOptionDot: { width: 8, height: 8, borderRadius: 99, flex: "0 0 auto" },
+  modelPickerOptionBody: { minWidth: 0, display: "flex", flexDirection: "column", gap: 2, flex: 1 },
+  modelPickerOptionName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, fontSize: 12, fontWeight: 800 },
+  modelPickerOptionMeta: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, color: "#64748b", fontSize: 10, fontWeight: 700 },
+  modelPickerOptionCheck: { color: "#34d399", fontSize: 13, fontWeight: 900, flex: "0 0 auto" },
+  downloadMenuWrap: { position: "relative", flex: "0 0 auto" },
+  downloadIconButton: { position: "relative", width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.055)", color: "#94a3b8", cursor: "pointer" },
+  downloadIconButtonActive: { border: "1px solid rgba(52,211,153,0.35)", background: "rgba(52,211,153,0.11)", color: "#bbf7d0", animation: "verba-download-pulse 1.2s ease-in-out infinite" },
+  downloadIconButtonOpen: { boxShadow: "0 0 0 3px rgba(96,165,250,0.10)" },
+  downloadIconBadge: { position: "absolute", top: -5, right: -5, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 99, background: "#22c55e", color: "#04130a", border: "1px solid rgba(187,247,208,0.55)", fontSize: 10, fontWeight: 900, lineHeight: "15px", textAlign: "center" as const },
+  downloadPopover: { position: "absolute", top: 40, right: 0, width: 320, padding: 10, borderRadius: 9, border: "1px solid rgba(96,165,250,0.20)", background: "#08111f", boxShadow: "0 18px 46px rgba(0,0,0,0.48)", zIndex: 20 },
+  downloadPopoverHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 },
+  downloadPopoverTitle: { color: "#dbeafe", fontSize: 11, fontWeight: 900, letterSpacing: "0.10em", textTransform: "uppercase" as const },
+  downloadPopoverState: { color: "#64748b", fontSize: 11, fontWeight: 800 },
+  downloadPopoverStateActive: { color: "#86efac", fontSize: 11, fontWeight: 900 },
+  downloadPopoverItem: { padding: "8px 0", borderTop: "1px solid rgba(255,255,255,0.06)" },
+  downloadPopoverItemTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  downloadPopoverModel: { minWidth: 0, color: "#e2e8f0", fontSize: 12, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  downloadPopoverPct: { color: "#86efac", fontSize: 11, fontFamily: "monospace", fontWeight: 900 },
+  downloadPopoverTrack: { height: 5, marginTop: 7, borderRadius: 99, background: "#172033", overflow: "hidden" },
+  downloadPopoverFill: { height: "100%", borderRadius: 99, background: "linear-gradient(90deg, #22c55e, #8b5cf6)", transition: "width 0.25s ease" },
+  downloadPopoverMeta: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 5, color: "#94a3b8", fontSize: 10, fontFamily: "monospace" },
+  downloadPopoverEmpty: { borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10, color: "#64748b", fontSize: 12 },
   closeBtn: {
-    marginLeft: "auto", background: "#1e293b", color: "#94a3b8",
+    background: "#1e293b", color: "#94a3b8",
     border: "1px solid #334155", borderRadius: 6, padding: "4px 12px",
     cursor: "pointer", fontSize: 12,
   },
@@ -997,40 +1477,61 @@ const css: Record<string, React.CSSProperties> = {
 
   // Models benchmark tab
   modelsRoot: { flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 },
-  specPanel: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: "#0a0e1a", border: "1.5px solid #1a2a4a", borderRadius: 10, padding: "10px 12px", flexShrink: 0 },
-  panelEyebrow: { fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#60a5fa", marginBottom: 6 },
+  specPanel: { display: "flex", flexDirection: "column" as const, gap: 7, background: "#0a0e1a", border: "1.5px solid #1a2a4a", borderRadius: 10, padding: "10px 12px", flexShrink: 0 },
+  panelHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 26 },
+  panelEyebrow: { fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: "#60a5fa", marginBottom: 0 },
   specGrid: { display: "flex", flexWrap: "nowrap", gap: 6, overflowX: "auto", paddingBottom: 1 },
   specItem: { display: "flex", flexDirection: "column", gap: 1, minWidth: 0, boxSizing: "border-box" as const, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 7, padding: "6px 8px", flex: "0 0 auto" },
   specLabel: { color: "#64748b", fontSize: 9, textTransform: "uppercase" as const, letterSpacing: "0.08em", fontWeight: 700 },
   specValue: { display: "block", minWidth: 0, color: "#e2e8f0", fontSize: 11, lineHeight: 1.25, fontFamily: "monospace", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" },
   smallBtn: { background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 7, color: "rgba(255,255,255,0.72)", fontSize: 11, padding: "5px 9px", cursor: "pointer", alignSelf: "flex-start", whiteSpace: "nowrap" as const },
+  headerIconBtn: { width: 26, height: 26, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "rgba(255,255,255,0.72)", fontSize: 14, lineHeight: 1, padding: 0, cursor: "pointer", flex: "0 0 auto" },
   primarySmallBtn: { background: "rgba(99,102,241,0.22)", border: "1px solid rgba(129,140,248,0.38)", borderRadius: 7, color: "#c7d2fe", fontSize: 11, padding: "5px 9px", cursor: "pointer", fontWeight: 700 },
   modelsToolbar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  modelsToolbarActions: { display: "flex", alignItems: "center", gap: 8, flex: "0 0 auto" },
+  benchmarkAllBtn: { minWidth: 116, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "rgba(99,102,241,0.18)", border: "1px solid rgba(129,140,248,0.34)", borderRadius: 6, color: "#c7d2fe", fontSize: 11, fontWeight: 800, padding: "0 10px", cursor: "pointer", whiteSpace: "nowrap" as const },
   mutedText: { color: "#64748b", fontSize: 12 },
   audioBadge: { border: "1px solid rgba(52,211,153,0.22)", background: "rgba(52,211,153,0.08)", color: "#86efac", borderRadius: 99, padding: "5px 10px", fontSize: 11, fontWeight: 700 },
   modelsTableWrap: { border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, overflowX: "auto", background: "#0a0e1a" },
-  modelsTable: { display: "grid", gridTemplateColumns: "84px minmax(150px, 0.9fr) 104px 72px 86px 92px 58px 46px 68px minmax(280px, 1.45fr) 104px", minWidth: 1250 },
-  modelTableHead: { color: "#64748b", fontSize: 10, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: "0.08em", padding: "7px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.025)", whiteSpace: "nowrap" as const },
-  modelTableCell: { minWidth: 0, color: "#cbd5e1", fontSize: 12, padding: "7px 8px", borderBottom: "1px solid rgba(255,255,255,0.045)", display: "flex", alignItems: "center", overflow: "hidden" },
+  modelsTable: { display: "grid", gridTemplateColumns: "92px minmax(220px, 1.1fr) 118px 82px 84px 126px 78px 54px 60px minmax(210px, 0.9fr) 104px", minWidth: 1340 },
+  modelTableHead: { color: "#64748b", fontSize: 10, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: "0.08em", padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.025)", whiteSpace: "nowrap" as const },
+  modelHeadRight: { textAlign: "right" as const },
+  modelHeadCenter: { textAlign: "center" as const },
+  modelTableCell: { minWidth: 0, minHeight: 52, boxSizing: "border-box" as const, color: "#cbd5e1", fontSize: 12, padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,0.045)", display: "flex", alignItems: "center", overflow: "hidden" },
   modelTableCellActive: { background: "rgba(99,102,241,0.08)" },
   modelTableCellActiveFirst: { background: "rgba(99,102,241,0.08)", boxShadow: "inset 3px 0 0 #818cf8" },
   modelTableCellActiveLast: { background: "rgba(99,102,241,0.08)" },
+  modelSectionRow: { gridColumn: "1 / -1", minHeight: 34, display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,0.07)", background: "rgba(96,165,250,0.055)" },
+  modelSectionTitle: { color: "#bfdbfe", fontSize: 10, fontWeight: 900, letterSpacing: "0.12em", textTransform: "uppercase" as const },
+  modelSectionCount: { minWidth: 20, height: 18, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 99, padding: "0 6px", color: "#dbeafe", background: "rgba(96,165,250,0.13)", border: "1px solid rgba(96,165,250,0.20)", fontSize: 10, fontWeight: 900, fontFamily: "monospace" },
+  modelSectionDetail: { minWidth: 0, color: "#64748b", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  modelEmptyRow: { gridColumn: "1 / -1", padding: "14px 12px", color: "#64748b", fontSize: 12, borderBottom: "1px solid rgba(255,255,255,0.045)", background: "rgba(255,255,255,0.015)" },
   modelNameBtn: { display: "flex", alignItems: "center", gap: 6, minWidth: 0, background: "transparent", border: 0, color: "#e2e8f0", padding: 0, cursor: "pointer", fontSize: 11, fontWeight: 650, textAlign: "left" as const },
   modelNameText: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
   modelFamilyBadge: { maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, color: "#bfdbfe", fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" as const, border: "1px solid rgba(96,165,250,0.18)", background: "rgba(96,165,250,0.08)", borderRadius: 99, padding: "3px 7px" },
-  modelNumericCell: { justifyContent: "flex-end", fontFamily: "monospace", color: "#e2e8f0" },
-  inlineProgress: { width: "calc(100% - 17px)", marginTop: 5, marginLeft: 17, minWidth: 0 },
-  radioDot: { width: 9, height: 9, borderRadius: 99, boxShadow: "0 0 0 3px rgba(129,140,248,0.10)" },
+  activeModelBadge: { flex: "0 0 auto", border: "1px solid rgba(52,211,153,0.34)", background: "rgba(52,211,153,0.12)", color: "#86efac", borderRadius: 999, padding: "1px 6px", fontSize: 9, fontWeight: 900, letterSpacing: "0.08em", textTransform: "uppercase" as const },
+  modelCenterCell: { justifyContent: "center" },
+  modelRuntimeCell: { color: "#dbeafe", whiteSpace: "nowrap" as const },
+  modelSizeCell: { justifyContent: "flex-end", fontFamily: "monospace", color: "#e2e8f0", whiteSpace: "nowrap" as const },
+  modelNumericCell: { justifyContent: "flex-end", fontFamily: "monospace", color: "#e2e8f0", whiteSpace: "nowrap" as const },
+  modelLatencyCell: { fontSize: 11, letterSpacing: 0 },
+  inlineProgress: { width: "100%", marginTop: 5, minWidth: 0 },
   runtimeBadge: { fontSize: 10, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: "0.08em" },
   supportIconBadge: { width: 22, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid", borderRadius: 99, fontSize: 12, fontWeight: 900, lineHeight: 1, margin: "0 auto" },
-  modelNoteCell: { color: "#94a3b8", lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" as const, paddingRight: 12 },
+  modelNoteCell: { color: "#94a3b8", lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, paddingRight: 12 },
   modelActions: { gap: 4, justifyContent: "flex-end" },
   tableIconBtn: { width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "rgba(255,255,255,0.72)", fontSize: 13, padding: 0, cursor: "pointer" },
   tableIconBtnActive: { background: "rgba(52,211,153,0.14)", border: "1px solid rgba(52,211,153,0.32)", color: "#86efac", fontSize: 10, fontFamily: "monospace", fontWeight: 800 },
+  tableIconBtnPaused: { background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.30)", color: "#fbbf24" },
   tableIconBtnReady: { background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.28)", color: "#86efac" },
+  downloadAnimIcon: { display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15, lineHeight: 1, animation: "verba-download-bounce 0.85s ease-in-out infinite" },
+  linkIcon: { display: "inline-flex", alignItems: "center", justifyContent: "center", color: "currentColor", lineHeight: 1 },
   tablePrimaryIconBtn: { width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(99,102,241,0.22)", border: "1px solid rgba(129,140,248,0.38)", borderRadius: 6, color: "#c7d2fe", fontSize: 12, padding: 0, cursor: "pointer", fontWeight: 800 },
+  benchmarkSpinner: { width: 12, height: 12, border: "2px solid rgba(199,210,254,0.28)", borderTopColor: "#c7d2fe", borderRadius: "50%", animation: "verba-benchmark-spin 0.7s linear infinite", boxSizing: "border-box" as const },
   disabledIconBtn: { opacity: 0.42, cursor: "not-allowed" },
   resultsPanel: { background: "#0a0e1a", border: "1px solid #1e293b", borderRadius: 10, padding: 12 },
+  resultsActions: { display: "flex", alignItems: "center", gap: 6, flex: "0 0 auto" },
+  resultsIconBtn: { width: 26, height: 26, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", background: "rgba(15,23,42,0.78)", border: "1px solid #334155", borderRadius: 6, padding: 0, cursor: "pointer" },
   resultsTable: { display: "grid", gridTemplateColumns: "1.2fr 0.8fr 0.6fr 0.7fr 0.45fr 2fr", gap: 0, overflowX: "auto" },
   resultsHead: { color: "#64748b", fontSize: 10, fontWeight: 800, textTransform: "uppercase" as const, letterSpacing: "0.08em", borderBottom: "1px solid #1e293b", padding: "6px 8px" },
   resultCell: { color: "#cbd5e1", fontSize: 12, borderBottom: "1px solid rgba(255,255,255,0.04)", padding: "7px 8px", fontFamily: "monospace" },
@@ -1054,6 +1555,7 @@ const css: Record<string, React.CSSProperties> = {
     letterSpacing: "0.06em", textTransform: "uppercase" as const, flexShrink: 0,
   },
   logCopyBtn: { background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "rgba(255,255,255,0.6)", fontSize: 11, padding: "2px 8px", cursor: "pointer" },
+  logActions: { display: "flex", alignItems: "center", gap: 6 },
   logBody: { flex: 1, overflowY: "auto", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 3 },
   logEmpty: { color: "#374151", fontStyle: "italic", padding: "20px 0", textAlign: "center" as const },
   logLine: { fontFamily: "'JetBrains Mono', 'Cascadia Code', monospace", fontSize: 12, color: "#94a3b8", borderBottom: "1px solid #0f172a", paddingBottom: 2 },

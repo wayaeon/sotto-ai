@@ -1,0 +1,297 @@
+<h2>What shape should Sotto be?</h2>
+<p class="subtitle">You said "only what it needs, really capable." These three shapes are the realistic options given what's already built.</p>
+
+<style>
+.shape-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-top: 28px;
+}
+.shape-card {
+  background: rgba(255,255,255,0.04);
+  border: 1.5px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 22px 20px 18px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.shape-card:hover {
+  border-color: rgba(167,139,250,0.4);
+  background: rgba(167,139,250,0.05);
+}
+.shape-card.selected {
+  border-color: rgba(167,139,250,0.8);
+  background: rgba(167,139,250,0.10);
+}
+.shape-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(167,139,250,0.8);
+  margin-bottom: 10px;
+}
+.shape-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #ebebf0;
+  margin-bottom: 8px;
+}
+.shape-desc {
+  font-size: 13px;
+  color: rgba(235,235,240,0.5);
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+.feature-list {
+  list-style: none;
+  padding: 0; margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.feature-list li {
+  font-size: 12px;
+  color: rgba(235,235,240,0.65);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.feature-list li::before {
+  content: "";
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: rgba(167,139,250,0.5);
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.cut-list li { color: rgba(235,235,240,0.28); }
+.cut-list li::before { background: rgba(255,255,255,0.12); }
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(235,235,240,0.28);
+  margin: 14px 0 6px;
+}
+.pill-mockup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(8,8,16,0.9);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 999px;
+  padding: 7px 14px;
+  margin: 0 auto 18px;
+  width: fit-content;
+}
+.pill-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(167,139,250,0.9);
+}
+.pill-bars {
+  display: flex; align-items: center; gap: 2px;
+}
+.pill-bar {
+  width: 2px; border-radius: 2px;
+  background: rgba(167,139,250,0.8);
+}
+.window-mockup {
+  background: rgba(13,13,16,0.95);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.window-bar {
+  display: flex; align-items: center; gap: 5px;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.window-body {
+  display: flex;
+}
+.window-sidebar {
+  width: 42px;
+  border-right: 1px solid rgba(255,255,255,0.05);
+  padding: 8px 6px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sidebar-item {
+  width: 28px; height: 28px; border-radius: 7px;
+  background: rgba(255,255,255,0.04);
+}
+.sidebar-item.active { background: rgba(167,139,250,0.15); }
+.window-content {
+  flex: 1; padding: 10px;
+}
+.content-line {
+  height: 6px; border-radius: 3px;
+  background: rgba(255,255,255,0.06);
+  margin-bottom: 6px;
+}
+.content-line.short { width: 40%; }
+.content-line.medium { width: 65%; }
+.tray-mockup {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(0,0,0,0.6);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+}
+.tray-icon {
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  background: rgba(167,139,250,0.3);
+  border: 1px solid rgba(167,139,250,0.4);
+}
+</style>
+
+<div class="shape-cards">
+
+  <!-- Option A: Minimal tray app -->
+  <div class="shape-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="shape-label">Option A</div>
+    <div class="shape-title">Pill + Tray only</div>
+    <div class="shape-desc">The pill IS the app. Everything lives in a system tray icon and a tiny settings panel. Wispr Flow's exact shape.</div>
+
+    <div class="tray-mockup">
+      <div class="tray-icon"></div>
+      <span>Idle · large-v3-turbo</span>
+    </div>
+    <div class="pill-mockup">
+      <div class="pill-bars">
+        <div class="pill-bar" style="height:8px"></div>
+        <div class="pill-bar" style="height:14px"></div>
+        <div class="pill-bar" style="height:10px"></div>
+        <div class="pill-bar" style="height:12px"></div>
+        <div class="pill-bar" style="height:7px"></div>
+        <div class="pill-bar" style="height:11px"></div>
+        <div class="pill-bar" style="height:9px"></div>
+        <div class="pill-bar" style="height:13px"></div>
+        <div class="pill-bar" style="height:8px"></div>
+        <div class="pill-bar" style="height:10px"></div>
+      </div>
+    </div>
+
+    <div class="section-label">Keeps</div>
+    <ul class="feature-list">
+      <li>Pill (dictate, language, enhance, copy)</li>
+      <li>Tray: status, model, trial countdown</li>
+      <li>Compact settings panel (model, hotkeys, LLM)</li>
+      <li>Setup wizard</li>
+    </ul>
+    <div class="section-label">Cuts</div>
+    <ul class="feature-list cut-list">
+      <li>Home window entirely</li>
+      <li>History screen</li>
+      <li>Insights / heatmap</li>
+      <li>Commands / templates</li>
+    </ul>
+  </div>
+
+  <!-- Option B: Pill + Settings companion -->
+  <div class="shape-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="shape-label">Option B — Recommended</div>
+    <div class="shape-title">Pill + companion window</div>
+    <div class="shape-desc">Pill does all dictation. A proper companion window handles history, settings, and account — but only what actually works.</div>
+
+    <div class="window-mockup">
+      <div class="window-bar">
+        <div class="dot" style="background:#ff5f57"></div>
+        <div class="dot" style="background:#febc2e"></div>
+        <div class="dot" style="background:#28c840"></div>
+        <span style="font-size:10px;color:rgba(255,255,255,0.3);margin-left:4px">Sotto</span>
+      </div>
+      <div class="window-body">
+        <div class="window-sidebar">
+          <div class="sidebar-item active"></div>
+          <div class="sidebar-item"></div>
+          <div class="sidebar-item"></div>
+          <div class="sidebar-item"></div>
+        </div>
+        <div class="window-content">
+          <div class="content-line short"></div>
+          <div class="content-line medium"></div>
+          <div class="content-line"></div>
+          <div class="content-line medium"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-label">Keeps</div>
+    <ul class="feature-list">
+      <li>Pill (full feature set)</li>
+      <li>History — real SQLite, search, copy</li>
+      <li>Settings — model, hotkeys, LLM, license</li>
+      <li>Setup wizard</li>
+    </ul>
+    <div class="section-label">Cuts or defers</div>
+    <ul class="feature-list cut-list">
+      <li>Insights/heatmap (needs real data first)</li>
+      <li>Commands/templates gallery (mocked)</li>
+      <li>Account tab (no backend yet)</li>
+    </ul>
+  </div>
+
+  <!-- Option C: Full app -->
+  <div class="shape-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="shape-label">Option C</div>
+    <div class="shape-title">Full app (make it real)</div>
+    <div class="shape-desc">Keep everything that exists, but wire up all the mocked data, fix localStorage → SQLite, and make it actually work end-to-end.</div>
+
+    <div class="window-mockup">
+      <div class="window-bar">
+        <div class="dot" style="background:#ff5f57"></div>
+        <div class="dot" style="background:#febc2e"></div>
+        <div class="dot" style="background:#28c840"></div>
+        <span style="font-size:10px;color:rgba(255,255,255,0.3);margin-left:4px">Sotto</span>
+      </div>
+      <div class="window-body">
+        <div class="window-sidebar">
+          <div class="sidebar-item active"></div>
+          <div class="sidebar-item"></div>
+          <div class="sidebar-item"></div>
+          <div class="sidebar-item"></div>
+          <div class="sidebar-item"></div>
+          <div class="sidebar-item"></div>
+        </div>
+        <div class="window-content">
+          <div class="content-line short"></div>
+          <div class="content-line medium"></div>
+          <div class="content-line"></div>
+          <div class="content-line medium"></div>
+          <div class="content-line short"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-label">Keeps & implements</div>
+    <ul class="feature-list">
+      <li>Everything in B</li>
+      <li>Insights with real usage data</li>
+      <li>Voice commands (real triggers, real LLM rewrite)</li>
+      <li>Account + license UI</li>
+    </ul>
+    <div class="section-label">Trade-off</div>
+    <ul class="feature-list cut-list">
+      <li>Much larger scope</li>
+      <li>Risk of building features nobody uses</li>
+    </ul>
+  </div>
+
+</div>
+
+<p style="margin-top:24px;font-size:13px;color:rgba(235,235,240,0.38);text-align:center">
+  My recommendation is B — the dictation pipeline already works; the companion window just needs to be honest about what it does.
+  Click your choice, or tell me in the terminal if you have a different take.
+</p>

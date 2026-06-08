@@ -13,6 +13,8 @@ export const setModel = (model: string) => invoke("set_model", { model });
 export const benchmarkModel = (model: string, audioPath?: string | null) => invoke("benchmark_model", { model, audioPath });
 export const setDictionary = (words: string[]) => invoke("set_dictionary", { words });
 export const injectText = (text: string) => invoke("inject_text", { text });
+export const openUrl = (url: string) => invoke("open_url", { url });
+export const openPath = (path: string) => invoke("open_path", { path });
 
 export interface StageTiming {
   capture_start_ms?: number;
@@ -82,6 +84,9 @@ export type SidecarMessage =
       paused?: boolean;
       checked?: boolean;
       downloaded?: boolean;
+      failed?: boolean;
+      benchmark_available?: boolean;
+      benchmark_unavailable_reason?: string;
     }
   | ({ event: "benchmark_result" } & BenchmarkResult)
   | { event: "audio_level"; level: number };

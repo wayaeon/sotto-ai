@@ -1,0 +1,243 @@
+<h2>Where should the per-stage timer live?</h2>
+<p class="subtitle">Each option shows real timing data — pick what fits how you actually work.</p>
+
+<style>
+.options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 24px; }
+.option { cursor: pointer; }
+
+/* Dark mockup base */
+.mock-window {
+  background: #0a0a0c;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  font-family: 'Geist', system-ui, sans-serif;
+}
+.mock-titlebar {
+  display: flex; align-items: center; gap: 5px;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02);
+}
+.mock-titlebar .d { width: 8px; height: 8px; border-radius: 50%; }
+
+/* Pill mockup */
+.pill-scene {
+  background: transparent;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.pill-body {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(8,8,16,0.92);
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 12px; color: rgba(255,255,255,0.85);
+}
+.pill-bars-small {
+  display: flex; align-items: center; gap: 2px;
+}
+.pb { width: 2px; border-radius: 2px; background: rgba(167,139,250,0.85); }
+
+.timing-toast {
+  background: rgba(13,13,18,0.96);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 11px;
+  width: 220px;
+}
+.timing-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 3px 0;
+  color: rgba(235,235,240,0.55);
+}
+.timing-row .stage-name { font-weight: 500; }
+.timing-row .timing-val {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  color: rgba(167,139,250,0.9);
+}
+.timing-divider { height: 1px; background: rgba(255,255,255,0.05); margin: 5px 0; }
+.timing-total { color: rgba(235,235,240,0.85); font-weight: 600; }
+.timing-total .timing-val { color: #34d399; }
+
+/* History row mockup */
+.hist-row {
+  display: flex; align-items: center;
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  gap: 10px;
+}
+.hist-text { flex: 1; font-size: 12px; color: rgba(235,235,240,0.7); }
+.hist-meta { font-size: 10px; color: rgba(235,235,240,0.3); font-family: monospace; white-space: nowrap; }
+.hist-badge {
+  font-size: 10px;
+  font-family: monospace;
+  background: rgba(167,139,250,0.1);
+  border: 1px solid rgba(167,139,250,0.2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: rgba(167,139,250,0.8);
+  white-space: nowrap;
+}
+
+/* Sidebar panel mockup */
+.perf-panel {
+  padding: 14px;
+}
+.perf-header {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: rgba(235,235,240,0.28);
+  margin-bottom: 12px;
+}
+.perf-stage-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.stage-bar-track {
+  flex: 1; height: 4px; border-radius: 99px;
+  background: rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+.stage-bar-fill {
+  height: 100%; border-radius: 99px;
+  background: rgba(167,139,250,0.6);
+}
+.stage-name-sm { font-size: 11px; color: rgba(235,235,240,0.45); width: 70px; flex-shrink: 0; }
+.stage-time-sm { font-size: 11px; font-family: monospace; color: rgba(167,139,250,0.8); width: 40px; text-align: right; flex-shrink: 0; }
+.perf-total-row {
+  display: flex; justify-content: space-between;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  margin-top: 8px; padding-top: 8px;
+  font-size: 12px; font-weight: 600;
+}
+.perf-total-row .t-label { color: rgba(235,235,240,0.55); }
+.perf-total-row .t-val { font-family: monospace; color: #34d399; }
+.sidebar-mock { display: flex; }
+.sidebar-icons { width: 42px; border-right: 1px solid rgba(255,255,255,0.05); padding: 8px 6px; display: flex; flex-direction: column; gap: 6px; }
+.si { width: 28px; height: 28px; border-radius: 7px; background: rgba(255,255,255,0.04); }
+.si.active { background: rgba(167,139,250,0.15); }
+
+.option-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: rgba(167,139,250,0.7);
+  margin-bottom: 5px;
+}
+.option-title { font-size: 15px; font-weight: 600; color: #ebebf0; margin-bottom: 4px; }
+.option-desc { font-size: 12px; color: rgba(235,235,240,0.45); line-height: 1.5; }
+</style>
+
+<div class="options">
+
+  <!-- Option A: Pill tooltip after each transcription -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="mock-window">
+      <div class="pill-scene" style="background: rgba(255,255,255,0.015); min-height: 130px; justify-content: center;">
+        <div class="pill-body">
+          <div class="pill-bars-small">
+            <div class="pb" style="height:5px"></div><div class="pb" style="height:9px"></div>
+            <div class="pb" style="height:7px"></div><div class="pb" style="height:11px"></div>
+            <div class="pb" style="height:6px"></div><div class="pb" style="height:10px"></div>
+            <div class="pb" style="height:8px"></div><div class="pb" style="height:9px"></div>
+            <div class="pb" style="height:5px"></div><div class="pb" style="height:7px"></div>
+          </div>
+          <span style="font-size:11px;color:rgba(255,255,255,0.5)">0:03</span>
+        </div>
+        <div class="timing-toast">
+          <div class="timing-row"><span class="stage-name">VAD onset</span><span class="timing-val">28ms</span></div>
+          <div class="timing-row"><span class="stage-name">Whisper</span><span class="timing-val">1,140ms</span></div>
+          <div class="timing-row"><span class="stage-name">Inject</span><span class="timing-val">42ms</span></div>
+          <div class="timing-divider"></div>
+          <div class="timing-row timing-total"><span class="stage-name">Total</span><span class="timing-val">1,210ms</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">Option A</div>
+    <div class="option-title">Pill tooltip</div>
+    <div class="option-desc">After each transcription, a small timing card floats above the pill for ~3s, then auto-hides.</div>
+  </div>
+
+  <!-- Option B: History row inline -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="mock-window">
+      <div class="mock-titlebar">
+        <div class="d" style="background:#ff5f57"></div>
+        <div class="d" style="background:#febc2e"></div>
+        <div class="d" style="background:#28c840"></div>
+        <span style="font-size:10px;color:rgba(255,255,255,0.25);margin-left:4px">History</span>
+      </div>
+      <div class="hist-row">
+        <div class="hist-text">Good morning, let me just quickly walk you through what we built last week…</div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <div class="hist-badge">1,140ms</div>
+          <div class="hist-meta">2m ago</div>
+        </div>
+      </div>
+      <div class="hist-row">
+        <div class="hist-text">The authentication layer needs to be refactored before we ship…</div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <div class="hist-badge">890ms</div>
+          <div class="hist-meta">18m ago</div>
+        </div>
+      </div>
+      <div class="hist-row">
+        <div class="hist-text">Can you send me the design files for the onboarding flow?</div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <div class="hist-badge">1,320ms</div>
+          <div class="hist-meta">1h ago</div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">Option B</div>
+    <div class="option-title">History inline</div>
+    <div class="option-desc">Whisper latency shown on each transcription row. Expand any row to see full per-stage breakdown.</div>
+  </div>
+
+  <!-- Option C: Both — pill flash + history detail -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="mock-window">
+      <div class="sidebar-mock">
+        <div class="sidebar-icons">
+          <div class="si"></div><div class="si"></div>
+          <div class="si active"></div><div class="si"></div>
+        </div>
+        <div class="perf-panel" style="flex:1">
+          <div class="perf-header">Last session · 23 transcriptions</div>
+          <div class="perf-stage-row">
+            <div class="stage-name-sm">VAD onset</div>
+            <div class="stage-bar-track"><div class="stage-bar-fill" style="width:3%;background:rgba(52,211,153,0.6)"></div></div>
+            <div class="stage-time-sm">28ms</div>
+          </div>
+          <div class="perf-stage-row">
+            <div class="stage-name-sm">Whisper</div>
+            <div class="stage-bar-track"><div class="stage-bar-fill" style="width:88%"></div></div>
+            <div class="stage-time-sm">1,140ms</div>
+          </div>
+          <div class="perf-stage-row">
+            <div class="stage-name-sm">Inject</div>
+            <div class="stage-bar-track"><div class="stage-bar-fill" style="width:4%;background:rgba(125,211,252,0.6)"></div></div>
+            <div class="stage-time-sm">42ms</div>
+          </div>
+          <div class="perf-total-row">
+            <span class="t-label">Avg end-to-end</span>
+            <span class="t-val">1,210ms</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="option-label">Option C — Recommended</div>
+    <div class="option-title">Both</div>
+    <div class="option-desc">Brief pill flash after each transcription + persistent performance panel in the home window showing averages across sessions.</div>
+  </div>
+
+</div>
+
+<p style="margin-top:20px;font-size:12px;color:rgba(235,235,240,0.3);text-align:center">
+  Stages tracked: VAD onset · recording duration · Whisper inference · text injection · total end-to-end
+</p>
