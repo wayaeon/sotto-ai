@@ -28,6 +28,8 @@ fn main() {
             commands::benchmark_model,
             commands::set_dictionary,
             commands::inject_text,
+            commands::open_url,
+            commands::open_path,
         ])
         .setup(|app| {
             sidecar::spawn_sidecar(&app.handle());
@@ -47,18 +49,18 @@ fn main() {
                 .always_on_top(true)
                 .skip_taskbar(true)
                 .resizable(false)
-                .inner_size(380.0, 56.0)
+                .inner_size(60.0, 56.0)
                 .shadow(false)
                 .build()?;
 
-            // Position pill window at bottom-center of primary monitor
+            // Position pill window at bottom-center of primary monitor (collapsed width)
             if let Some(pill) = app.get_webview_window("pill") {
                 if let Some(monitor) = pill.primary_monitor().ok().flatten() {
                     let size = monitor.size();
                     let scale = monitor.scale_factor();
                     let screen_w = (size.width as f64 / scale) as i32;
                     let screen_h = (size.height as f64 / scale) as i32;
-                    let pill_w = 380_i32;
+                    let pill_w = 60_i32;
                     let pill_h = 56_i32;
                     let x = (screen_w - pill_w) / 2;
                     let y = screen_h - pill_h; // pill flush at screen bottom, JS handles taskbar offset

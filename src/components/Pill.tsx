@@ -19,6 +19,9 @@ const LANGUAGES = [
 // Left side must match so wavepill lands at exact center.
 const SIDE_W = 69;
 const PILL_WINDOW_W = 380;
+// Collapsed window is narrow so the transparent Tauri window doesn't block
+// the full 380px strip — Windows ignores CSS pointer-events at the OS level.
+const PILL_WINDOW_COLLAPSED_W = 60;
 const PILL_WINDOW_COLLAPSED_H = 56;
 const PILL_WINDOW_BAR_H = 124;
 const PILL_WINDOW_ACTIVE_H = 136;
@@ -26,11 +29,11 @@ const PILL_WINDOW_PANEL_H = 380;
 
 type Hovered = null | "lang" | "dictate" | "enhance" | "history";
 
-async function resizePillWindow(height: number) {
+async function resizePillWindow(width: number, height: number) {
   const win = getCurrentWindow();
   const monitor = await currentMonitor();
   const scale = monitor?.scaleFactor ?? await win.scaleFactor();
-  const widthPx = Math.round(PILL_WINDOW_W * scale);
+  const widthPx = Math.round(width * scale);
   const heightPx = Math.round(height * scale);
 
   await win.setSize(new PhysicalSize(widthPx, heightPx));
@@ -67,13 +70,13 @@ export default function Pill() {
   const visible      = expanded || isRecording || isProcessing || isLoading;
 
   useEffect(() => {
-    const height =
-      showLangPanel ? PILL_WINDOW_PANEL_H
-      : isRecording || isProcessing || isLoading ? PILL_WINDOW_ACTIVE_H
-      : visible ? PILL_WINDOW_BAR_H
-      : PILL_WINDOW_COLLAPSED_H;
+    const [width, height] =
+      showLangPanel                              ? [PILL_WINDOW_W, PILL_WINDOW_PANEL_H]
+      : isRecording || isProcessing || isLoading ? [PILL_WINDOW_W, PILL_WINDOW_ACTIVE_H]
+      : visible                                  ? [PILL_WINDOW_W, PILL_WINDOW_BAR_H]
+      :                                            [PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H];
 
-    resizePillWindow(height).catch(() => {});
+    resizePillWindow(width, height).catch(() => {});
   }, [visible, isRecording, isProcessing, isLoading, showLangPanel]);
 
   // Recording timer
@@ -228,7 +231,7 @@ export default function Pill() {
                   <span style={s.dictatingText}>
                     {downloadProgress !== null
                       ? `Downloading ${downloadModel ?? "model"} — ${Math.round(downloadProgress)}%`
-                      : "Loading Whisper model…"}
+                      : "Loading transcription model…"}
                   </span>
                   {downloadProgress !== null && (
                     <div style={s.progressTrack}>
