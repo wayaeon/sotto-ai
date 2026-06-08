@@ -27,6 +27,10 @@ const PILL_WINDOW_BAR_H = 124;
 const PILL_WINDOW_ACTIVE_H = 136;
 const PILL_WINDOW_PANEL_H = 380;
 
+// Animation duration in ms. Exit is slightly shorter (feels snappier).
+const ANIM_IN_MS  = 190;
+const ANIM_OUT_MS = 160;
+
 type Hovered = null | "lang" | "dictate" | "enhance" | "history";
 
 async function resizePillWindow(width: number, height: number) {
@@ -51,6 +55,9 @@ export default function Pill() {
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [bottomPad,     setBottomPad]     = useState(52); // updated on mount from real taskbar height
   const [expanded,      setExpanded]      = useState(false);
+  // Two-phase animation: barMounted keeps DOM alive during exit, barIn drives the CSS transition.
+  const [barMounted,    setBarMounted]    = useState(false);
+  const [barIn,         setBarIn]         = useState(false);
   const [hoveredEl,     setHoveredEl]     = useState<Hovered>(null);
   const [langIdx,       setLangIdx]       = useState(-1); // -1 = ALL (globe)
   const [showLangPanel, setShowLangPanel] = useState(false);
@@ -67,17 +74,45 @@ export default function Pill() {
   const isRecording  = recordingState === "recording";
   const isProcessing = recordingState === "processing";
   const isLoading    = recordingState === "loading";
-  const visible      = expanded || isRecording || isProcessing || isLoading;
+  const shouldShowBar = expanded || isRecording || isProcessing || isLoading;
+
+  // Drive bar DOM presence + CSS visibility as two separate phases so exit
+  // animation can complete before the element unmounts.
+  useEffect(() => {
+    if (shouldShowBar) {
+      setBarMounted(true);
+      // Two rAFs: first lets React flush the mount, second starts the transition.
+      const raf = requestAnimationFrame(() =>
+        requestAnimationFrame(() => setBarIn(true))
+      );
+      return () => cancelAnimationFrame(raf);
+    } else {
+      setBarIn(false);
+      const t = setTimeout(() => setBarMounted(false), ANIM_OUT_MS);
+      return () => clearTimeout(t);
+    }
+  }, [shouldShowBar]);
+
+  // Resize Tauri window — expand immediately (content starts transparent so no
+  // visual glitch), collapse only after the exit animation finishes so the
+  // window doesn't shrink while content is still fading out.
+  useEffect(() => {
+    if (!shouldShowBar) return;
+    const height =
+      showLangPanel                              ? PILL_WINDOW_PANEL_H
+      : isRecording || isProcessing || isLoading ? PILL_WINDOW_ACTIVE_H
+      : PILL_WINDOW_BAR_H;
+    resizePillWindow(PILL_WINDOW_W, height).catch(() => {});
+  }, [shouldShowBar, isRecording, isProcessing, isLoading, showLangPanel]);
 
   useEffect(() => {
-    const [width, height] =
-      showLangPanel                              ? [PILL_WINDOW_W, PILL_WINDOW_PANEL_H]
-      : isRecording || isProcessing || isLoading ? [PILL_WINDOW_W, PILL_WINDOW_ACTIVE_H]
-      : visible                                  ? [PILL_WINDOW_W, PILL_WINDOW_BAR_H]
-      :                                            [PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H];
-
-    resizePillWindow(width, height).catch(() => {});
-  }, [visible, isRecording, isProcessing, isLoading, showLangPanel]);
+    if (shouldShowBar) return;
+    const t = setTimeout(
+      () => resizePillWindow(PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H).catch(() => {}),
+      ANIM_OUT_MS,
+    );
+    return () => clearTimeout(t);
+  }, [shouldShowBar]);
 
   // Recording timer
   const [recSecs, setRecSecs] = useState(0);
@@ -94,7 +129,7 @@ export default function Pill() {
       recStartRef.current = null;
     }
   }, [isRecording]);
-  const allActive    = langIdx === -1;
+  const allActive = langIdx === -1;
 
   const scheduleHide = () => {
     leaveTimer.current = setTimeout(() => {
@@ -107,7 +142,7 @@ export default function Pill() {
 
   const startPtt = async () => {
     if (pttActive.current) return;
-    if (!sidecarReady || !modelReady) return; // model still loading — ignore
+    if (!sidecarReady || !modelReady) return;
     pttActive.current = true;
     setRecordingState("recording");
     await invoke("start_ptt").catch(() => {});
@@ -132,13 +167,11 @@ export default function Pill() {
     const active = LANGUAGES.filter(l => activeLangs.has(l.code));
     if (active.length === 0) return;
     if (langIdx === -1) {
-      // ALL → first active language
       setLangIdx(LANGUAGES.findIndex(l => l.code === active[0].code));
     } else {
       const cur = LANGUAGES[langIdx].code;
       const idx = active.findIndex(l => l.code === cur);
       if (idx === active.length - 1) {
-        // last language → back to ALL
         setLangIdx(-1);
       } else {
         const next = active[idx + 1];
@@ -156,10 +189,22 @@ export default function Pill() {
     });
   };
 
+  // Transition strings — separate enter/exit curves.
+  const barEnterTransition = `opacity ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1), transform ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1)`;
+  const barExitTransition  = `opacity ${ANIM_OUT_MS}ms ease-in, transform ${ANIM_OUT_MS}ms ease-in`;
+  const handleTransition   = `opacity ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1), transform ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1)`;
+
   return (
     <div style={{ ...s.root, paddingBottom: bottomPad }}>
       <style>{`
         * { cursor: default !important; }
+
+        @media (prefers-reduced-motion: reduce) {
+          * {
+            transition-duration: 0.01ms !important;
+            animation-duration:  0.01ms !important;
+          }
+        }
 
         @keyframes waveBar {
           0%, 100% { transform: scaleY(0.3); opacity: 0.4; }
@@ -172,10 +217,6 @@ export default function Pill() {
         @keyframes fadeUp {
           from { opacity: 0; transform: translateX(-50%) translateY(4px); }
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-        }
-        @keyframes expandIn {
-          from { opacity: 0; transform: translateY(4px) scale(0.95); }
-          to   { opacity: 1; transform: translateY(0)   scale(1); }
         }
         @keyframes panelIn {
           from { opacity: 0; transform: translateX(-50%) translateY(5px) scale(0.97); }
@@ -190,10 +231,6 @@ export default function Pill() {
           60%  { transform: scale(1.08); }
           100% { opacity: 1; transform: scale(1); }
         }
-        @keyframes dictatingIn {
-          from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.94); }
-          to   { opacity: 1; transform: translateX(-50%) translateY(0)   scale(1); }
-        }
         @keyframes pulseGlow {
           0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,0); }
           50%       { box-shadow: 0 0 0 6px rgba(167,139,250,0.18); }
@@ -207,21 +244,31 @@ export default function Pill() {
         .pbtn:active { transform: scale(0.9); }
       `}</style>
 
-      {/* Collapsed handle — centered naturally by root flex */}
+      {/* Collapsed handle — fades + scales out when bar is present */}
       <div
         style={{
           ...s.handle,
-          opacity:       visible ? 0 : 1,
-          pointerEvents: visible ? "none" : "auto",
-          transition: "opacity 0.18s ease",
+          opacity:       shouldShowBar ? 0 : 1,
+          transform:     shouldShowBar ? "scale(0.78)" : "scale(1)",
+          transition:    handleTransition,
+          pointerEvents: shouldShowBar ? "none" : "auto",
         }}
         onMouseEnter={() => { cancelHide(); setExpanded(true); }}
         onMouseLeave={scheduleHide}
       />
 
-      {/* Expanded bar */}
-      {visible && (
-        <div style={s.barRow} onMouseEnter={cancelHide} onMouseLeave={scheduleHide}>
+      {/* Expanded bar — kept mounted during exit so it can animate out */}
+      {barMounted && (
+        <div
+          style={{
+            ...s.barRow,
+            opacity:    barIn ? 1 : 0,
+            transform:  barIn ? "translateY(0) scale(1)" : "translateY(6px) scale(0.96)",
+            transition: barIn ? barEnterTransition : barExitTransition,
+          }}
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
+        >
 
           {isLoading ? (
             <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
@@ -248,7 +295,6 @@ export default function Pill() {
               </div>
             </div>
           ) : isRecording || isProcessing ? (
-            // Recording state: cancel + active pill + confirm (no text bubble)
             <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
 
               {/* Cancel button */}
@@ -256,7 +302,7 @@ export default function Pill() {
                 <XIcon />
               </button>
 
-              {/* Active wave pill — timer + waveform when recording, dots when processing */}
+              {/* Active wave pill */}
               <div style={{
                 ...s.wavePill,
                 border: isRecording
@@ -274,7 +320,7 @@ export default function Pill() {
                 <WaveVisual state={recordingState} />
               </div>
 
-              {/* Done / confirm button */}
+              {/* Done button */}
               <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(34,197,94,0.35)" }} onClick={stopPtt}>
                 <CheckIcon />
               </button>
@@ -295,7 +341,7 @@ export default function Pill() {
                     </div>
                   )}
 
-                  {/* Drawer — absolutely positioned, slides left from under the globe */}
+                  {/* Drawer — slides left from under the globe */}
                   {hoveredEl === "lang" && (
                     <button
                       className="pbtn"
@@ -470,7 +516,7 @@ function WaveVisual({ state }: { state: string }) {
       {Array.from({ length: BAR_COUNT }).map((_, i) => {
         if (isRecording) {
           const level = levels[i];
-          const h     = Math.max(0.15, level); // never fully flat
+          const h     = Math.max(0.15, level);
           return (
             <div key={i} style={{
               width: 1.5, height: "100%", borderRadius: 2,
@@ -580,12 +626,16 @@ const s: Record<string, React.CSSProperties> = {
     background: "#000",
     border: "1.5px solid rgba(255,255,255,0.55)",
     pointerEvents: "auto",
+    // transform + opacity driven by inline style; transition set inline too.
+    transformOrigin: "center bottom",
   },
   barRow: {
     display: "flex", alignItems: "center", gap: 5,
     background: "transparent",
-    animation: "expandIn 0.18s cubic-bezier(.22,1,.36,1)",
+    // No keyframe animation here — transitions are applied inline so enter/exit
+    // can use different curves without remounting.
     pointerEvents: "auto",
+    transformOrigin: "center bottom",
   },
   iconBtn: {
     display: "flex", alignItems: "center", justifyContent: "center",
@@ -601,9 +651,6 @@ const s: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(255,255,255,0.13)",
     flexShrink: 0,
   },
-  // Slides out from under the globe button to the left.
-  // right:0 pins the drawer's right edge to the globe container's right edge.
-  // The globe (zIndex:1) sits on top, revealing 10px of the drawer to its left.
   arrowDrawer: {
     display: "flex", alignItems: "center",
     justifyContent: "flex-start",
@@ -691,7 +738,7 @@ const s: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap" as const,
     boxShadow: "0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(167,139,250,0.08)",
     zIndex: 30,
-    animation: "dictatingIn 0.18s cubic-bezier(.22,1,.36,1) forwards",
+    animation: "fadeUp 0.18s cubic-bezier(.22,1,.36,1) forwards",
     pointerEvents: "none" as const,
   },
   dictatingDot: {
