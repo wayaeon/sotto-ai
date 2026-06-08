@@ -5,7 +5,7 @@ import sys
 from sidecar.ipc import IPC, Command, Event
 from sidecar.hardware import detect as detect_hardware
 from sidecar.recorder import Recorder
-from sidecar.models import benchmark_model_async, download_model_async, MODEL_CATALOG, download_status_payload
+from sidecar.models import benchmark_model_async, download_model_async, MODEL_CATALOG, download_status_payload, pause_download_model
 
 
 def main() -> None:
@@ -45,12 +45,20 @@ def main() -> None:
             download_model_async(model_name, ipc, token=token)
 
         elif cmd == Command.PAUSE_DOWNLOAD_MODEL:
-            ipc.send(Event.ERROR, msg="Pause/resume downloads is not supported yet")
+            model_name = payload.get("model", "")
+            if not model_name:
+                ipc.send(Event.ERROR, msg="pause_download_model requires a 'model' field")
+            else:
+                pause_download_model(model_name, ipc)
 
         elif cmd == Command.SET_MODEL:
             model_name = payload.get("model", "")
             if model_name and recorder is not None:
-                recorder.set_model(model_name)
+                try:
+                    recorder.set_model(model_name)
+                except Exception as exc:
+                    ipc.send(Event.ERROR, msg=f"Model switch failed for {model_name}: {exc}")
+                    ipc.send(Event.STATUS, msg="idle")
             elif not model_name:
                 ipc.send(Event.ERROR, msg="set_model requires a 'model' field")
 
@@ -81,6 +89,10 @@ def main() -> None:
         elif cmd == Command.QUIT:
             recorder.shutdown()
             break
+
+    # Rust closes stdin when the app exits or replaces the sidecar. Ensure the
+    # loaded model worker does not survive that parent connection.
+    recorder.shutdown()
 
 
 if __name__ == "__main__":

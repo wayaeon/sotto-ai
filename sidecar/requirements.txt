@@ -12,7 +12,9 @@ requests>=2.32
 torch-directml; sys_platform == "win32"
 onnxruntime-directml; sys_platform == "win32"
 nemo_toolkit[asr]
-transformers>=4.40
+transformers>=5.2,<6
 accelerate
 funasr
 sherpa-onnx
+onnx-asr[hub]>=0.11
+mistral-common[audio]>=1.11.3
