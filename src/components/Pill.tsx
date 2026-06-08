@@ -33,19 +33,26 @@ const ANIM_OUT_MS = 160;
 
 type Hovered = null | "lang" | "dictate" | "enhance" | "history";
 
+// Cache monitor data after first fetch — avoids an extra IPC round-trip on
+// every resize. `undefined` = not fetched yet, `null` = fetched but no monitor.
+let monitorCache: Awaited<ReturnType<typeof currentMonitor>> | undefined;
+
 async function resizePillWindow(width: number, height: number) {
   const win = getCurrentWindow();
-  const monitor = await currentMonitor();
+  if (monitorCache === undefined) monitorCache = await currentMonitor() ?? null;
+  const monitor = monitorCache;
   const scale = monitor?.scaleFactor ?? await win.scaleFactor();
-  const widthPx = Math.round(width * scale);
+
+  const widthPx  = Math.round(width  * scale);
   const heightPx = Math.round(height * scale);
 
-  await win.setSize(new PhysicalSize(widthPx, heightPx));
-
-  if (!monitor) return;
-  const x = monitor.workArea.position.x + Math.round((monitor.workArea.size.width - widthPx) / 2);
-  const y = monitor.workArea.position.y + monitor.workArea.size.height - heightPx;
-  await win.setPosition(new PhysicalPosition(x, y));
+  // Fire setSize and setPosition in parallel — one round-trip each, overlapped.
+  const x = monitor ? monitor.workArea.position.x + Math.round((monitor.workArea.size.width  - widthPx)  / 2) : 0;
+  const y = monitor ? monitor.workArea.position.y +              monitor.workArea.size.height - heightPx       : 0;
+  await Promise.all([
+    win.setSize(new PhysicalSize(widthPx, heightPx)),
+    monitor ? win.setPosition(new PhysicalPosition(x, y)) : Promise.resolve(),
+  ]);
 }
 
 export default function Pill() {
@@ -76,41 +83,55 @@ export default function Pill() {
   const isLoading    = recordingState === "loading";
   const shouldShowBar = expanded || isRecording || isProcessing || isLoading;
 
-  // Drive bar DOM presence + CSS visibility as two separate phases so exit
-  // animation can complete before the element unmounts.
-  useEffect(() => {
-    if (shouldShowBar) {
-      setBarMounted(true);
-      // Two rAFs: first lets React flush the mount, second starts the transition.
-      const raf = requestAnimationFrame(() =>
-        requestAnimationFrame(() => setBarIn(true))
-      );
-      return () => cancelAnimationFrame(raf);
-    } else {
-      setBarIn(false);
-      const t = setTimeout(() => setBarMounted(false), ANIM_OUT_MS);
-      return () => clearTimeout(t);
-    }
-  }, [shouldShowBar]);
+  // Generation counter: incremented on every collapse to cancel stale expand
+  // callbacks that finish after the user has already moused away.
+  const expandGenRef = useRef(0);
 
-  // Resize Tauri window — expand immediately (content starts transparent so no
-  // visual glitch), collapse only after the exit animation finishes so the
-  // window doesn't shrink while content is still fading out.
+  // EXPAND: resize window first, THEN mount + animate.
+  // This is the critical sequencing fix — if we start the CSS transition while
+  // the Tauri window is still resizing/repositioning (IPC async), the whole
+  // window visually jumps mid-animation (the stutter). Awaiting the resize
+  // before touching the DOM means the window is at its final position before
+  // any pixel moves on screen.
   useEffect(() => {
     if (!shouldShowBar) return;
+
+    const gen = ++expandGenRef.current;
     const height =
       showLangPanel                              ? PILL_WINDOW_PANEL_H
       : isRecording || isProcessing || isLoading ? PILL_WINDOW_ACTIVE_H
       : PILL_WINDOW_BAR_H;
-    resizePillWindow(PILL_WINDOW_W, height).catch(() => {});
+
+    resizePillWindow(PILL_WINDOW_W, height)
+      .then(() => {
+        if (expandGenRef.current !== gen) return; // collapsed while resize was in flight
+        setBarMounted(true);
+        // Two rAFs: first flushes the mount paint, second starts the transition.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (expandGenRef.current === gen) setBarIn(true);
+        }));
+      })
+      .catch(() => {
+        // Resize failed — still show the bar, just at best-effort position.
+        if (expandGenRef.current !== gen) return;
+        setBarMounted(true);
+        requestAnimationFrame(() => requestAnimationFrame(() => setBarIn(true)));
+      });
   }, [shouldShowBar, isRecording, isProcessing, isLoading, showLangPanel]);
 
+  // COLLAPSE: animate out first, THEN unmount + resize.
+  // Window stays at 380px while content fades so it doesn't clip the animation.
   useEffect(() => {
     if (shouldShowBar) return;
-    const t = setTimeout(
-      () => resizePillWindow(PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H).catch(() => {}),
-      ANIM_OUT_MS,
-    );
+
+    expandGenRef.current++; // cancel any in-flight expand
+    setBarIn(false);        // start CSS exit transition
+
+    const t = setTimeout(() => {
+      setBarMounted(false);
+      resizePillWindow(PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H).catch(() => {});
+    }, ANIM_OUT_MS);
+
     return () => clearTimeout(t);
   }, [shouldShowBar]);
 
