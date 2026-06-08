@@ -20,8 +20,8 @@ const PILL_WINDOW_BAR_H       = 124;
 const PILL_WINDOW_ACTIVE_H    = 136;
 const PILL_WINDOW_PANEL_H     = 380;
 
-const ANIM_IN_MS  = 190;
-const ANIM_OUT_MS = 160;
+const ANIM_IN_MS  = 100;
+const ANIM_OUT_MS = 50;
 
 // PillPhase drives which surfaces are visible.
 // The key invariant: handle is ONLY visible in "collapsed".
@@ -318,7 +318,10 @@ export default function Pill() {
             transform:     isCollapsed
               ? "translateX(-50%) scale(1)"
               : "translateX(-50%) scale(0.78)",
-            transition:    handleTx,
+            // Snap OFF instantly when expanding so the handle never teleports
+            // while 100vw changes during the Tauri window resize.
+            // Only animate ON (fade in) when returning to collapsed.
+            transition:    isCollapsed ? handleTx : "none",
             pointerEvents: isCollapsed ? "auto" : "none",
           }}
           onMouseEnter={() => { cancelHide(); setExpanded(true); }}
