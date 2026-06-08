@@ -994,9 +994,19 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               },
             }));
           }
-          const status = paused ? "idle" : pct >= 100 ? "done" : "active";
-          const detail = paused ? `${modelLabel(mdl)} paused` : pct >= 100 ? `${modelLabel(mdl)} · ready` : `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`;
-          updateStage("model", { status: status as any, detail, progress: pct >= 100 ? undefined : pct });
+          // Only update the "model" pipeline stage while the download is actively
+          // in progress or paused. Do NOT mark "model" as done here — worker_ready
+          // is the authoritative signal for that. Without this guard, check_downloads
+          // on startup re-broadcasts 100% events for every previously-downloaded model
+          // (e.g. Voxtral from a prior session) and overwrites the real active-model
+          // status that worker_ready already set correctly.
+          if (pct < 100 || paused) {
+            const status = paused ? "idle" : "active";
+            const detail = paused
+              ? `${modelLabel(mdl)} paused`
+              : `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`;
+            updateStage("model", { status, detail, progress: pct });
+          }
           break;
         }
 
