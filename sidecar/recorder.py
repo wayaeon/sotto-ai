@@ -23,7 +23,7 @@ from .ipc import IPC, Event
 from .hardware import ModelTier, HardwareInfo
 from .models import best_available_model, model_dir
 
-_RECORDINGS_DIR  = Path.home() / ".sotto" / "recordings"
+_RECORDINGS_DIR  = Path.home() / ".verba" / "recordings"
 _SAMPLE_RATE     = 16000
 _SAMPLE_WIDTH    = 2       # 16-bit PCM
 _CHUNK_SIZE      = 1024
@@ -217,7 +217,7 @@ class Recorder:
             target=_worker_loop,
             args=(self._model_name, model_path, runtime, self._device, self._task_q, self._result_q),
             daemon=False,
-            name="sotto-transcriber",
+            name="verba-transcriber",
         )
         self._worker_proc.start()
 

@@ -56,7 +56,7 @@ export default function ReadyScreen({ onComplete }: Props) {
         color: "var(--text-2)", fontSize: 15, lineHeight: 1.65,
         marginBottom: 32, maxWidth: 380, margin: "0 auto 32px",
       }}>
-        Sotto is running. Focus any text field and hold <strong>Right Ctrl</strong> to dictate.
+        Verba is running. Focus any text field and hold <strong>Right Ctrl</strong> to dictate.
       </p>
 
       {/* Hotkey display */}

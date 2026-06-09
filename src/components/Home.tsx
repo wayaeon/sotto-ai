@@ -84,19 +84,19 @@ const DEFAULT_COMMANDS: Command[] = [
 
 function getMetrics(): Metrics {
   return {
-    totalWords: parseInt(localStorage.getItem("sotto_total_words") ?? "0"),
-    sessions:   parseInt(localStorage.getItem("sotto_sessions") ?? "0"),
-    streak:     parseInt(localStorage.getItem("sotto_streak") ?? "0"),
-    avgWpm:     parseInt(localStorage.getItem("sotto_avg_wpm") ?? "0"),
-    totalMs:    parseInt(localStorage.getItem("sotto_total_ms") ?? "0"),
+    totalWords: parseInt(localStorage.getItem("verba_total_words") ?? "0"),
+    sessions:   parseInt(localStorage.getItem("verba_sessions") ?? "0"),
+    streak:     parseInt(localStorage.getItem("verba_streak") ?? "0"),
+    avgWpm:     parseInt(localStorage.getItem("verba_avg_wpm") ?? "0"),
+    totalMs:    parseInt(localStorage.getItem("verba_total_ms") ?? "0"),
   };
 }
 
 function getSetting(key: string, def: string): string {
-  return localStorage.getItem(`sotto_setting_${key}`) ?? def;
+  return localStorage.getItem(`verba_setting_${key}`) ?? def;
 }
 function setSetting(key: string, val: string): void {
-  localStorage.setItem(`sotto_setting_${key}`, val);
+  localStorage.setItem(`verba_setting_${key}`, val);
 }
 
 function fmtDuration(ms: number): string {
@@ -147,27 +147,27 @@ function getDayOfWeek(): string {
 
 function getCommands(): Command[] {
   try {
-    const raw = localStorage.getItem("sotto_commands");
+    const raw = localStorage.getItem("verba_commands");
     if (raw) return JSON.parse(raw) as Command[];
   } catch { /* ignore */ }
-  localStorage.setItem("sotto_commands", JSON.stringify(DEFAULT_COMMANDS));
+  localStorage.setItem("verba_commands", JSON.stringify(DEFAULT_COMMANDS));
   return DEFAULT_COMMANDS;
 }
 
 function saveCommands(cmds: Command[]): void {
-  localStorage.setItem("sotto_commands", JSON.stringify(cmds));
+  localStorage.setItem("verba_commands", JSON.stringify(cmds));
 }
 
 function getDictionary(): DictEntry[] {
   try {
-    const raw = localStorage.getItem("sotto_dictionary");
+    const raw = localStorage.getItem("verba_dictionary");
     if (raw) return JSON.parse(raw) as DictEntry[];
   } catch { /* ignore */ }
   return [];
 }
 
 function saveDictionary(entries: DictEntry[]): void {
-  localStorage.setItem("sotto_dictionary", JSON.stringify(entries));
+  localStorage.setItem("verba_dictionary", JSON.stringify(entries));
 }
 
 // ─── SVG Icons ────────────────────────────────────────────
@@ -399,7 +399,7 @@ function RecentRow({ t, onClick }: { t: Transcription; onClick: () => void }) {
   const wc = wordCount(t.text);
   const dur = fmtDuration(t.duration_ms);
   const when = relativeTime(t.created_at);
-  const app = t.model || "Sotto";
+  const app = t.model || "Verba";
 
   return (
     <div
@@ -450,7 +450,7 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
             {metrics.streak > 0
               ? `You're on a ${metrics.streak}-day streak.`
               : "Start dictating to build your streak."}
-            {timeSaved ? ` Sotto has saved you ~${timeSaved} of typing time.` : ""}
+            {timeSaved ? ` Verba has saved you ~${timeSaved} of typing time.` : ""}
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
@@ -520,7 +520,7 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
                 <Icons.Waves size={16} />
               </div>
             </div>
-            <div className="hotkey-desc">Toggle continuous listening. Sotto types as you speak.</div>
+            <div className="hotkey-desc">Toggle continuous listening. Verba types as you speak.</div>
             <Kbd keys={["Ctrl", "Shift", "F10"]} />
           </div>
         </div>
@@ -1502,7 +1502,7 @@ function CommandPalette({ open, onClose, onNav, onStartDictate, onOpenTemplates,
           <span><Kbd keys={["↑","↓"]} /> navigate</span>
           <span><Kbd keys={["↵"]} /> open</span>
           <span style={{ flex: 1 }} />
-          <span style={{ color: "var(--text-3)" }}>Sotto · {flat.length} results</span>
+          <span style={{ color: "var(--text-3)" }}>Verba · {flat.length} results</span>
         </div>
       </div>
     </div>
@@ -1797,14 +1797,14 @@ function GeneralPanel() {
       <div className="setting-row">
         <div className="setting-text">
           <p className="t">Launch at login</p>
-          <p className="d">Start Sotto automatically when you log in.</p>
+          <p className="d">Start Verba automatically when you log in.</p>
         </div>
         <Toggle on={launchLogin} onChange={setLaunchLogin} />
       </div>
       <div className="setting-row">
         <div className="setting-text">
           <p className="t">Show in menu bar</p>
-          <p className="d">Keep Sotto accessible from the system menu bar.</p>
+          <p className="d">Keep Verba accessible from the system menu bar.</p>
         </div>
         <Toggle on={menuBar} onChange={setMenuBar} />
       </div>
@@ -1931,7 +1931,7 @@ function HotkeysPanel() {
     { name: "Push-to-talk",      keys: ["Ctrl", "Shift", "F9"] },
     { name: "Hands-free toggle", keys: ["Ctrl", "Shift", "F10"] },
     { name: "Cancel recording",  keys: ["Escape"] },
-    { name: "Open Sotto",        keys: ["Ctrl", "Shift", "S"] },
+    { name: "Open Verba",        keys: ["Ctrl", "Shift", "S"] },
     { name: "Paste last",        keys: ["Ctrl", "Shift", "V"] },
     { name: "Show history",      keys: ["Ctrl", "Shift", "H"] },
   ];
@@ -2110,7 +2110,7 @@ function PrivacyPanel() {
       <div className="setting-row">
         <div className="setting-text">
           <p className="t">Send analytics</p>
-          <p className="d">Help improve Sotto with anonymous usage data.</p>
+          <p className="d">Help improve Verba with anonymous usage data.</p>
         </div>
         <Toggle on={analytics} onChange={setAnalytics} />
       </div>
@@ -2274,8 +2274,8 @@ function AccountScreen({ userName, userEmail, tier }: AccountScreenProps) {
   const initial = (userName || userEmail || "U")[0].toUpperCase();
   const joinedYear = new Date().getFullYear();
 
-  const words   = parseInt(localStorage.getItem("sotto_total_words") ?? "0");
-  const sessions = parseInt(localStorage.getItem("sotto_sessions") ?? "0");
+  const words   = parseInt(localStorage.getItem("verba_total_words") ?? "0");
+  const sessions = parseInt(localStorage.getItem("verba_sessions") ?? "0");
   const dictLen  = getDictionary().length;
   const cmdLen   = getCommands().length;
 
@@ -2291,10 +2291,10 @@ function AccountScreen({ userName, userEmail, tier }: AccountScreenProps) {
 
   const billingHistory = isPaid
     ? [
-        { date: "May 1, 2026",  desc: `Sotto ${plan.name} · Annual`,  amount: plan.price.split(" ")[0], status: "Paid" },
-        { date: "Apr 1, 2026",  desc: "Sotto Trial",                   amount: "$0.00",  status: "Free" },
+        { date: "May 1, 2026",  desc: `Verba ${plan.name} · Annual`,  amount: plan.price.split(" ")[0], status: "Paid" },
+        { date: "Apr 1, 2026",  desc: "Verba Trial",                   amount: "$0.00",  status: "Free" },
       ]
-    : [{ date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }), desc: "Sotto Trial", amount: "$0.00", status: "Free" }];
+    : [{ date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }), desc: "Verba Trial", amount: "$0.00", status: "Free" }];
 
   const devices = [
     { name: "Windows 11 HP OmniBook", meta: "Current device · Windows 11", lastSeen: "Now", current: true },
@@ -2361,7 +2361,7 @@ function AccountScreen({ userName, userEmail, tier }: AccountScreenProps) {
               <Chip tone={plan.accent} dot>Current plan</Chip>
             </div>
             <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 400, margin: "0 0 4px" }}>
-              Sotto{" "}
+              Verba{" "}
               <em style={{
                 fontStyle: "italic",
                 background: "var(--grad-spectrum)",
@@ -2511,7 +2511,7 @@ function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, ti
         <div className="brand-mark">
           <WaveMark size={22} />
         </div>
-        <div className="brand-wordmark">Sotto</div>
+        <div className="brand-wordmark">Verba</div>
         <button
           className="sidebar-collapse"
           onClick={onToggleCollapse}

@@ -39,7 +39,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           {
             // Always load the default model on startup.
             // Clear any stale value (e.g. a previous session saved the wrong model).
-            localStorage.setItem("sotto_model", DEFAULT_MODEL);
+            localStorage.setItem("verba_model", DEFAULT_MODEL);
             setModel(DEFAULT_MODEL);
             setModelIpc(DEFAULT_MODEL).catch((e) => console.warn("[set_model]", e));
           }
@@ -67,7 +67,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             const currentModel = useAppStore.getState().model ?? "";
             const currentTier  = useAppStore.getState().tier  ?? "";
 
-            localStorage.setItem("sotto_last_transcription", raw);
+            localStorage.setItem("verba_last_transcription", raw);
 
             // inject_text Rust command emits "inject-done" to all windows after completing
             injectText(raw).catch((e) => console.warn("[inject_text]", e));
@@ -104,7 +104,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             );
             if (parts.model) {
               setModel(parts.model);
-              localStorage.setItem("sotto_model", parts.model);
+              localStorage.setItem("verba_model", parts.model);
             }
             setModelReady(true);
           }
@@ -114,7 +114,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             );
             if (parts.model) {
               setModel(parts.model);
-              localStorage.setItem("sotto_model", parts.model);
+              localStorage.setItem("verba_model", parts.model);
             }
           }
           break;
@@ -124,8 +124,8 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           setTier(msg.tier as any);
           // Always pin to the default model — never inherit whatever hardware recommends.
           setModel(DEFAULT_MODEL);
-          localStorage.setItem("sotto_model", DEFAULT_MODEL);
-          localStorage.setItem("sotto_tier", msg.tier);
+          localStorage.setItem("verba_model", DEFAULT_MODEL);
+          localStorage.setItem("verba_tier", msg.tier);
           break;
 
         case "download_progress": {

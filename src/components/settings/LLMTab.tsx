@@ -5,25 +5,25 @@ function get(key: string, def: string) {
 }
 
 export default function LLMTab() {
-  const [enabled, setEnabled] = useState(() => get("sotto_llm_enabled", "false") === "true");
-  const [url, setUrl]         = useState(() => get("sotto_llm_url", "http://localhost:11434"));
-  const [model, setModel]     = useState(() => get("sotto_llm_model", "qwen3:7b"));
+  const [enabled, setEnabled] = useState(() => get("verba_llm_enabled", "false") === "true");
+  const [url, setUrl]         = useState(() => get("verba_llm_url", "http://localhost:11434"));
+  const [model, setModel]     = useState(() => get("verba_llm_model", "qwen3:7b"));
   const [prompt, setPrompt]   = useState(() =>
-    get("sotto_llm_prompt",
+    get("verba_llm_prompt",
       "Clean up the following voice transcription. Fix punctuation, capitalisation, and obvious speech errors. Return only the corrected text, nothing else.")
   );
 
   const save = () => {
-    localStorage.setItem("sotto_llm_enabled", String(enabled));
-    localStorage.setItem("sotto_llm_url", url);
-    localStorage.setItem("sotto_llm_model", model);
-    localStorage.setItem("sotto_llm_prompt", prompt);
+    localStorage.setItem("verba_llm_enabled", String(enabled));
+    localStorage.setItem("verba_llm_url", url);
+    localStorage.setItem("verba_llm_model", model);
+    localStorage.setItem("verba_llm_prompt", prompt);
   };
 
   const toggle = () => {
     const next = !enabled;
     setEnabled(next);
-    localStorage.setItem("sotto_llm_enabled", String(next));
+    localStorage.setItem("verba_llm_enabled", String(next));
   };
 
   return (

@@ -22,7 +22,7 @@ const NEEDS_TOKEN = ["large-v3-turbo"];
 export default function ModelDownload({ onNext }: Props) {
   const [phase, setPhase] = useState<Phase>("approve");
   const [progress, setProgress] = useState(0);
-  const [token, setToken] = useState(() => localStorage.getItem("sotto_hf_token") ?? "");
+  const [token, setToken] = useState(() => localStorage.getItem("verba_hf_token") ?? "");
   const { model } = useAppStore();
 
   const modelName = model ?? "medium.en";
@@ -40,7 +40,7 @@ export default function ModelDownload({ onNext }: Props) {
   }, []);
 
   const startDownload = () => {
-    if (token) localStorage.setItem("sotto_hf_token", token);
+    if (token) localStorage.setItem("verba_hf_token", token);
     setPhase("downloading");
     setProgress(0);
     downloadModel(modelName, token || undefined).catch(() => {});
@@ -65,14 +65,14 @@ export default function ModelDownload({ onNext }: Props) {
         <>
           <h2 style={s.heading}>Download your model</h2>
           <p style={s.sub}>
-            Sotto will download <strong style={{ color: "var(--text)" }}>{modelName}</strong> for
+            Verba will download <strong style={{ color: "var(--text)" }}>{modelName}</strong> for
             fully offline dictation. This is a one-time download.
           </p>
 
           <div style={s.infoBox}>
             <Row label="Model"      value={modelName} />
             <Row label="Size"       value={size} />
-            <Row label="Stored at"  value="~/.sotto/models/" mono />
+            <Row label="Stored at"  value="~/.verba/models/" mono />
             <Row label="Network"    value="HuggingFace CDN (anonymous)" />
           </div>
 

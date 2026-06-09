@@ -25,7 +25,7 @@ export default function PermissionsStep({ onNext }: Props) {
     <div style={{ width: "100%", maxWidth: 480 }}>
       <div style={eyebrow}>Permissions</div>
       <h2 style={heading}>Allow access</h2>
-      <p style={sub}>Sotto needs a few permissions to work properly.</p>
+      <p style={sub}>Verba needs a few permissions to work properly.</p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
         {/* Microphone */}
@@ -69,7 +69,7 @@ export default function PermissionsStep({ onNext }: Props) {
                 <span style={checkBadge}>✓ Ready</span>
               </div>
               <div style={rowSub}>
-                Sotto types into your apps using keyboard simulation. No special permission required on Windows.
+                Verba types into your apps using keyboard simulation. No special permission required on Windows.
               </div>
             </div>
           </div>
@@ -87,7 +87,7 @@ export default function PermissionsStep({ onNext }: Props) {
                 <span style={checkBadge}>✓ Ready</span>
               </div>
               <div style={rowSub}>
-                Sotto runs in the background. It will appear in your system tray.
+                Verba runs in the background. It will appear in your system tray.
               </div>
             </div>
           </div>

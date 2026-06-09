@@ -8,14 +8,14 @@ interface Setting {
 }
 
 const SETTINGS: Setting[] = [
-  { key: "launch_at_login",   label: "Launch at login",                sub: "Start Sotto automatically when you log in",         default: true  },
+  { key: "launch_at_login",   label: "Launch at login",                sub: "Start Verba automatically when you log in",         default: true  },
   { key: "show_overlay",      label: "Show pill while recording",      sub: "Display the floating pill when transcription is active", default: true  },
   { key: "inject_text",       label: "Inject text into active window", sub: "Type transcribed text directly into the focused field",  default: true  },
   { key: "copy_to_clipboard", label: "Copy to clipboard",             sub: "Also copy each transcription to your clipboard",        default: true  },
 ];
 
 function getStored(key: string, def: boolean): boolean {
-  const v = localStorage.getItem(`sotto_setting_${key}`);
+  const v = localStorage.getItem(`verba_setting_${key}`);
   return v === null ? def : v === "true";
 }
 
@@ -27,7 +27,7 @@ export default function GeneralTab() {
   const toggle = (key: string) => {
     setValues(prev => {
       const next = { ...prev, [key]: !prev[key] };
-      localStorage.setItem(`sotto_setting_${key}`, String(next[key]));
+      localStorage.setItem(`verba_setting_${key}`, String(next[key]));
       return next;
     });
   };

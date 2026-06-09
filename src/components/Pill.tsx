@@ -220,7 +220,7 @@ export default function Pill() {
     if (sidecarReady) await invoke("stop_ptt").catch(() => {});
   };
   const copyRecent = async () => {
-    const text = localStorage.getItem("sotto_last_transcription") ?? "";
+    const text = localStorage.getItem("verba_last_transcription") ?? "";
     if (text) navigator.clipboard.writeText(text).catch(() => {});
   };
 

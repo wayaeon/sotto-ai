@@ -624,7 +624,7 @@ function Spec({ label, value, width }: { label: string; value: string; width: nu
 export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<DebugTab>("pipeline");
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
-  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem("sotto_model") || "nvidia/parakeet-tdt-0.6b-v3");
+  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem("verba_model") || "nvidia/parakeet-tdt-0.6b-v3");
   // Ref mirrors selectedModel so stale-closure event handlers can read the latest value.
   const selectedModelRef = useRef(selectedModel);
   const [downloadState, setDownloadState] = useState<DownloadProgressState>({
@@ -736,7 +736,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
       etaLabels: { ...prev.etaLabels },
       samples: { ...prev.samples },
     }));
-    const token = localStorage.getItem("sotto_hf_token")?.trim() || undefined;
+    const token = localStorage.getItem("verba_hf_token")?.trim() || undefined;
     downloadModel(model, token).catch(() => addLog(`🔴 Failed to request download for ${model}`));
   }
 
@@ -903,7 +903,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
             const model = parts.model;
             if (model) {
               setSelectedModel(model);
-              localStorage.setItem("sotto_model", model);
+              localStorage.setItem("verba_model", model);
               updateStage("model", { status: "done", detail: `${modelLabel(model)} ready` });
               addLog(`✅ Active transcription model: ${modelLabel(model)}`);
             }
@@ -918,7 +918,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
             const runtime = parts.runtime ?? "faster-whisper";
             if (model) {
               setSelectedModel(model);
-              localStorage.setItem("sotto_model", model);
+              localStorage.setItem("verba_model", model);
               updateStage("model", { status: "done", detail: `${modelLabel(model)} ready` });
             }
             let badge: string;

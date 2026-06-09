@@ -14,7 +14,7 @@ export default function ModelsTab() {
 
   const select = (value: string) => {
     setModel(value);
-    localStorage.setItem("sotto_model", value);
+    localStorage.setItem("verba_model", value);
     setModelIpc(value).catch(console.error);
   };
 
