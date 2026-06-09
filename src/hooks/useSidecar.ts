@@ -1,14 +1,11 @@
 import { useEffect, useRef } from "react";
 import { onSidecarEvent, injectText, setModel as setModelIpc, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type RecordingState } from "../stores/appStore";
+import { insertTranscription, updateMetrics } from "../lib/db";
 
 // Single source of truth for the default model.
 // Always parakeet TDT v3 — ONNX runtime, works on any hardware.
 const DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3";
-import { insertTranscription, updateMetrics } from "../lib/db";
-
-export const useDownloadProgress = () => useAppStore((s) => s.downloadProgress);
-export const useDownloadModel    = () => useAppStore((s) => s.downloadModel);
 
 /**
  * primary: true  → Pill window only. Handles injection, history, metrics.
@@ -26,7 +23,6 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     commitSegment,
     setTier,
     setModel,
-    setDownloadProgress,
   } = useAppStore();
 
   const dictationStartMs = useRef<number | null>(null);
@@ -127,14 +123,6 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           localStorage.setItem("verba_model", DEFAULT_MODEL);
           localStorage.setItem("verba_tier", msg.tier);
           break;
-
-        case "download_progress": {
-          const pct = (msg as any).percent as number;
-          const mdl = (msg as any).model as string;
-          setDownloadProgress(mdl, pct);
-          if (pct >= 100) setTimeout(() => setDownloadProgress(null, null), 1000);
-          break;
-        }
 
         case "error":
           console.error("[sidecar]", msg.msg);

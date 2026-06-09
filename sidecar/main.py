@@ -1,11 +1,11 @@
-"""Wispr Local STT sidecar — entry point and IPC loop."""
+"""Verba STT sidecar — entry point and IPC loop."""
 from __future__ import annotations
 
 import sys
 from sidecar.ipc import IPC, Command, Event
 from sidecar.hardware import detect as detect_hardware
 from sidecar.recorder import Recorder
-from sidecar.models import benchmark_model_async, download_model_async, MODEL_CATALOG, download_status_payload, pause_download_model
+from sidecar.models import benchmark_model_async, MODEL_CATALOG
 
 
 def main() -> None:
@@ -28,28 +28,12 @@ def main() -> None:
             ipc.send(Event.ERROR, msg=f"Unknown command: {line!r}")
             continue
 
-        if cmd == Command.CHECK_DOWNLOADS:
-            for model_name in MODEL_CATALOG:
-                ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
-
-        elif cmd == Command.PING:
+        if cmd == Command.PING:
             ipc.send(Event.PONG)
 
         elif cmd == Command.DETECT_HARDWARE:
             # Re-send cached result — hardware doesn't change at runtime
             ipc.send(Event.HARDWARE, **hw.to_dict())
-
-        elif cmd == Command.DOWNLOAD_MODEL:
-            token = payload.get("token") or None
-            model_name = payload.get("model") or hw.model_name
-            download_model_async(model_name, ipc, token=token)
-
-        elif cmd == Command.PAUSE_DOWNLOAD_MODEL:
-            model_name = payload.get("model", "")
-            if not model_name:
-                ipc.send(Event.ERROR, msg="pause_download_model requires a 'model' field")
-            else:
-                pause_download_model(model_name, ipc)
 
         elif cmd == Command.SET_MODEL:
             model_name = payload.get("model", "")

@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { benchmarkModel, checkDownloads, detectHardware, downloadModel, onSidecarEvent, openPath, openUrl, pauseDownloadModel, setModel } from "../lib/tauri";
-import { applyDownloadProgress, type DownloadProgressState } from "../lib/downloadProgress";
+import { benchmarkModel, detectHardware, onSidecarEvent, openPath, openUrl, setModel } from "../lib/tauri";
 import { modelDownloadStatus } from "../lib/modelStatus";
 import type { BenchmarkResult, HardwareInfo, StageTiming } from "../lib/tauri";
 
@@ -39,11 +38,6 @@ interface ModelCandidate {
   downloadSupported: boolean;
   benchmarkSupported: boolean;
   note: string;
-}
-
-interface BenchmarkRuntimeStatus {
-  available: boolean;
-  reason: string;
 }
 
 const MODEL_CANDIDATES: ModelCandidate[] = [
@@ -232,17 +226,11 @@ function TimingPanel({ timing, waitingForInject }: TimingPanelProps) {
 function ModelsBenchmarkPanel({
   hardware,
   selectedModel,
-  downloading,
-  downloadLabels,
-  downloadEtaLabels,
-  pausedDownloads,
   benchmarkingModel,
   benchmarkAllProgress,
   results,
   audioPath,
   onRefreshHardware,
-  onDownload,
-  onPauseDownload,
   onBenchmark,
   onBenchmarkAll,
   onOpenSource,
@@ -253,17 +241,11 @@ function ModelsBenchmarkPanel({
 }: {
   hardware: HardwareInfo | null;
   selectedModel: string;
-  downloading: Record<string, number>;
-  downloadLabels: Record<string, string>;
-  downloadEtaLabels: Record<string, string>;
-  pausedDownloads: Record<string, boolean>;
   benchmarkingModel: string | null;
   benchmarkAllProgress: { completed: number; total: number } | null;
   results: BenchmarkResult[];
   audioPath: string | null;
   onRefreshHardware: () => void;
-  onDownload: (model: string) => void;
-  onPauseDownload: (model: string) => void;
   onBenchmark: (model: string) => void;
   onBenchmarkAll: () => void;
   onOpenSource: (url: string) => void;
@@ -285,29 +267,15 @@ function ModelsBenchmarkPanel({
   results.forEach((result) => {
     if (!latestResultByModel.has(result.model)) latestResultByModel.set(result.model, result);
   });
-  const [hoveredDownloadModel, setHoveredDownloadModel] = useState<string | null>(null);
   const modelDisplayGroups = [
     {
-      key: "downloaded",
-      title: "Downloaded locally",
-      detail: "Ready for activation or benchmarking when the runtime is available.",
-      models: MODEL_CANDIDATES.filter((model) => downloading[model.id] >= 100),
-    },
-    {
-      key: "available",
-      title: "Available to download",
-      detail: "Cached status is refreshed from the local models folder.",
-      models: MODEL_CANDIDATES.filter((model) => !(downloading[model.id] >= 100)),
+      key: "all",
+      title: "All models",
+      detail: "Pre-installed. Benchmark is available for faster-whisper models with a recorded sample.",
+      models: MODEL_CANDIDATES,
     },
   ];
   const renderModelRow = (model: ModelCandidate) => {
-    const progress = downloading[model.id];
-    const downloadLabel = downloadLabels[model.id];
-    const downloadEtaLabel = downloadEtaLabels[model.id];
-    const isDownloading = progress !== undefined && progress < 100;
-    const isDownloaded = progress !== undefined && progress >= 100;
-    const isPaused = !!pausedDownloads[model.id];
-    const showPause = isDownloading && !isPaused && hoveredDownloadModel === model.id;
     const isBenchmarking = benchmarkingModel === model.id;
     const active = selectedModel === model.id;
     const result = latestResultByModel.get(model.id);
@@ -315,15 +283,13 @@ function ModelsBenchmarkPanel({
       ? "Benchmark requires a runtime adapter"
       : !audioPath
         ? "Record a sample first"
-        : !isDownloaded
-          ? "Download model before benchmarking"
-          : "";
+        : "";
     const canBenchmark = !benchmarkBlockedReason && !benchmarkingModel;
     const downloadStatus = modelDownloadStatus({
       active,
-      downloaded: isDownloaded,
-      downloading: isDownloading,
-      paused: isPaused,
+      downloaded: true,
+      downloading: false,
+      paused: false,
       downloadSupported: model.downloadSupported,
     });
 
@@ -337,21 +303,6 @@ function ModelsBenchmarkPanel({
             <span style={css.modelNameText}>{model.label}</span>
             {active && <span style={css.activeModelBadge}>Active</span>}
           </div>
-          {progress !== undefined && (
-            <div style={css.inlineProgress}>
-              <div style={css.progressTrack}>
-                <div style={{ ...css.progressFill, width: `${progress}%` }} />
-              </div>
-              <div
-                style={css.downloadLabel}
-                title={[downloadLabel ?? `${progress.toFixed(0)}%`, progress < 100 ? downloadEtaLabel : ""].filter(Boolean).join(" · ")}
-              >
-                {progress >= 100
-                  ? "cached"
-                  : [downloadLabel ?? `${progress.toFixed(0)}%`, downloadEtaLabel].filter(Boolean).join(" · ")}
-              </div>
-            </div>
-          )}
         </div>
         <div style={{ ...css.modelTableCell, ...css.modelRuntimeCell, ...(active ? css.modelTableCellActive : {}) }}>{model.runtime}</div>
         <div style={{ ...css.modelTableCell, ...css.modelSizeCell, ...(active ? css.modelTableCellActive : {}) }}>{model.sizeLabel}</div>
@@ -377,43 +328,6 @@ function ModelsBenchmarkPanel({
         </div>
         <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActive : {}), ...css.modelNoteCell }} title={model.note}>{model.note}</div>
         <div style={{ ...css.modelTableCell, ...(active ? css.modelTableCellActiveLast : {}), ...css.modelActions }}>
-          <button
-            style={{
-              ...css.tableIconBtn,
-              ...(isDownloading ? css.tableIconBtnActive : {}),
-              ...(isPaused ? css.tableIconBtnPaused : {}),
-              ...(isDownloaded ? css.tableIconBtnReady : {}),
-              ...(!model.downloadSupported ? css.disabledIconBtn : {}),
-            }}
-            disabled={!model.downloadSupported || isDownloaded}
-            onMouseEnter={() => setHoveredDownloadModel(model.id)}
-            onMouseLeave={() => setHoveredDownloadModel(current => current === model.id ? null : current)}
-            title={
-              !model.downloadSupported
-                ? "Local app download is not wired yet"
-                : isDownloaded
-                  ? "Downloaded locally"
-                  : isPaused
-                    ? "Resume download"
-                    : isDownloading
-                      ? "Pause download"
-                      : `Download/cache locally (${model.sizeLabel})`
-            }
-            aria-label={model.downloadSupported ? `Download ${model.label} locally` : `${model.label} local download is not wired`}
-            onClick={() => isDownloading && !isPaused ? onPauseDownload(model.id) : onDownload(model.id)}
-          >
-            {isPaused ? (
-              "▶"
-            ) : showPause ? (
-              "Ⅱ"
-            ) : isDownloading ? (
-              <span style={css.downloadAnimIcon} aria-hidden="true">↓</span>
-            ) : isDownloaded ? (
-              "✓"
-            ) : (
-              "↓"
-            )}
-          </button>
           <button
             style={css.tableIconBtn}
             title="Open model page"
@@ -470,7 +384,7 @@ function ModelsBenchmarkPanel({
       <div style={css.modelsToolbar}>
         <div>
           <div style={css.panelEyebrow}>Models</div>
-          <div style={css.mutedText}>Download saves the model locally. Benchmark is available for faster-whisper models today.</div>
+          <div style={css.mutedText}>Models are pre-installed. Benchmark is available for faster-whisper models today.</div>
         </div>
         <div style={css.modelsToolbarActions}>
           <div style={css.audioBadge}>{audioPath ? "Benchmark WAV ready" : "Record a sample"}</div>
@@ -520,9 +434,7 @@ function ModelsBenchmarkPanel({
                 <span style={css.modelSectionDetail}>{group.detail}</span>
               </div>
               {group.models.length ? group.models.map(renderModelRow) : (
-                <div style={css.modelEmptyRow}>
-                  {group.key === "downloaded" ? "No downloaded models detected yet." : "Every listed model is downloaded."}
-                </div>
+                <div style={css.modelEmptyRow}>No models found.</div>
               )}
             </React.Fragment>
           ))}
@@ -625,22 +537,11 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<DebugTab>("pipeline");
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem("verba_model") || "nvidia/parakeet-tdt-0.6b-v3");
-  // Ref mirrors selectedModel so stale-closure event handlers can read the latest value.
-  const selectedModelRef = useRef(selectedModel);
-  const [downloadState, setDownloadState] = useState<DownloadProgressState>({
-    progress: {},
-    labels: {},
-    paused: {},
-    etaLabels: {},
-    samples: {},
-  });
-  const [benchmarkRuntimeStatus, setBenchmarkRuntimeStatus] = useState<Record<string, BenchmarkRuntimeStatus>>({});
   const [benchmarkingModel, setBenchmarkingModel] = useState<string | null>(null);
   const [benchmarkAllProgress, setBenchmarkAllProgress] = useState<{ completed: number; total: number } | null>(null);
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
   const [resultsCollapsed, setResultsCollapsed] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
 
   const [stages, setStages] = useState<Stage[]>([
     { id: "model",        label: "1 · Model",     status: "idle" },
@@ -728,26 +629,6 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
     detectHardware().catch(() => addLog("🔴 Failed to request hardware refresh"));
   }
 
-  function handleDownload(model: string) {
-    setDownloadState(prev => ({
-      progress: { ...prev.progress, [model]: prev.progress[model] ?? 0 },
-      labels: { ...prev.labels },
-      paused: { ...prev.paused, [model]: false },
-      etaLabels: { ...prev.etaLabels },
-      samples: { ...prev.samples },
-    }));
-    const token = localStorage.getItem("verba_hf_token")?.trim() || undefined;
-    downloadModel(model, token).catch(() => addLog(`🔴 Failed to request download for ${model}`));
-  }
-
-  function handlePauseDownload(model: string) {
-    setDownloadState(prev => ({
-      ...prev,
-      paused: { ...prev.paused, [model]: true },
-    }));
-    pauseDownloadModel(model).catch(() => addLog(`🔴 Failed to pause download for ${model}`));
-  }
-
   function handleActivateModel(model: ModelCandidate) {
     if (!model.benchmarkSupported) {
       addLog(`⚠️ ${model.label} can download, but needs a ${model.runtime} benchmark/runtime adapter before activation`);
@@ -794,11 +675,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   function handleBenchmarkAll() {
     if (!audioPathRef.current || benchmarkingModel) return;
     const models = MODEL_CANDIDATES
-      .filter(model =>
-        model.benchmarkSupported
-        && downloadState.progress[model.id] >= 100
-        && benchmarkRuntimeStatus[model.id]?.available !== false
-      )
+      .filter(model => model.benchmarkSupported)
       .map(model => model.id);
 
     if (!models.length) {
@@ -843,7 +720,6 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
       switch (msg.event) {
         case "ready":
           addLog("🟢 Sidecar ready");
-          checkDownloads().catch(() => addLog("🔴 Failed to refresh downloaded models"));
           break;
 
         case "hardware": {
@@ -982,40 +858,6 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
           break;
         }
 
-        case "download_progress": {
-          const pct = msg.percent;
-          const mdl = msg.model;
-          const paused = !!msg.paused && pct < 100;
-          setDownloadState(prev => applyDownloadProgress(prev, msg));
-          if (msg.benchmark_available !== undefined) {
-            setBenchmarkRuntimeStatus(prev => ({
-              ...prev,
-              [mdl]: {
-                available: msg.benchmark_available ?? false,
-                reason: msg.benchmark_unavailable_reason || "Benchmark runtime unavailable",
-              },
-            }));
-          }
-          // Only update the "model" pipeline stage for the currently active model.
-          // check_downloads on startup broadcasts download_progress for EVERY model in the
-          // catalog (at 0% for undownloaded ones, 100% for previously-downloaded ones).
-          // The sidecar-event listener uses a stale closure ([] deps) so we can't read
-          // `selectedModel` state directly — we use `selectedModelRef` which is always
-          // current. worker_ready / model_selected remain the sole sources of truth for
-          // the "X · ready" done state; we never set "done" from download_progress.
-          if (mdl === selectedModelRef.current) {
-            if (pct >= 100) {
-              // Download complete — worker_ready will set "done"; show "loading from disk" now
-              updateStage("model", { status: "active", detail: "Loading model from disk…" });
-            } else if (paused) {
-              updateStage("model", { status: "idle", detail: `${modelLabel(mdl)} paused`, progress: pct });
-            } else {
-              updateStage("model", { status: "active", detail: `Downloading ${modelLabel(mdl)} — ${pct.toFixed(0)}%`, progress: pct });
-            }
-          }
-          break;
-        }
-
         case "benchmark_result": {
           setBenchmarkingModel(prev => prev === msg.model ? null : prev);
           setBenchmarkResults(prev => [msg, ...prev]);
@@ -1052,55 +894,22 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
     return () => { unsub.then(fn => fn()); };
   }, []);
 
-  useEffect(() => { selectedModelRef.current = selectedModel; }, [selectedModel]);
   useEffect(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, [log]);
-
-  // Populate cached state for already-downloaded models on mount
-  useEffect(() => { checkDownloads(); }, []);
 
   useEffect(() => {
     if (activeTab !== "models") return;
-    checkDownloads().catch(() => addLog("🔴 Failed to refresh downloaded models"));
     detectHardware().catch(() => addLog("🔴 Failed to refresh machine specs"));
   }, [activeTab]);
 
   // ─── Render ──────────────────────────────────────────────────────────────────
   const selectedCandidate = MODEL_CANDIDATES.find(model => model.id === selectedModel);
-  const activeDownloadEntries = Object.entries(downloadState.progress)
-    .filter(([, progress]) => progress < 100)
-    .sort(([a], [b]) => modelLabel(a).localeCompare(modelLabel(b)));
-  const activeDownloadCount = activeDownloadEntries.length;
-  const downloadHeaderTitle = activeDownloadEntries.length
-    ? activeDownloadEntries.map(([model, progress]) => {
-        const label = downloadState.labels[model] ?? `${progress.toFixed(0)}%`;
-        const eta = downloadState.etaLabels[model];
-        const paused = downloadState.paused[model] ? "paused" : "downloading";
-        return `${modelLabel(model)}: ${paused}, ${label}${eta ? `, ${eta}` : ""}`;
-      }).join("\n")
-    : "No active downloads";
-  const downloadHeaderLabel = activeDownloadEntries.length
-    ? activeDownloadEntries.length === 1
-      ? `${modelLabel(activeDownloadEntries[0][0])} ${activeDownloadEntries[0][1].toFixed(0)}%`
-      : `${activeDownloadEntries.length} downloads`
-    : "No downloads";
   const selectableModelEntries = MODEL_CANDIDATES
     .filter(model => model.id !== selectedModel)
-    .map(model => ({
-      model,
-      downloaded: downloadState.progress[model.id] >= 100,
-    }));
+    .map(model => ({ model }));
 
   return (
     <div style={css.root}>
       <style>{`
-        @keyframes verba-download-bounce {
-          0%, 100% { transform: translateY(-2px); opacity: 0.62; }
-          45% { transform: translateY(3px); opacity: 1; }
-        }
-        @keyframes verba-download-pulse {
-          0%, 100% { opacity: 0.72; transform: scale(0.92); }
-          50% { opacity: 1; transform: scale(1); }
-        }
         @keyframes verba-benchmark-spin {
           to { transform: rotate(360deg); }
         }
@@ -1163,29 +972,22 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               )}
               <div style={css.modelPickerSection}>
                 <div style={css.modelPickerSectionLabel}>Other models</div>
-                {selectableModelEntries.map(({ model, downloaded }) => (
+                {selectableModelEntries.map(({ model }) => (
                   <button
                     key={model.id}
                     type="button"
                     role="option"
                     aria-selected={false}
-                    disabled={!downloaded}
-                    style={{
-                      ...css.modelPickerOption,
-                      ...(!downloaded ? css.modelPickerOptionDisabled : {}),
-                    }}
+                    style={css.modelPickerOption}
                     onClick={() => {
-                      if (!downloaded) return;
                       handleActivateModel(model);
                       setModelMenuOpen(false);
                     }}
                   >
-                    <span style={{ ...css.modelPickerOptionDot, background: downloaded ? "#475569" : "#1e293b" }} />
+                    <span style={{ ...css.modelPickerOptionDot, background: "#475569" }} />
                     <span style={css.modelPickerOptionBody}>
                       <span style={css.modelPickerOptionName}>{model.label}</span>
-                      <span style={css.modelPickerOptionMeta}>
-                        {downloaded ? `${model.family} · ${model.runtime}` : `${model.family} · download first`}
-                      </span>
+                      <span style={css.modelPickerOptionMeta}>{model.family} · {model.runtime}</span>
                     </span>
                   </button>
                 ))}
@@ -1204,66 +1006,6 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
           </span>
         )}
         <div style={css.headerRight}>
-          <div
-            style={css.downloadMenuWrap}
-            onBlur={(event) => {
-              const nextTarget = event.relatedTarget as Node | null;
-              if (!nextTarget || !event.currentTarget.contains(nextTarget)) setDownloadMenuOpen(false);
-            }}
-          >
-            <button
-              type="button"
-              style={{
-                ...css.downloadIconButton,
-                ...(activeDownloadCount ? css.downloadIconButtonActive : {}),
-                ...(downloadMenuOpen ? css.downloadIconButtonOpen : {}),
-              }}
-              onClick={() => setDownloadMenuOpen(open => !open)}
-              title={downloadHeaderTitle}
-              aria-label={downloadHeaderTitle}
-              aria-haspopup="dialog"
-              aria-expanded={downloadMenuOpen}
-            >
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 3v11" />
-                <path d="m7 9 5 5 5-5" />
-                <path d="M5 21h14" />
-              </svg>
-              {activeDownloadCount > 0 && <span style={css.downloadIconBadge}>{activeDownloadCount}</span>}
-            </button>
-            {downloadMenuOpen && (
-              <div style={css.downloadPopover}>
-                <div style={css.downloadPopoverHeader}>
-                  <span style={css.downloadPopoverTitle}>Downloads</span>
-                  <span style={activeDownloadCount ? css.downloadPopoverStateActive : css.downloadPopoverState}>
-                    {activeDownloadCount ? downloadHeaderLabel : "Idle"}
-                  </span>
-                </div>
-                {activeDownloadEntries.length ? activeDownloadEntries.map(([model, progress]) => {
-                  const label = downloadState.labels[model] ?? `${progress.toFixed(0)}%`;
-                  const eta = downloadState.etaLabels[model];
-                  const paused = !!downloadState.paused[model];
-                  return (
-                    <div key={model} style={css.downloadPopoverItem}>
-                      <div style={css.downloadPopoverItemTop}>
-                        <span style={css.downloadPopoverModel}>{modelLabel(model)}</span>
-                        <span style={css.downloadPopoverPct}>{progress.toFixed(0)}%</span>
-                      </div>
-                      <div style={css.downloadPopoverTrack}>
-                        <div style={{ ...css.downloadPopoverFill, width: `${progress}%` }} />
-                      </div>
-                      <div style={css.downloadPopoverMeta}>
-                        <span>{paused ? "Paused" : label}</span>
-                        {eta && !paused && <span>{eta}</span>}
-                      </div>
-                    </div>
-                  );
-                }) : (
-                  <div style={css.downloadPopoverEmpty}>No background downloads running.</div>
-                )}
-              </div>
-            )}
-          </div>
           <button style={css.closeBtn} onClick={onClose}>✕ Close</button>
         </div>
       </div>
@@ -1377,17 +1119,11 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
           <ModelsBenchmarkPanel
             hardware={hardware}
             selectedModel={selectedModel}
-            downloading={downloadState.progress}
-            downloadLabels={downloadState.labels}
-            downloadEtaLabels={downloadState.etaLabels}
-            pausedDownloads={downloadState.paused}
             benchmarkingModel={benchmarkingModel}
             benchmarkAllProgress={benchmarkAllProgress}
             results={benchmarkResults}
             audioPath={audioPath}
             onRefreshHardware={handleRefreshHardware}
-            onDownload={handleDownload}
-            onPauseDownload={handlePauseDownload}
             onBenchmark={handleBenchmark}
             onBenchmarkAll={handleBenchmarkAll}
             onOpenSource={handleOpenModelSource}
