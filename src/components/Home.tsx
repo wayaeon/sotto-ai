@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
 import { getTranscriptions, type Transcription } from "../lib/db";
+import { toggleHandsfree } from "../lib/tauri";
 import PipelineDebug from "./PipelineDebug";
 
 // ─── Types ────────────────────────────────────────────────
@@ -453,17 +454,30 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
             {timeSaved ? ` Verba has saved you ~${timeSaved} of typing time.` : ""}
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => onViewChange("history")}>
-            <Icons.Clock size={13} /> History
-          </button>
-          <button className="btn btn-primary btn-sm">
-            <Icons.Mic size={13} /> Start dictating
-          </button>
-        </div>
       </div>
 
       <div className="main-body stagger">
+        {/* Hero action — the product is voice; this must be impossible to miss */}
+        <div className="hero-row">
+          <button
+            className="hero-cta"
+            onClick={() => { toggleHandsfree().catch(console.error); }}
+          >
+            <span className="hero-cta-icon"><Icons.Mic size={20} /></span>
+            Start dictating
+          </button>
+          <div className="hero-hint">
+            or hold <Kbd keys={["Ctrl", "Win"]} /> in any app
+          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ marginLeft: "auto" }}
+            onClick={() => onViewChange("history")}
+          >
+            <Icons.Clock size={13} /> History
+          </button>
+        </div>
+
         {/* Stats */}
         <div className="stat-grid">
           <Stat
