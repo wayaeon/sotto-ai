@@ -77,6 +77,7 @@ def test_recorder_model_switch_failure_does_not_restore_hardware_default(monkeyp
     recorder._recorder = None
     recorder._handsfree = False
 
+    recorder._model_lock = threading.Lock()
     monkeypatch.setattr(recorder, "_stop_worker", lambda: None)
     monkeypatch.setattr(
         recorder,
@@ -84,32 +85,52 @@ def test_recorder_model_switch_failure_does_not_restore_hardware_default(monkeyp
         lambda: (_ for _ in ()).throw(RuntimeError("runtime load failed")),
     )
 
-    ok = recorder.set_model("mistralai/Voxtral-Mini-4B-Realtime-2602")
+    # set_model is now async (request accepted → True); run the load synchronously.
+    recorder._requested_model = "mistralai/Voxtral-Mini-4B-Realtime-2602"
+    recorder._load_requested_model()
 
-    assert ok is False
     assert recorder._model_name == "mistralai/Voxtral-Mini-4B-Realtime-2602"
+    assert recorder._worker_error == "runtime load failed"
     assert any(event["event"] == "error" and "Model switch failed" in event["msg"] for event in recorder._ipc.events)
     assert recorder._ipc.events[-1] == {"event": "status", "msg": "idle"}
 
 
-def test_recording_is_blocked_after_selected_model_fails_to_load():
+def test_set_model_rejects_unknown_model():
     recorder = Recorder.__new__(Recorder)
     recorder._ipc = CapturingIPC()
+
+    assert recorder.set_model("not/a-real-model") is False
+    assert recorder._ipc.events[-1]["event"] == "error"
+
+
+def test_recording_proceeds_after_previous_model_load_failure(tmp_path, monkeypatch):
+    """A failed model load must NOT permanently block recording — the worker
+    is retried on the next transcription instead."""
+    import sidecar.recorder as recorder_mod
+
+    monkeypatch.setattr(recorder_mod, "_RECORDINGS_DIR", tmp_path)
+
+    recorder = Recorder.__new__(Recorder)
+    recorder._ipc = CapturingIPC()
+    recorder._lock = threading.Lock()
     recorder._worker_error = "Voxtral runtime unavailable"
+    recorder._transcription_active = False
+    recorder._recording_active = False
+    recorder._current_wf = None
+    recorder._last_wav_path = None
+    recorder._model_name = "nvidia/parakeet-tdt-0.6b-v3"
 
     recorder.start_ptt()
 
-    assert recorder._ipc.events == [
-        {
-            "event": "error",
-            "msg": "Cannot record with selected model: Voxtral runtime unavailable",
-        }
-    ]
+    assert recorder._recording_active is True
+    assert recorder._ipc.events[-1] == {"event": "status", "msg": "recording_ptt"}
+    recorder._current_wf.close()
 
 
 def test_reselecting_loaded_model_reuses_existing_worker(monkeypatch):
     recorder = Recorder.__new__(Recorder)
     recorder._ipc = CapturingIPC()
+    recorder._model_lock = threading.Lock()
     recorder._model_name = "UsefulSensors/moonshine-base"
     recorder._loaded_model_name = recorder._model_name
     recorder._transcription_active = False
@@ -121,7 +142,8 @@ def test_reselecting_loaded_model_reuses_existing_worker(monkeypatch):
         lambda: (_ for _ in ()).throw(AssertionError("loaded worker should be reused")),
     )
 
-    assert recorder.set_model(recorder._model_name) is True
+    recorder._requested_model = recorder._model_name
+    recorder._load_requested_model()
     assert recorder._ipc.events[-1] == {
         "event": "status",
         "msg": "model_selected model=UsefulSensors/moonshine-base",
