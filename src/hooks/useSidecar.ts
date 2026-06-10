@@ -33,11 +33,14 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
         case "ready":
           setSidecarReady(true);
           {
-            // Always load the default model on startup.
-            // Clear any stale value (e.g. a previous session saved the wrong model).
-            localStorage.setItem("verba_model", DEFAULT_MODEL);
-            setModel(DEFAULT_MODEL);
-            setModelIpc(DEFAULT_MODEL).catch((e) => console.warn("[set_model]", e));
+            // Load the user's chosen model on startup; fall back to the default.
+            // This is the single trigger for the first model load — the sidecar
+            // no longer preloads a model on its own (that caused a startup race).
+            const saved = localStorage.getItem("verba_model");
+            const startupModel = saved && saved.trim() ? saved : DEFAULT_MODEL;
+            localStorage.setItem("verba_model", startupModel);
+            setModel(startupModel);
+            setModelIpc(startupModel).catch((e) => console.warn("[set_model]", e));
           }
           break;
 
@@ -118,9 +121,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
 
         case "hardware":
           setTier(msg.tier as any);
-          // Always pin to the default model — never inherit whatever hardware recommends.
-          setModel(DEFAULT_MODEL);
-          localStorage.setItem("verba_model", DEFAULT_MODEL);
+          // Tier is informational only — never overwrite the user's model choice.
           localStorage.setItem("verba_tier", msg.tier);
           break;
 
