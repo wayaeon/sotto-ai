@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
 import { getTranscriptions, type Transcription } from "../lib/db";
-import { toggleHandsfree } from "../lib/tauri";
+import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
 
 // ─── Types ────────────────────────────────────────────────
@@ -434,158 +434,93 @@ function RecentRow({ t, onClick }: { t: Transcription; onClick: () => void }) {
 }
 
 function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScreenProps) {
-  const recent = transcriptions.slice(0, 4);
   const firstName = userName.split(" ")[0] || "there";
   const greeting = getGreeting(userName);
-  const timeSaved = metrics.totalMs > 0 ? fmtMinutes(Math.round(metrics.totalMs * 0.4)) : null;
+  const lastSegment = useAppStore((s) => s.lastSegment);
+  const model = useAppStore((s) => s.model);
+  const modelReady = useAppStore((s) => s.modelReady);
+
+  // Today's words from actual transcription timestamps (not lifetime aggregates)
+  const todayWords = useMemo(() => {
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    return transcriptions
+      .filter((t) => new Date(t.created_at).getTime() >= start.getTime())
+      .reduce((sum, t) => sum + t.text.trim().split(/\s+/).filter(Boolean).length, 0);
+  }, [transcriptions]);
+
+  const lastText = lastSegment || transcriptions[0]?.text || "";
+  const modelLabel = model ? (model.split("/").pop() ?? model) : null;
+
+  const ambient: string[] = [];
+  if (todayWords > 0) ambient.push(`today: ${todayWords.toLocaleString()} words`);
+  if (metrics.avgWpm > 0) ambient.push(`${metrics.avgWpm} wpm`);
+  if (metrics.streak > 0) ambient.push(`streak ${metrics.streak}d`);
 
   return (
     <div className="main fade-in">
-      <div className="main-header">
+      <div className="main-header talk-header">
         <div>
-          <div className="eyebrow">Today · {getDayOfWeek()}, {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" })}</div>
-          <h1 className="page-title">
+          <div className="eyebrow">
+            {getDayOfWeek()}, {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" })}
+            {modelLabel && (
+              <span className="talk-model-chip" data-ready={String(modelReady)}>
+                {modelLabel}
+              </span>
+            )}
+          </div>
+          <h1 className="page-title talk-greeting">
             {greeting.replace(`, ${firstName}`, ", ")}<em>{firstName}</em>
           </h1>
-          <p className="page-sub">
-            {metrics.streak > 0
-              ? `You're on a ${metrics.streak}-day streak.`
-              : "Start dictating to build your streak."}
-            {timeSaved ? ` Verba has saved you ~${timeSaved} of typing time.` : ""}
-          </p>
         </div>
       </div>
 
-      <div className="main-body stagger">
-        {/* Hero action — the product is voice; this must be impossible to miss */}
-        <div className="hero-row">
-          <button
-            className="hero-cta"
-            onClick={() => { toggleHandsfree().catch(console.error); }}
-          >
-            <span className="hero-cta-icon"><Icons.Mic size={20} /></span>
-            Start dictating
+      {/* The Talk surface: one hero, everything else ambient (DESIGN.md §3) */}
+      <div className="talk-body">
+        <Orb />
+
+        {lastText ? (
+          <button className="talk-last" onClick={() => onViewChange("history")} title="Open history">
+            <span className="talk-last-rule" />
+            <em>“{lastText.length > 120 ? lastText.slice(0, 120) + "…" : lastText}”</em>
+            <span className="talk-last-rule" />
           </button>
-          <div className="hero-hint">
-            or hold <Kbd keys={["Ctrl", "Win"]} /> in any app
-          </div>
-          <button
-            className="btn btn-ghost btn-sm"
-            style={{ marginLeft: "auto" }}
-            onClick={() => onViewChange("history")}
-          >
-            <Icons.Clock size={13} /> History
-          </button>
-        </div>
-
-        {/* Stats */}
-        <div className="stat-grid">
-          <Stat
-            value={metrics.totalWords > 0 ? metrics.totalWords.toLocaleString() : "—"}
-            label="Words dictated"
-            sub="all time"
-            accent="violet"
-            delta={metrics.sessions > 0 ? `${metrics.sessions} sessions` : undefined}
-            italic
-          />
-          <Stat
-            value={metrics.avgWpm > 0 ? metrics.avgWpm : "—"}
-            unit={metrics.avgWpm > 0 ? "wpm" : undefined}
-            label="Avg. speed"
-            sub="vs typing"
-            accent="blue"
-          />
-          <Stat
-            value={metrics.streak > 0 ? metrics.streak : "—"}
-            unit={metrics.streak > 0 ? "days" : undefined}
-            label="Day streak"
-            sub="keep going"
-            accent="amber"
-          />
-          <Stat
-            value={metrics.totalMs > 0 ? fmtMinutes(Math.round(metrics.totalMs * 0.4)) : "—"}
-            label="Time saved"
-            sub="estimated"
-            accent="mint"
-          />
-        </div>
-
-        {/* Hotkeys */}
-        <SectionHead label="Quick Access" />
-        <div className="hotkey-grid">
-          <div className="hotkey">
-            <div className="hotkey-top">
-              <div>
-                <div className="hotkey-name">Push-to-talk</div>
-              </div>
-              <div className="hotkey-icon">
-                <Icons.Mic size={16} />
-              </div>
-            </div>
-            <div className="hotkey-desc">Hold to record, release to transcribe. Works in any app.</div>
-            <Kbd keys={["Ctrl", "Shift", "F9"]} />
-          </div>
-          <div className="hotkey" data-accent="blue">
-            <div className="hotkey-top">
-              <div>
-                <div className="hotkey-name">Hands-free mode</div>
-              </div>
-              <div className="hotkey-icon">
-                <Icons.Waves size={16} />
-              </div>
-            </div>
-            <div className="hotkey-desc">Toggle continuous listening. Verba types as you speak.</div>
-            <Kbd keys={["Ctrl", "Shift", "F10"]} />
-          </div>
-        </div>
-
-        {/* Recent */}
-        <SectionHead
-          label="Recent"
-          action={
-            <button className="section-link" onClick={() => onViewChange("history")}>
-              View all <Icons.ArrowRight size={12} />
-            </button>
-          }
-        />
-        {recent.length === 0 ? (
-          <div className="empty">
-            <div className="empty-icon"><Icons.Mic size={22} /></div>
-            <h4>No dictations yet</h4>
-            <p>Press Ctrl+Shift+F9 to make your first recording.</p>
-          </div>
         ) : (
-          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", overflow: "hidden" }}>
-            {recent.map((t) => (
-              <RecentRow key={t.id} t={t} onClick={() => onViewChange("history")} />
-            ))}
+          <div className="talk-last talk-last-empty">
+            Hold <kbd>Ctrl</kbd> + <kbd>Win</kbd> and speak — your words appear wherever you're typing.
           </div>
         )}
 
-        {/* Smart Formatting */}
-        <SectionHead label="Smart Formatting" />
-        <div className="card card-glow" data-accent="amber" style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.18)", display: "grid", placeItems: "center", color: "var(--c-amber)", flexShrink: 0 }}>
-            <Icons.Sparkles size={16} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 500 }}>AI Formatting Active</div>
-            <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>
-              {metrics.sessions > 0
-                ? `Applied to ${metrics.sessions} session${metrics.sessions !== 1 ? "s" : ""}. Punctuation, capitalization, and filler removal enabled.`
-                : "Start dictating to see your formatting insights."}
-            </div>
-          </div>
-          <button className="btn btn-ghost btn-sm" style={{ flexShrink: 0 }}>
-            Configure <Icons.ChevronRight size={12} />
+        {ambient.length > 0 && (
+          <button className="talk-ambient" onClick={() => onViewChange("history")} title="Open insights">
+            {ambient.join(" · ")}
           </button>
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
 // ─── History Screen ───────────────────────────────────────
+
+/** v2: History hosts two tabs — Transcripts (default) and Insights (DESIGN.md §4). */
+function HistoryView({ transcriptions, metrics }: { transcriptions: Transcription[]; metrics: Metrics }) {
+  const [tab, setTab] = useState<"transcripts" | "insights">("transcripts");
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+      <div className="view-tabs">
+        <button className={tab === "transcripts" ? "active" : ""} onClick={() => setTab("transcripts")}>
+          Transcripts
+        </button>
+        <button className={tab === "insights" ? "active" : ""} onClick={() => setTab("insights")}>
+          Insights
+        </button>
+      </div>
+      {tab === "transcripts"
+        ? <HistoryScreen transcriptions={transcriptions} />
+        : <InsightsScreen transcriptions={transcriptions} metrics={metrics} />}
+    </div>
+  );
+}
 
 interface HistoryScreenProps {
   transcriptions: Transcription[];
@@ -2155,7 +2090,7 @@ function PrivacyPanel() {
   );
 }
 
-function SettingsScreen({ tier }: { tier: string | null }) {
+function SettingsScreen({ tier, onViewChange }: { tier: string | null; onViewChange?: (v: View) => void }) {
   const [tab, setTab] = useState<SettingsTab>("general");
 
   const tabs: Array<{ key: SettingsTab; label: string; icon: React.ReactNode }> = [
@@ -2165,6 +2100,12 @@ function SettingsScreen({ tier }: { tier: string | null }) {
     { key: "ai",         label: "AI & Format",  icon: <Icons.Sparkles size={14} /> },
     { key: "dictionary", label: "Dictionary",   icon: <Icons.FileText size={14} /> },
     { key: "privacy",    label: "Privacy",      icon: <Icons.Shield size={14} /> },
+  ];
+
+  // v2 IA: Commands and Account are reached from Settings, not the main rail
+  const linkedViews: Array<{ key: View; label: string; icon: React.ReactNode }> = [
+    { key: "commands", label: "Commands", icon: <Icons.Bolt size={14} /> },
+    { key: "account",  label: "Account",  icon: <Icons.User size={14} /> },
   ];
 
   function renderPanel() {
@@ -2201,6 +2142,22 @@ function SettingsScreen({ tier }: { tier: string | null }) {
               <span className="nav-label">{t.label}</span>
             </button>
           ))}
+          {onViewChange && (
+            <>
+              <div style={{ height: 1, background: "var(--border)", margin: "10px 4px" }} />
+              {linkedViews.map((t) => (
+                <button
+                  key={t.key}
+                  className="nav-item"
+                  style={{ width: "100%", marginBottom: 2 }}
+                  onClick={() => onViewChange(t.key)}
+                >
+                  <span className="nav-icon">{t.icon}</span>
+                  <span className="nav-label">{t.label}</span>
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
         {/* Content */}
@@ -2510,13 +2467,12 @@ function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, ti
   const initial = (userName || "U")[0].toUpperCase();
   const isPro = tier !== null && tier !== "tier1";
 
+  // v2 IA: three destinations (DESIGN.md §2). Insights lives inside History;
+  // Commands/Account live inside Settings; Debug opens via Ctrl+Shift+D.
   const navItems: Array<{ key: View; label: string; icon: React.ReactNode }> = [
-    { key: "home",     label: "Home",     icon: <Icons.Home size={16} /> },
+    { key: "home",     label: "Talk",     icon: <Icons.Mic size={16} /> },
     { key: "history",  label: "History",  icon: <Icons.Clock size={16} /> },
-    { key: "insights", label: "Insights", icon: <Icons.BarChart size={16} /> },
-    { key: "commands", label: "Commands", icon: <Icons.Bolt size={16} /> },
     { key: "settings", label: "Settings", icon: <Icons.Settings size={16} /> },
-    { key: "account",  label: "Account",  icon: <Icons.User size={16} /> },
   ];
 
   return (
@@ -2548,13 +2504,6 @@ function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, ti
       ))}
 
       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-        <button
-          className={`nav-item debug-nav-item${view === "debug" ? " active" : ""}`}
-          onClick={() => onViewChange("debug")}
-        >
-          <span className="nav-icon"><Icons.Code size={16} /></span>
-          <span className="nav-label">Debug</span>
-        </button>
         <div className="sidebar-footer" onClick={() => onViewChange("account")}>
           <div className="avatar">{initial}</div>
           <div className="sidebar-footer-text">
@@ -2607,6 +2556,11 @@ export default function Home() {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+      }
+      // Debug is dev-only: hidden from nav, opened via Ctrl+Shift+D (DESIGN.md §2)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "d" || e.key === "D")) {
+        e.preventDefault();
+        setView((v) => (v === "debug" ? "home" : "debug"));
       }
       if (e.key === "Escape") {
         setPaletteOpen(false);
@@ -2661,7 +2615,7 @@ export default function Home() {
         />
       )}
       {view === "history" && (
-        <HistoryScreen transcriptions={transcriptions} />
+        <HistoryView transcriptions={transcriptions} metrics={metrics} />
       )}
       {view === "insights" && (
         <InsightsScreen transcriptions={transcriptions} metrics={metrics} />
@@ -2674,7 +2628,7 @@ export default function Home() {
         />
       )}
       {view === "settings" && (
-        <SettingsScreen tier={tier} />
+        <SettingsScreen tier={tier} onViewChange={setView} />
       )}
       {view === "account" && (
         <AccountScreen userName={userName} userEmail={userEmail} tier={tier} />

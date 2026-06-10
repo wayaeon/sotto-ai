@@ -94,6 +94,10 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             dictationStartMs.current = Date.now();
           }
           setRecordingState(state);
+          // A successful state transition clears any prior error
+          if (msg.msg === "recording_ptt" || msg.msg.startsWith("worker_ready")) {
+            useAppStore.getState().setLastError(null);
+          }
           // Track model load lifecycle
           if (msg.msg === "idle") setModelReady(true);
           else if (msg.msg === "loading_model") setModelReady(false);
@@ -129,6 +133,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           console.error("[sidecar]", msg.msg);
           // Always reset to idle on any error — prevents stuck "Processing..." state
           setRecordingState("idle");
+          useAppStore.getState().setLastError(msg.msg);
           // If the sidecar crashed, model needs to reload on respawn
           if (msg.msg === "sidecar_crashed") setModelReady(false);
           break;
