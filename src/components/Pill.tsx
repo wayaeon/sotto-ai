@@ -57,7 +57,7 @@ async function resizePillWindow(width: number, height: number) {
 
 export default function Pill() {
   useSidecar({ primary: true });
-  const { recordingState, sidecarReady, modelReady, setRecordingState, downloadProgress, downloadModel } = useAppStore();
+  const { recordingState, sidecarReady, modelReady, setRecordingState } = useAppStore();
 
   const pttActive  = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -350,15 +350,8 @@ export default function Pill() {
                   <span style={{ ...s.dictatingDot, background: "rgba(251,191,36,0.9)", animation: "dotPulse 1s ease-in-out infinite" }} />
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     <span style={s.dictatingText}>
-                      {downloadProgress !== null
-                        ? `Downloading ${downloadModel ?? "model"} — ${Math.round(downloadProgress)}%`
-                        : "Loading transcription model…"}
+                      Loading transcription model…
                     </span>
-                    {downloadProgress !== null && (
-                      <div style={s.progressTrack}>
-                        <div style={{ ...s.progressFill, width: `${downloadProgress}%` }} />
-                      </div>
-                    )}
                   </div>
                 </div>
                 <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>

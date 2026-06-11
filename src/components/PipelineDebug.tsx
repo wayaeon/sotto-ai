@@ -40,6 +40,7 @@ interface ModelCandidate {
   note: string;
 }
 
+
 const MODEL_CANDIDATES: ModelCandidate[] = [
   { id: "large-v3-turbo", label: "large-v3 turbo CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "94-97%", expectedLatencyLabel: "3-8s CPU", sizeLabel: "~3.1 GB", sourceUrl: "https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2", downloadSupported: true, benchmarkSupported: true, note: "Highest-quality local baseline; best with GPU." },
   { id: "medium.en", label: "medium.en CT2", family: "Whisper", runtime: "faster-whisper", accuracyLabel: "92-96%", expectedLatencyLabel: "1.5-4s CPU", sizeLabel: "~1.5 GB", sourceUrl: "https://huggingface.co/Systran/faster-whisper-medium.en", downloadSupported: true, benchmarkSupported: true, note: "Strong English baseline for CPU testing." },
@@ -269,9 +270,9 @@ function ModelsBenchmarkPanel({
   });
   const modelDisplayGroups = [
     {
-      key: "all",
-      title: "All models",
-      detail: "Pre-installed. Benchmark is available for faster-whisper models with a recorded sample.",
+      key: "available",
+      title: "Available models",
+      detail: "Pre-installed models ready for activation or benchmarking.",
       models: MODEL_CANDIDATES,
     },
   ];
@@ -290,7 +291,7 @@ function ModelsBenchmarkPanel({
       downloaded: true,
       downloading: false,
       paused: false,
-      downloadSupported: model.downloadSupported,
+      downloadSupported: false,
     });
 
     return (
@@ -384,7 +385,7 @@ function ModelsBenchmarkPanel({
       <div style={css.modelsToolbar}>
         <div>
           <div style={css.panelEyebrow}>Models</div>
-          <div style={css.mutedText}>Models are pre-installed. Benchmark is available for faster-whisper models today.</div>
+          <div style={css.mutedText}>Benchmark is available for faster-whisper models today.</div>
         </div>
         <div style={css.modelsToolbarActions}>
           <div style={css.audioBadge}>{audioPath ? "Benchmark WAV ready" : "Record a sample"}</div>
@@ -434,7 +435,9 @@ function ModelsBenchmarkPanel({
                 <span style={css.modelSectionDetail}>{group.detail}</span>
               </div>
               {group.models.length ? group.models.map(renderModelRow) : (
-                <div style={css.modelEmptyRow}>No models found.</div>
+                <div style={css.modelEmptyRow}>
+                  {group.key === "downloaded" ? "No downloaded models detected yet." : "Every listed model is downloaded."}
+                </div>
               )}
             </React.Fragment>
           ))}
@@ -537,6 +540,8 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<DebugTab>("pipeline");
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem("verba_model") || "nvidia/parakeet-tdt-0.6b-v3");
+  // Ref mirrors selectedModel so stale-closure event handlers can read the latest value.
+  const selectedModelRef = useRef(selectedModel);
   const [benchmarkingModel, setBenchmarkingModel] = useState<string | null>(null);
   const [benchmarkAllProgress, setBenchmarkAllProgress] = useState<{ completed: number; total: number } | null>(null);
   const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult[]>([]);
@@ -894,6 +899,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
     return () => { unsub.then(fn => fn()); };
   }, []);
 
+  useEffect(() => { selectedModelRef.current = selectedModel; }, [selectedModel]);
   useEffect(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, [log]);
 
   useEffect(() => {
@@ -905,7 +911,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
   const selectedCandidate = MODEL_CANDIDATES.find(model => model.id === selectedModel);
   const selectableModelEntries = MODEL_CANDIDATES
     .filter(model => model.id !== selectedModel)
-    .map(model => ({ model }));
+    .map(model => ({ model, downloaded: true }));
 
   return (
     <div style={css.root}>
@@ -972,22 +978,29 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               )}
               <div style={css.modelPickerSection}>
                 <div style={css.modelPickerSectionLabel}>Other models</div>
-                {selectableModelEntries.map(({ model }) => (
+                {selectableModelEntries.map(({ model, downloaded }) => (
                   <button
                     key={model.id}
                     type="button"
                     role="option"
                     aria-selected={false}
-                    style={css.modelPickerOption}
+                    disabled={!downloaded}
+                    style={{
+                      ...css.modelPickerOption,
+                      ...(!downloaded ? css.modelPickerOptionDisabled : {}),
+                    }}
                     onClick={() => {
+                      if (!downloaded) return;
                       handleActivateModel(model);
                       setModelMenuOpen(false);
                     }}
                   >
-                    <span style={{ ...css.modelPickerOptionDot, background: "#475569" }} />
+                    <span style={{ ...css.modelPickerOptionDot, background: downloaded ? "#475569" : "#1e293b" }} />
                     <span style={css.modelPickerOptionBody}>
                       <span style={css.modelPickerOptionName}>{model.label}</span>
-                      <span style={css.modelPickerOptionMeta}>{model.family} · {model.runtime}</span>
+                      <span style={css.modelPickerOptionMeta}>
+                        {downloaded ? `${model.family} · ${model.runtime}` : `${model.family} · download first`}
+                      </span>
                     </span>
                   </button>
                 ))}
@@ -1180,24 +1193,6 @@ const css: Record<string, React.CSSProperties> = {
   modelPickerOptionName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, fontSize: 12, fontWeight: 800 },
   modelPickerOptionMeta: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, color: "#64748b", fontSize: 10, fontWeight: 700 },
   modelPickerOptionCheck: { color: "#34d399", fontSize: 13, fontWeight: 900, flex: "0 0 auto" },
-  downloadMenuWrap: { position: "relative", flex: "0 0 auto" },
-  downloadIconButton: { position: "relative", width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.055)", color: "#94a3b8", cursor: "pointer" },
-  downloadIconButtonActive: { border: "1px solid rgba(52,211,153,0.35)", background: "rgba(52,211,153,0.11)", color: "#bbf7d0", animation: "verba-download-pulse 1.2s ease-in-out infinite" },
-  downloadIconButtonOpen: { boxShadow: "0 0 0 3px rgba(96,165,250,0.10)" },
-  downloadIconBadge: { position: "absolute", top: -5, right: -5, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 99, background: "#22c55e", color: "#04130a", border: "1px solid rgba(187,247,208,0.55)", fontSize: 10, fontWeight: 900, lineHeight: "15px", textAlign: "center" as const },
-  downloadPopover: { position: "absolute", top: 40, right: 0, width: 320, padding: 10, borderRadius: 9, border: "1px solid rgba(96,165,250,0.20)", background: "#08111f", boxShadow: "0 18px 46px rgba(0,0,0,0.48)", zIndex: 20 },
-  downloadPopoverHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 },
-  downloadPopoverTitle: { color: "#dbeafe", fontSize: 11, fontWeight: 900, letterSpacing: "0.10em", textTransform: "uppercase" as const },
-  downloadPopoverState: { color: "#64748b", fontSize: 11, fontWeight: 800 },
-  downloadPopoverStateActive: { color: "#86efac", fontSize: 11, fontWeight: 900 },
-  downloadPopoverItem: { padding: "8px 0", borderTop: "1px solid rgba(255,255,255,0.06)" },
-  downloadPopoverItemTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  downloadPopoverModel: { minWidth: 0, color: "#e2e8f0", fontSize: 12, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  downloadPopoverPct: { color: "#86efac", fontSize: 11, fontFamily: "monospace", fontWeight: 900 },
-  downloadPopoverTrack: { height: 5, marginTop: 7, borderRadius: 99, background: "#172033", overflow: "hidden" },
-  downloadPopoverFill: { height: "100%", borderRadius: 99, background: "linear-gradient(90deg, #22c55e, #8b5cf6)", transition: "width 0.25s ease" },
-  downloadPopoverMeta: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 5, color: "#94a3b8", fontSize: 10, fontFamily: "monospace" },
-  downloadPopoverEmpty: { borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10, color: "#64748b", fontSize: 12 },
   closeBtn: {
     background: "#1e293b", color: "#94a3b8",
     border: "1px solid #334155", borderRadius: 6, padding: "4px 12px",
@@ -1218,7 +1213,6 @@ const css: Record<string, React.CSSProperties> = {
   stageStatus: { fontSize: 10, color: "#64748b", letterSpacing: "0.08em" },
   progressTrack: { height: 4, background: "#1e293b", borderRadius: 99, overflow: "hidden" },
   progressFill: { height: "100%", borderRadius: 99, background: "linear-gradient(90deg, #7c3aed, #a855f7)", transition: "width 0.3s" },
-  downloadLabel: { marginTop: 3, color: "#94a3b8", fontSize: 9, fontFamily: "monospace", textAlign: "right" as const, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" },
   detailBox: { background: "#0a0f1a", borderRadius: 5, padding: "5px 8px", wordBreak: "break-word", lineHeight: 1.5 },
   detailLabel: { color: "#64748b", fontSize: 11 },
   detailText: { color: "#cbd5e1", fontSize: 12 },
@@ -1275,9 +1269,6 @@ const css: Record<string, React.CSSProperties> = {
   modelActions: { gap: 4, justifyContent: "flex-end" },
   tableIconBtn: { width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 6, color: "rgba(255,255,255,0.72)", fontSize: 13, padding: 0, cursor: "pointer" },
   tableIconBtnActive: { background: "rgba(52,211,153,0.14)", border: "1px solid rgba(52,211,153,0.32)", color: "#86efac", fontSize: 10, fontFamily: "monospace", fontWeight: 800 },
-  tableIconBtnPaused: { background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.30)", color: "#fbbf24" },
-  tableIconBtnReady: { background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.28)", color: "#86efac" },
-  downloadAnimIcon: { display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15, lineHeight: 1, animation: "verba-download-bounce 0.85s ease-in-out infinite" },
   linkIcon: { display: "inline-flex", alignItems: "center", justifyContent: "center", color: "currentColor", lineHeight: 1 },
   tablePrimaryIconBtn: { width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(99,102,241,0.22)", border: "1px solid rgba(129,140,248,0.38)", borderRadius: 6, color: "#c7d2fe", fontSize: 12, padding: 0, cursor: "pointer", fontWeight: 800 },
   benchmarkSpinner: { width: 12, height: 12, border: "2px solid rgba(199,210,254,0.28)", borderTopColor: "#c7d2fe", borderRadius: "50%", animation: "verba-benchmark-spin 0.7s linear infinite", boxSizing: "border-box" as const },
