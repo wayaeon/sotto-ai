@@ -38,8 +38,13 @@ MODEL_NAMES: dict[ModelTier, str] = {
     ModelTier.TIER_CUDA_HIGH: "nvidia/parakeet-tdt-0.6b-v3",
     ModelTier.TIER_CUDA_LOW:  "large-v3-turbo",
     ModelTier.TIER_DIRECTML:  "nvidia/parakeet-tdt-0.6b-v3",
-    ModelTier.TIER_NPU:       "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01",
-    ModelTier.TIER_CPU:       "small",
+    # NPU tier has no working hardware-accelerated execution path yet (resolve_device
+    # downgrades "npu" to "cpu" for every runtime except plain "onnx"), so it gets the
+    # same pick as CPU. Parakeet TDT v3 (onnx-asr, int8) beat large-v3-turbo, medium.en,
+    # and SenseVoiceSmall on RTF (0.095 vs 0.165-1.7) and transcript accuracy in local
+    # CPU benchmarking on real hardware.
+    ModelTier.TIER_NPU:       "nvidia/parakeet-tdt-0.6b-v3",
+    ModelTier.TIER_CPU:       "nvidia/parakeet-tdt-0.6b-v3",
 }
 
 
@@ -422,13 +427,15 @@ def _get_ai_accelerators() -> list[str]:
 
     pnp_all = _run_command_text(["pnputil", "/enum-devices"], timeout=12)
     for device in _parse_pnputil_blocks(pnp_all):
+        if _clean_device_name(device.get("Class Name", "")) == "Processor":
+            continue  # CPU model names like "Ryzen AI 7 350" aren't NPU devices
         desc = _clean_device_name(device.get("Device Description", ""))
         instance = _clean_device_name(device.get("Instance ID", ""))
         if _looks_like_ai_accelerator(desc, instance):
             found.append(desc)
 
     ps_devices = _run_powershell_json(
-        "Get-PnpDevice | Where-Object { $_.FriendlyName -match 'NPU|Neural|AI|Ryzen AI|XDNA|Copilot|Hexagon' -or $_.Class -match 'Compute|Extension' } | Select-Object FriendlyName,Class,Status"
+        "Get-PnpDevice | Where-Object { $_.Class -ne 'Processor' -and ($_.FriendlyName -match 'NPU|Neural|AI|Ryzen AI|XDNA|Copilot|Hexagon' -or $_.Class -match 'Compute|Extension') } | Select-Object FriendlyName,Class,Status"
     )
     if isinstance(ps_devices, dict):
         ps_devices = [ps_devices]
@@ -440,7 +447,7 @@ def _get_ai_accelerators() -> list[str]:
 
     try:
         result = subprocess.run(
-            ["wmic", "path", "Win32_PnPEntity", "get", "Name", "/format:csv"],
+            ["wmic", "path", "Win32_PnPEntity", "where", "PNPClass!='Processor'", "get", "Name", "/format:csv"],
             capture_output=True, text=True, timeout=8
         )
         for line in result.stdout.splitlines():
