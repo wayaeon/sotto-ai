@@ -63,10 +63,6 @@ def load_model(model_path: str, device: str, compute_type: str) -> Any:
             "Transformers is not installed. Run: pip install transformers accelerate"
         )
 
-    if model_type == "qwen3_asr" and not hasattr(transformers, "Qwen3ASRForConditionalGeneration"):
-        raise ImportError(
-            f"Qwen3-ASR requires a Transformers build with Qwen3ASR support; installed transformers {transformers.__version__} does not include it."
-        )
     if model_type == "voxtral_realtime":
         if not hasattr(transformers, "VoxtralRealtimeForConditionalGeneration"):
             raise ImportError(

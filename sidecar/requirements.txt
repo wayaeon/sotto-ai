@@ -4,8 +4,6 @@ torch>=2.3
 torchaudio>=2.3
 psutil>=5.9
 huggingface_hub>=0.23
-anthropic>=0.40
-websockets>=13
 requests>=2.32
 
 # Optional runtime deps — installed only if needed for specific models
