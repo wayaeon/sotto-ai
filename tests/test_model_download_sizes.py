@@ -70,7 +70,6 @@ def test_recorder_model_switch_failure_does_not_restore_hardware_default(monkeyp
     recorder._loaded_model_name = recorder._model_name
     recorder._transcription_active = False
     recorder._worker_proc = None
-    recorder._recorder = None
     recorder._handsfree = False
 
     recorder._model_lock = threading.Lock()
