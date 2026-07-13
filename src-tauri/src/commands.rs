@@ -67,9 +67,9 @@ pub fn set_dictionary(app: AppHandle, words: Vec<String>) {
 pub fn inject_text(app: AppHandle, text: String) -> Result<(), String> {
     let t_start = std::time::Instant::now();
     let injector = Injector::new().map_err(|e| e.to_string())?;
-    injector.inject(&text).map_err(|e| e.to_string())?;
+    let pasted = injector.inject(&text).map_err(|e| e.to_string())?;
     let inject_ms = t_start.elapsed().as_millis() as u64;
     // Emit to ALL windows from Rust — guaranteed cross-window broadcast
-    app.emit("inject-done", json!({ "inject_ms": inject_ms })).ok();
+    app.emit("inject-done", json!({ "inject_ms": inject_ms, "pasted": pasted })).ok();
     Ok(())
 }

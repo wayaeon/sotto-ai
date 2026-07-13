@@ -26,6 +26,9 @@ arboard = "3"
 tokio = { version = "1", features = ["full"] }
 rdev = "0.5"
 
+[target.'cfg(windows)'.dependencies]
+uiautomation = "0.15"
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

@@ -704,16 +704,19 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
 
   // ── inject-done: emitted by Rust after inject_text completes (all windows) ──
   useEffect(() => {
-    const unlisten = listen<{ inject_ms: number }>("inject-done", (e) => {
-      const inject_ms = e.payload.inject_ms;
+    const unlisten = listen<{ inject_ms: number; pasted: boolean }>("inject-done", (e) => {
+      const { inject_ms, pasted } = e.payload;
       setLastTiming(prev => {
         if (!prev) return null;
         return { ...prev, inject_ms, _source: prev.whisper_ms ? "sidecar" : "frontend" };
       });
       setWaitingForInject(false);
-      updateStage("output", { status: "done", detail: "Injected" });
+      updateStage("output", {
+        status: "done",
+        detail: pasted ? "Injected" : "No text field focused — copied to clipboard",
+      });
       setPipelineDone(Date.now());
-      addLog(`✅ Inject done — ${fmtMs(inject_ms)}`);
+      addLog(pasted ? `✅ Inject done — ${fmtMs(inject_ms)}` : `⚠️ No text field focused — copied to clipboard (${fmtMs(inject_ms)})`);
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
