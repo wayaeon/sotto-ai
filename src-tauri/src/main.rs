@@ -69,6 +69,11 @@ fn main() {
                         (y as f64 * scale) as i32,
                     ));
                 }
+                // Position can land the window in a state where Windows never issued
+                // the initial WM_SHOWWINDOW (observed: window exists, topmost, correct
+                // rect, but IsWindowVisible=False). Show explicitly rather than relying
+                // on WebviewWindowBuilder's implicit default.
+                let _ = pill.show();
             }
 
             Ok(())
