@@ -34,17 +34,6 @@ class ModelSpec:
     approx_size_bytes: int = 0
 
 
-# Maps the short model name (what faster-whisper / RealtimeSTT expects) to its HF repo.
-# These are all CTranslate2-quantized models — load directly into faster-whisper.
-FASTER_WHISPER_MODELS: dict[str, str] = {
-    "large-v3-turbo": "deepdml/faster-whisper-large-v3-turbo-ct2",  # Systran requires auth
-    "medium.en":      "Systran/faster-whisper-medium.en",
-    "medium":         "Systran/faster-whisper-medium",
-    "small":          "Systran/faster-whisper-small",
-    "base":           "Systran/faster-whisper-base",
-    "tiny":           "Systran/faster-whisper-tiny",
-}
-
 MODEL_CATALOG: dict[str, ModelSpec] = {
     "large-v3-turbo": ModelSpec("deepdml/faster-whisper-large-v3-turbo-ct2", "faster-whisper", True, True, int(3.1 * 1024**3)),
     "medium.en": ModelSpec("Systran/faster-whisper-medium.en", "faster-whisper", True, True, int(1.5 * 1024**3)),
@@ -63,7 +52,6 @@ MODEL_CATALOG: dict[str, ModelSpec] = {
     "ibm-granite/granite-4.0-1b-speech": ModelSpec("ibm-granite/granite-4.0-1b-speech", "transformers", True, True, int(4.3 * 1024**3)),
     "FunAudioLLM/SenseVoiceSmall": ModelSpec("FunAudioLLM/SenseVoiceSmall", "transformers", True, True, int(500 * 1024**2)),
     "UsefulSensors/moonshine-base": ModelSpec("UsefulSensors/moonshine-base", "transformers", True, True, int(200 * 1024**2)),
-    "Qwen/Qwen3-ASR-1.7B": ModelSpec("Qwen/Qwen3-ASR-1.7B", "qwen-asr", True, True, int(4.4 * 1024**3)),
     "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01": ModelSpec("csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", "onnx", True, True, int(100 * 1024**2)),
     "mistralai/Voxtral-Mini-4B-Realtime-2602": ModelSpec("mistralai/Voxtral-Mini-4B-Realtime-2602", "transformers", True, True, int(8.3 * 1024**3)),
 }
@@ -147,13 +135,6 @@ def is_downloaded(model_name: str) -> bool:
             or _has_complete_file(d, "pytorch_model*.bin")
             or _has_complete_file(d, "model.pt")
         )
-    elif runtime == "qwen-asr":
-        return (
-            _has_complete_file(d, "model*.safetensors")
-            or _has_complete_file(d, "pytorch_model*.bin")
-            or _has_complete_file(d, "*.gguf")
-            or _has_complete_file(d, "*.onnx")
-        )
     return any(d.iterdir())
 
 
@@ -184,8 +165,6 @@ def benchmark_availability(model_name: str) -> tuple[bool, str]:
         if "sensevoice" in model_name.lower():
             return (_module_available("funasr"), "Missing FunASR runtime")
         return (_module_available("transformers"), "Missing Transformers runtime")
-    if spec.runtime == "qwen-asr":
-        return (False, "Missing Qwen ASR runtime")
     return False, f"Missing {spec.runtime} runtime"
 
 

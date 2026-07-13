@@ -36,9 +36,9 @@ def test_tier4_low_ram():
     assert hw.model_name == "nvidia/parakeet-tdt-0.6b-v3"
 
 
-def test_tier4_low_disk():
+def test_low_disk_falls_back_to_cpu_tier():
     hw = _hw(ram_gb=32, disk=0.4)
-    assert hw.tier == ModelTier.TIER4_CLOUD
+    assert hw.tier == ModelTier.TIER_CPU
 
 
 def test_to_dict_has_required_keys():

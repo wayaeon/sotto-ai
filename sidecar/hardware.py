@@ -15,14 +15,8 @@ class ModelTier(str, Enum):
     TIER_CUDA_HIGH = "cuda_high"   # CUDA ≥6GB VRAM → Parakeet TDT v3
     TIER_CUDA_LOW  = "cuda_low"    # CUDA <6GB VRAM → large-v3-turbo
     TIER_DIRECTML  = "directml"    # AMD/Intel GPU → Parakeet TDT v3 via DirectML
-    TIER_NPU       = "npu"         # AMD/Intel NPU → sherpa-onnx
-    TIER_CPU       = "cpu"         # CPU only → small
-    # Legacy aliases kept for compat with any code that still references them
-    TIER1       = "cuda_high"
-    TIER2       = "cuda_low"
-    TIER3_EN    = "cpu"
-    TIER3_ML    = "cpu"
-    TIER4_CLOUD = "cpu"
+    TIER_NPU       = "npu"         # AMD/Intel NPU (no accelerated execution path yet) → Parakeet TDT v3 on CPU
+    TIER_CPU       = "cpu"         # CPU only → Parakeet TDT v3
 
 
 class DeviceTier(str, Enum):

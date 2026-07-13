@@ -50,10 +50,6 @@ def test_model_catalog_includes_new_research_candidates():
     assert models.MODEL_CATALOG["ibm-granite/granite-4.0-1b-speech"].runtime == "transformers"
 
 
-def test_qwen_asr_runtime_routes_to_transformers_adapter():
-    assert get_adapter("qwen-asr").__name__.endswith(".transformers")
-
-
 def test_optimized_parakeet_runtime_routes_to_onnx_asr_adapter():
     assert get_adapter("onnx-asr").__name__.endswith(".onnx_asr")
 
@@ -158,8 +154,6 @@ def test_worker_ready_identifies_confirmed_loaded_model(monkeypatch):
         "event": "status",
         "msg": "worker_ready model=nvidia/parakeet-tdt-0.6b-v3 device=cpu compute=int8 runtime=onnx-asr",
     }
-    assert models.MODEL_CATALOG["Qwen/Qwen3-ASR-1.7B"].runtime == "qwen-asr"
-    assert models.MODEL_CATALOG["Qwen/Qwen3-ASR-1.7B"].approx_size_bytes >= 4 * 1024**3
     assert models.MODEL_CATALOG["ibm-granite/granite-4.0-1b-speech"].approx_size_bytes >= 4 * 1024**3
     assert 8 * 1024**3 <= models.MODEL_CATALOG["mistralai/Voxtral-Mini-4B-Realtime-2602"].approx_size_bytes < 9 * 1024**3
 
@@ -169,7 +163,7 @@ def test_voxtral_snapshot_download_skips_duplicate_consolidated_weights():
 
     assert models._should_ignore_snapshot_file("consolidated.safetensors", repo_id) is True
     assert models._should_ignore_snapshot_file("model.safetensors", repo_id) is False
-    assert models._should_ignore_snapshot_file("consolidated.safetensors", "Qwen/Qwen3-ASR-1.7B") is False
+    assert models._should_ignore_snapshot_file("consolidated.safetensors", "ibm-granite/granite-4.0-1b-speech") is False
 
 
 def test_optimized_parakeet_snapshot_download_uses_int8_onnx_only():
@@ -216,26 +210,6 @@ def test_faster_whisper_large_model_bin_counts_as_downloaded(tmp_path, monkeypat
     (model_path / "model.bin").write_bytes(b"0" * minimum_size)
 
     assert models.is_downloaded("tiny") is True
-
-
-def test_qwen_asr_weight_file_counts_as_downloaded(tmp_path, monkeypatch):
-    monkeypatch.setattr(models, "MODELS_DIR", tmp_path)
-    model_path = tmp_path / "Qwen" / "Qwen3-ASR-1.7B"
-    model_path.mkdir(parents=True)
-    (model_path / "model.safetensors").write_bytes(b"0")
-
-    assert models.is_downloaded("Qwen/Qwen3-ASR-1.7B") is True
-
-
-def test_qwen_asr_sharded_safetensors_count_as_downloaded(tmp_path, monkeypatch):
-    monkeypatch.setattr(models, "MODELS_DIR", tmp_path)
-    model_path = tmp_path / "Qwen" / "Qwen3-ASR-1.7B"
-    model_path.mkdir(parents=True)
-    (model_path / "model-00001-of-00002.safetensors").write_bytes(b"0")
-    (model_path / "model-00002-of-00002.safetensors").write_bytes(b"0")
-    (model_path / "model.safetensors.index.json").write_text("{}", encoding="utf-8")
-
-    assert models.is_downloaded("Qwen/Qwen3-ASR-1.7B") is True
 
 
 def test_transformers_sharded_safetensors_count_as_downloaded(tmp_path, monkeypatch):
@@ -327,15 +301,6 @@ def test_benchmark_availability_reports_missing_funasr_runtime(monkeypatch):
 
     assert available is False
     assert reason == "Missing FunASR runtime"
-
-
-def test_benchmark_availability_reports_missing_qwen_asr_runtime(monkeypatch):
-    monkeypatch.setattr(models, "_module_available", lambda _name: False)
-
-    available, reason = models.benchmark_availability("Qwen/Qwen3-ASR-1.7B")
-
-    assert available is False
-    assert reason == "Missing Qwen ASR runtime"
 
 
 def test_download_model_does_not_report_cached_when_required_file_fails(tmp_path, monkeypatch):
@@ -501,8 +466,8 @@ def test_snapshot_download_streams_chunk_progress(tmp_path, monkeypatch):
 
 
 def test_snapshot_download_accepts_sharded_weight_manifest(tmp_path, monkeypatch):
-    local_dir = tmp_path / "Qwen" / "Qwen3-ASR-1.7B"
-    spec = models.MODEL_CATALOG["Qwen/Qwen3-ASR-1.7B"]
+    local_dir = tmp_path / "ibm-granite" / "granite-4.0-1b-speech"
+    spec = models.MODEL_CATALOG["ibm-granite/granite-4.0-1b-speech"]
     ipc = CapturingIPC()
 
     monkeypatch.setitem(
@@ -539,7 +504,7 @@ def test_snapshot_download_accepts_sharded_weight_manifest(tmp_path, monkeypatch
 
     monkeypatch.setattr(models, "_http_get", streaming_http_get)
 
-    models._snapshot_download_model("Qwen/Qwen3-ASR-1.7B", spec, local_dir, ipc)
+    models._snapshot_download_model("ibm-granite/granite-4.0-1b-speech", spec, local_dir, ipc)
 
     assert ipc.events[-1]["event"] == "download_progress"
     assert ipc.events[-1]["downloaded"] is True

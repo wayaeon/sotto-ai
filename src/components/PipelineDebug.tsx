@@ -31,7 +31,7 @@ interface ModelCandidate {
   id: string;
   label: string;
   family: string;
-  runtime: "faster-whisper" | "nemo" | "transformers" | "qwen-asr" | "onnx" | "onnx-asr";
+  runtime: "faster-whisper" | "nemo" | "transformers" | "onnx" | "onnx-asr";
   accuracyLabel: string;
   expectedLatencyLabel: string;
   sizeLabel: string;
@@ -64,7 +64,6 @@ const MODEL_CANDIDATES: ModelCandidate[] = [
   { id: "ibm-granite/granite-4.0-1b-speech", label: "4.0 1B Speech", family: "Granite", runtime: "transformers", accuracyLabel: "90-96%", expectedLatencyLabel: "1-3s GPU", sizeLabel: "~4.3 GB", sourceUrl: "https://huggingface.co/ibm-granite/granite-4.0-1b-speech", downloadSupported: true, benchmarkSupported: true, note: "Compact speech-language model; interesting for keyword-biased ASR." },
   { id: "FunAudioLLM/SenseVoiceSmall", label: "Small", family: "SenseVoice", runtime: "transformers", accuracyLabel: "85-92%", expectedLatencyLabel: "0.5-2s", sizeLabel: "~500 MB", sourceUrl: "https://huggingface.co/FunAudioLLM/SenseVoiceSmall", downloadSupported: true, benchmarkSupported: true, note: "Fast with emotion/language metadata. Uses FunASR runtime." },
   { id: "UsefulSensors/moonshine-base", label: "Moonshine", family: "Moonshine", runtime: "transformers", accuracyLabel: "80-88%", expectedLatencyLabel: "<500ms", sizeLabel: "~200 MB", sourceUrl: "https://huggingface.co/UsefulSensors/moonshine-base", downloadSupported: true, benchmarkSupported: true, note: "Ultra-fast English model. Best CPU/DirectML speed option." },
-  { id: "Qwen/Qwen3-ASR-1.7B", label: "Qwen3-ASR 1.7B", family: "Qwen", runtime: "qwen-asr", accuracyLabel: "92-97%", expectedLatencyLabel: "2-5s GPU", sizeLabel: "~4.4 GB", sourceUrl: "https://huggingface.co/Qwen/Qwen3-ASR-1.7B", downloadSupported: true, benchmarkSupported: true, note: "Experimental multilingual ASR candidate; dedicated runtime required." },
   { id: "csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", label: "Zipformer EN", family: "sherpa-onnx", runtime: "onnx", accuracyLabel: "82-90%", expectedLatencyLabel: "<500ms CPU/NPU", sizeLabel: "~100 MB", sourceUrl: "https://huggingface.co/csukuangfj/sherpa-onnx-zipformer-en-2023-04-01", downloadSupported: true, benchmarkSupported: true, note: "ONNX runtime — works on CPU, DirectML, and NPU. Smallest footprint." },
   { id: "mistralai/Voxtral-Mini-4B-Realtime-2602", label: "Voxtral Mini 4B Realtime", family: "Voxtral", runtime: "transformers", accuracyLabel: "95-99%", expectedLatencyLabel: "1-3s GPU · 60-90s CPU", sizeLabel: "~8.3 GB", sourceUrl: "https://huggingface.co/mistralai/Voxtral-Mini-4B-Realtime-2602", downloadSupported: true, benchmarkSupported: true, note: "Realtime requires a supported GPU; CPU inference is substantially slower." },
 ];

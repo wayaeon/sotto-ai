@@ -27,7 +27,7 @@ def get_adapter(runtime: str):
     elif runtime == "nemo":
         from . import nemo
         return nemo
-    elif runtime in ("transformers", "qwen-asr"):
+    elif runtime == "transformers":
         from . import transformers
         return transformers
     elif runtime == "onnx":
