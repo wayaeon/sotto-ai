@@ -33,14 +33,14 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
         case "ready":
           setSidecarReady(true);
           {
-            // Load the user's chosen model on startup; fall back to the default.
-            // This is the single trigger for the first model load — the sidecar
-            // no longer preloads a model on its own (that caused a startup race).
-            const saved = localStorage.getItem("verba_model");
-            const startupModel = saved && saved.trim() ? saved : DEFAULT_MODEL;
-            localStorage.setItem("verba_model", startupModel);
-            setModel(startupModel);
-            setModelIpc(startupModel).catch((e) => console.warn("[set_model]", e));
+            // Models are pre-installed — there's no user-facing picker anymore, so
+            // startup always loads DEFAULT_MODEL. (Previously this fell back to a
+            // `verba_model` value cached in localStorage, but a value written before
+            // the model catalog's defaults changed would silently pin the app to a
+            // stale, worse model forever with no UI to fix it.)
+            localStorage.setItem("verba_model", DEFAULT_MODEL);
+            setModel(DEFAULT_MODEL);
+            setModelIpc(DEFAULT_MODEL).catch((e) => console.warn("[set_model]", e));
           }
           break;
 

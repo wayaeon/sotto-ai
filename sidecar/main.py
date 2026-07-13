@@ -8,6 +8,63 @@ from sidecar.recorder import Recorder
 from sidecar.models import benchmark_model_async, MODEL_CATALOG
 
 
+def _iter_stdin_lines():
+    """Yield stdin lines one at a time.
+
+    On Windows, a thread blocked inside a stdin readline() while
+    multiprocessing.Process().start() runs on another thread (which is how
+    every model load happens — see recorder.py's set_model) reliably
+    deadlocks the child's spawn bootstrap: reproduced in isolation with a
+    plain worker function and no app code involved, unrelated to torch/
+    onnxruntime. It isn't a lock-ordering bug in this codebase — no thread
+    ever holds a lock the other needs — it's a Windows I/O-level conflict
+    between an in-flight blocking read on a pipe and CreateProcess on
+    another thread. Polling for data with PeekNamedPipe instead of blocking
+    means no thread is ever stuck inside the blocking read syscall at the
+    moment a worker spawn kicks off.
+    """
+    if sys.platform != "win32":
+        yield from sys.stdin
+        return
+
+    import ctypes
+    import io
+    import msvcrt
+    import time
+    from ctypes import wintypes
+
+    kernel32 = ctypes.windll.kernel32
+    FILE_TYPE_PIPE = 0x0003
+    try:
+        handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+        is_pipe = kernel32.GetFileType(handle) == FILE_TYPE_PIPE
+    except (io.UnsupportedOperation, OSError):
+        # No real OS handle backing stdin (e.g. a test double, or stdin
+        # replaced with an in-memory stream) — nothing to poll, just read.
+        is_pipe = False
+    if not is_pipe:
+        # Real console (interactive `python -m sidecar.main`) — no deadlock
+        # risk observed here, just read normally.
+        yield from sys.stdin
+        return
+
+    while True:
+        avail = wintypes.DWORD(0)
+        ok = kernel32.PeekNamedPipe(handle, None, 0, None, ctypes.byref(avail), None)
+        if not ok:
+            return  # pipe closed
+        if avail.value == 0:
+            # Short poll — PeekNamedPipe is a cheap metadata check, and PTT
+            # latency directly depends on how fast start_ptt/stop_ptt commands
+            # get noticed here.
+            time.sleep(0.002)
+            continue
+        line = sys.stdin.readline()
+        if not line:
+            return  # EOF
+        yield line
+
+
 def main() -> None:
     ipc = IPC()
 
@@ -18,7 +75,7 @@ def main() -> None:
 
     ipc.send(Event.READY)
 
-    for line in sys.stdin:
+    for line in _iter_stdin_lines():
         line = line.strip()
         if not line:
             continue
