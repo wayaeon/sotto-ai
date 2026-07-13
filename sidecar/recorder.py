@@ -4,11 +4,19 @@ Architecture for PTT:
   - Always-on audio pump keeps the mic stream open permanently.
     start_ptt() is instant: just opens a WAV file and flips a flag.
     No thread spawn, no stream init on the hot path.
-  - A long-lived _TranscriptionWorker subprocess holds faster-whisper in
+  - A long-lived _TranscriptionWorker subprocess holds the model in
     memory. Audio paths are sent to it via a multiprocessing Queue.
   - If the worker crashes (ctranslate2 SIGSEGV) the sidecar stays alive
     and respawns the worker on the next PTT.
-  - AudioToTextRecorder is used only for hands-free mode.
+
+Hands-free mode is the same pipeline with VAD standing in for the
+keypress: the always-on pump feeds raw chunks to a queue, webrtcvad
+segments them into utterances, and each finished utterance goes
+through the exact same worker subprocess as PTT. This means hands-free
+automatically works with whatever model/runtime is currently loaded —
+it used to go through RealtimeSTT's AudioToTextRecorder, which is
+faster-whisper-only and would silently try (and fail) to load an ONNX
+or NeMo model as if it were a CTranslate2 one.
 """
 from __future__ import annotations
 
@@ -19,6 +27,7 @@ import time
 import wave
 from datetime import datetime
 from pathlib import Path
+import webrtcvad
 from .ipc import IPC, Event
 from .hardware import ModelTier, HardwareInfo
 from .models import best_available_model, model_dir
@@ -29,6 +38,19 @@ _SAMPLE_WIDTH    = 2       # 16-bit PCM
 _CHUNK_SIZE      = 1024
 _WORKER_TIMEOUT  = 1800    # allow slow CPU models to finish without unloading
 _WORKER_INIT_S   = 120     # seconds to wait for model load (GPU can take ~30 s)
+
+# ── hands-free VAD segmentation ──────────────────────────────────────────────
+_VAD_FRAME_MS           = 30
+_VAD_FRAME_BYTES        = int(_SAMPLE_RATE * _VAD_FRAME_MS / 1000) * _SAMPLE_WIDTH  # 960 B
+_VAD_AGGRESSIVENESS     = 2   # 0 (permissive) .. 3 (aggressive) — webrtcvad's own scale
+_HANDSFREE_SILENCE_MS   = 700    # trailing silence that ends an utterance
+_HANDSFREE_MIN_SPEECH_MS = 250   # ignore blips shorter than this
+_HANDSFREE_SILENCE_FRAMES    = _HANDSFREE_SILENCE_MS // _VAD_FRAME_MS
+_HANDSFREE_MIN_SPEECH_FRAMES = _HANDSFREE_MIN_SPEECH_MS // _VAD_FRAME_MS
+# Deep enough that a cold worker load (_WORKER_INIT_S, worst case) can't
+# overflow the queue and silently drop audio spoken while it's loading.
+_PUMP_CHUNK_S           = _CHUNK_SIZE / _SAMPLE_RATE
+_HANDSFREE_QUEUE_MAXLEN = int(_WORKER_INIT_S / _PUMP_CHUNK_S)
 
 try:
     import torch
@@ -111,9 +133,9 @@ class Recorder:
         self._loaded_model_name: str | None = None
         self._transcription_active = False
 
-        # ── hands-free (AudioToTextRecorder) ─────────────────────────────────
-        self._recorder  = None
-        self._handsfree = False
+        # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────
+        self._handsfree       = False
+        self._handsfree_queue: "queue.Queue[bytes] | None" = None
 
         _RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         threading.Thread(target=self._preload, daemon=True).start()
@@ -145,6 +167,7 @@ class Recorder:
     def _audio_pump(self) -> None:
         """Continuously read from mic. Keeps stream warm.
         When _recording_active, writes chunks directly into the open WAV file.
+        When _handsfree is on, also feeds chunks to the VAD segmentation queue.
         This makes start_ptt() instant — no stream init on the hot path.
         """
         import pyaudio
@@ -173,10 +196,16 @@ class Recorder:
             # Write to WAV only when recording
             with self._lock:
                 wf = self._current_wf
+                hf_queue = self._handsfree_queue
             if wf is not None:
                 try:
                     wf.writeframes(data)
                 except Exception:
+                    pass
+            if hf_queue is not None:
+                try:
+                    hf_queue.put_nowait(data)
+                except queue.Full:
                     pass
 
         stream.stop_stream()
@@ -276,38 +305,6 @@ class Recorder:
                 self._worker_error = str(e)
                 self._ipc.send(Event.ERROR, msg=f"Worker respawn failed: {e}")
                 return False
-
-    # ── hands-free (AudioToTextRecorder) ─────────────────────────────────────
-
-    def _make_recorder(self, silent: bool = False):
-        from RealtimeSTT import AudioToTextRecorder
-        self._ensure_model_downloaded()
-        model_path = self._get_model_path()
-        if not silent:
-            self._ipc.send(Event.STATUS, msg="loading_model")
-        try:
-            import ctranslate2
-            device = "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
-        except Exception:
-            device = "cpu"
-        compute_type = "float16" if device == "cuda" else "int8"
-        try:
-            recorder = AudioToTextRecorder(
-                model=model_path,
-                language="",
-                device=device,
-                compute_type=compute_type,
-                silero_sensitivity=0.4,
-                post_speech_silence_duration=0.5,
-                min_gap_between_recordings=0,
-                enable_realtime_transcription=False,
-                initial_prompt=self._initial_prompt or None,
-                use_microphone=True,
-            )
-        except Exception as e:
-            self._ipc.send(Event.ERROR, msg=f"Failed to load model '{model_path}': {e}")
-            raise
-        return recorder
 
     # ── PTT ───────────────────────────────────────────────────────────────────
 
@@ -437,26 +434,77 @@ class Recorder:
             self._transcription_active = False
             self._ipc.send(Event.STATUS, msg="idle")
 
-    # ── hands-free ────────────────────────────────────────────────────────────
+    # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────────
 
     def toggle_handsfree(self) -> None:
         with self._lock:
             self._handsfree = not self._handsfree
             if self._handsfree:
-                if self._recorder is None:
-                    self._recorder = self._make_recorder()
+                self._handsfree_queue = queue.Queue(maxsize=_HANDSFREE_QUEUE_MAXLEN)
                 threading.Thread(target=self._handsfree_loop, daemon=True).start()
                 self._ipc.send(Event.STATUS, msg="handsfree_on")
             else:
-                if self._recorder is not None:
-                    self._recorder.stop()
+                self._handsfree_queue = None
                 self._ipc.send(Event.STATUS, msg="handsfree_off")
 
     def _handsfree_loop(self) -> None:
-        while self._handsfree and self._recorder is not None:
-            text = self._recorder.text()
-            if text and text.strip():
-                self._ipc.send(Event.SEGMENT_DONE, text=self._postprocess_transcript(text))
+        """Consume pump audio, segment it with VAD, transcribe each finished
+        utterance through the same worker subprocess PTT uses."""
+        vad = webrtcvad.Vad(_VAD_AGGRESSIVENESS)
+        audio_q = self._handsfree_queue
+        frame_buf   = bytearray()
+        speech_buf  = bytearray()
+        in_speech   = False
+        speech_frames   = 0
+        silence_frames  = 0
+
+        while self._handsfree and audio_q is not None:
+            try:
+                chunk = audio_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            frame_buf += chunk
+
+            while len(frame_buf) >= _VAD_FRAME_BYTES:
+                frame = bytes(frame_buf[:_VAD_FRAME_BYTES])
+                del frame_buf[:_VAD_FRAME_BYTES]
+                try:
+                    is_speech = vad.is_speech(frame, _SAMPLE_RATE)
+                except Exception:
+                    is_speech = False
+
+                if is_speech:
+                    if not in_speech:
+                        in_speech = True
+                        speech_buf.clear()
+                        speech_frames = 0
+                    speech_buf += frame
+                    speech_frames += 1
+                    silence_frames = 0
+                elif in_speech:
+                    speech_buf += frame  # trailing silence, natural cutoff
+                    silence_frames += 1
+                    if silence_frames >= _HANDSFREE_SILENCE_FRAMES:
+                        if speech_frames >= _HANDSFREE_MIN_SPEECH_FRAMES:
+                            self._transcribe_handsfree_utterance(bytes(speech_buf))
+                        in_speech = False
+                        speech_buf.clear()
+                        speech_frames = 0
+                        silence_frames = 0
+
+    def _transcribe_handsfree_utterance(self, pcm: bytes) -> None:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        wav_path = _RECORDINGS_DIR / f"handsfree_{ts}.wav"
+        with wave.open(str(wav_path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(_SAMPLE_WIDTH)
+            wf.setframerate(_SAMPLE_RATE)
+            wf.writeframes(pcm)
+
+        if self._transcription_active:
+            return  # a PTT/handsfree transcription is already in flight
+        self._transcription_active = True
+        self._fetch_transcription(str(wav_path))
 
     # ── model/dictionary swap ─────────────────────────────────────────────────
 
@@ -509,31 +557,15 @@ class Recorder:
                 self._ipc.send(Event.STATUS, msg="idle")
                 return
 
-        with self._lock:
-            was_handsfree = self._handsfree
-            if self._recorder is not None:
-                self._handsfree = False
-                self._recorder.shutdown()
-                self._recorder = None
-                self._recorder = self._make_recorder()
-            if was_handsfree:
-                self._handsfree = True
-                threading.Thread(target=self._handsfree_loop, daemon=True).start()
+        # Hands-free shares this same worker process, so it automatically
+        # picks up the new model on its next utterance — nothing to redo here.
         self._ipc.send(Event.STATUS, msg=f"model_selected model={model_name}")
         self._ipc.send(Event.STATUS, msg="idle")
 
     def set_dictionary(self, words: list[str]) -> None:
+        # Not currently threaded into any runtime adapter's transcribe() call
+        # (PTT never used it either) — kept for a future prompt-biasing pass.
         self._initial_prompt = ", ".join(words) if words else ""
-        with self._lock:
-            if self._recorder is not None:
-                was_handsfree = self._handsfree
-                self._handsfree = False
-                self._recorder.shutdown()
-                self._recorder = None
-                self._recorder = self._make_recorder()
-                if was_handsfree:
-                    self._handsfree = True
-                    threading.Thread(target=self._handsfree_loop, daemon=True).start()
 
     # ── cleanup ──────────────────
 
@@ -570,6 +602,3 @@ class Recorder:
         finally:
             if acquired:
                 self._model_lock.release()
-        if self._recorder is not None:
-            self._recorder.shutdown()
-            self._recorder = None

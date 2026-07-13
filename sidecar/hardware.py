@@ -32,8 +32,8 @@ class DeviceTier(str, Enum):
 # needs a different pick.
 DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
 
-# Model names must be exactly what faster-whisper / RealtimeSTT accepts:
-# short IDs (auto-download from HF) or local CTranslate2 directory paths.
+# Model names are MODEL_CATALOG keys (see models.py) — short IDs that map to
+# an HF repo and a runtime adapter.
 MODEL_NAMES: dict[ModelTier, str] = {
     ModelTier.TIER_CUDA_HIGH: DEFAULT_MODEL,
     ModelTier.TIER_CUDA_LOW:  DEFAULT_MODEL,
