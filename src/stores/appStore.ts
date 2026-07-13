@@ -12,8 +12,7 @@ interface AppState {
   tier: ModelTier | null;
   model: string | null;
   setupComplete: boolean;
-  downloadProgress: number | null;   // 0-100, null = not downloading
-  downloadModel: string | null;
+  lastError: string | null;   // last sidecar error — drives the orb's error state
 
   setRecordingState: (s: RecordingState) => void;
   appendWord: (word: string) => void;
@@ -23,7 +22,7 @@ interface AppState {
   setTier: (tier: ModelTier) => void;
   setModel: (model: string) => void;
   setSetupComplete: (done: boolean) => void;
-  setDownloadProgress: (model: string | null, pct: number | null) => void;
+  setLastError: (msg: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -35,8 +34,7 @@ export const useAppStore = create<AppState>((set) => ({
   tier: null,
   model: null,
   setupComplete: false,
-  downloadProgress: null,
-  downloadModel: null,
+  lastError: null,
 
   setRecordingState: (s) => set({ recordingState: s }),
   appendWord: (word) =>
@@ -50,5 +48,5 @@ export const useAppStore = create<AppState>((set) => ({
   setTier: (tier) => set({ tier }),
   setModel: (model) => set({ model }),
   setSetupComplete: (done) => set({ setupComplete: done }),
-  setDownloadProgress: (model, pct) => set({ downloadModel: model, downloadProgress: pct }),
+  setLastError: (msg) => set({ lastError: msg }),
 }));

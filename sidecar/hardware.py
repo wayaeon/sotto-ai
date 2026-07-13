@@ -12,11 +12,11 @@ from enum import Enum
 
 
 class ModelTier(str, Enum):
-    TIER_CUDA_HIGH = "cuda_high"   # CUDA ≥6GB VRAM → Parakeet TDT v3
-    TIER_CUDA_LOW  = "cuda_low"    # CUDA <6GB VRAM → large-v3-turbo
-    TIER_DIRECTML  = "directml"    # AMD/Intel GPU → Parakeet TDT v3 via DirectML
-    TIER_NPU       = "npu"         # AMD/Intel NPU (no accelerated execution path yet) → Parakeet TDT v3 on CPU
-    TIER_CPU       = "cpu"         # CPU only → Parakeet TDT v3
+    TIER_CUDA_HIGH = "cuda_high"   # CUDA ≥6GB VRAM
+    TIER_CUDA_LOW  = "cuda_low"    # CUDA <6GB VRAM
+    TIER_DIRECTML  = "directml"    # AMD/Intel GPU via DirectML
+    TIER_NPU       = "npu"         # AMD/Intel NPU (no accelerated execution path yet — runs on CPU)
+    TIER_CPU       = "cpu"         # CPU only
 
 
 class DeviceTier(str, Enum):
@@ -26,19 +26,20 @@ class DeviceTier(str, Enum):
     CPU      = "cpu"
 
 
+# Parakeet TDT v3 (onnx-asr, int8) wins on every tier: it beat large-v3-turbo,
+# medium.en, and SenseVoiceSmall on RTF (0.095 vs 0.165-1.7) and transcript accuracy
+# in local CPU benchmarking, and it's a fraction of their size (~640 MB). No tier
+# needs a different pick.
+DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
+
 # Model names must be exactly what faster-whisper / RealtimeSTT accepts:
 # short IDs (auto-download from HF) or local CTranslate2 directory paths.
 MODEL_NAMES: dict[ModelTier, str] = {
-    ModelTier.TIER_CUDA_HIGH: "nvidia/parakeet-tdt-0.6b-v3",
-    ModelTier.TIER_CUDA_LOW:  "large-v3-turbo",
-    ModelTier.TIER_DIRECTML:  "nvidia/parakeet-tdt-0.6b-v3",
-    # NPU tier has no working hardware-accelerated execution path yet (resolve_device
-    # downgrades "npu" to "cpu" for every runtime except plain "onnx"), so it gets the
-    # same pick as CPU. Parakeet TDT v3 (onnx-asr, int8) beat large-v3-turbo, medium.en,
-    # and SenseVoiceSmall on RTF (0.095 vs 0.165-1.7) and transcript accuracy in local
-    # CPU benchmarking on real hardware.
-    ModelTier.TIER_NPU:       "nvidia/parakeet-tdt-0.6b-v3",
-    ModelTier.TIER_CPU:       "nvidia/parakeet-tdt-0.6b-v3",
+    ModelTier.TIER_CUDA_HIGH: DEFAULT_MODEL,
+    ModelTier.TIER_CUDA_LOW:  DEFAULT_MODEL,
+    ModelTier.TIER_DIRECTML:  DEFAULT_MODEL,
+    ModelTier.TIER_NPU:       DEFAULT_MODEL,
+    ModelTier.TIER_CPU:       DEFAULT_MODEL,
 }
 
 

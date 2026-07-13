@@ -208,6 +208,133 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 .page-sub { margin: 10px 0 0; color: var(--text-2); font-size: 13.5px; max-width: 56ch; }
 .main-body { padding: 24px var(--pad-section) var(--pad-section); }
 
+/* ─── Talk surface (DESIGN.md §3) ───────────────────────── */
+
+.talk-header { padding-bottom: 0; }
+.talk-greeting { font-size: 28px; }
+.talk-model-chip {
+  margin-left: 10px; padding: 2px 8px; border-radius: 99px;
+  font-size: 10px; letter-spacing: 0.06em; text-transform: none;
+  border: 1px solid var(--border-strong); color: var(--text-3);
+}
+.talk-model-chip[data-ready="true"] { color: var(--c-mint); border-color: rgba(52,211,153,0.3); }
+
+.talk-body {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 34px; padding: 0 var(--pad-section) 56px;
+}
+
+/* The orb never moves; states crossfade in place. */
+.talk-stage { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+
+.orb {
+  position: relative; width: 96px; height: 96px; border-radius: 50%;
+  background: var(--surface-2); border: none; cursor: pointer; padding: 0;
+  display: grid; place-items: center;
+  transition: transform 0.15s ease-out;
+}
+.orb:active { transform: scale(0.97); }
+.orb-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 2px solid var(--c-violet);
+  transition: border-color 0.2s ease-out, opacity 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+.orb-core {
+  position: relative; color: var(--text);
+  display: grid; place-items: center;
+  transition: color 0.2s ease-out;
+}
+
+.orb[data-state="ready"] { animation: orb-breathe 4s ease-in-out infinite; }
+.orb[data-state="ready"] .orb-ring { box-shadow: 0 0 24px rgba(167,139,250,0.18); }
+.orb[data-state="ready"]:hover .orb-ring { box-shadow: 0 0 34px rgba(167,139,250,0.32); }
+
+.orb[data-state="loading"] { cursor: default; }
+.orb[data-state="loading"] .orb-ring { border-color: var(--border-strong); animation: orb-pulse 2.2s ease-in-out infinite; }
+.orb[data-state="loading"] .orb-core { color: var(--text-4); }
+
+.orb[data-state="recording"] .orb-ring { border-color: var(--c-mint); box-shadow: 0 0 34px rgba(52,211,153,0.28); }
+
+.orb[data-state="processing"] { cursor: default; }
+.orb[data-state="processing"] .orb-ring {
+  border-color: rgba(251,191,36,0.25); border-top-color: var(--c-amber);
+  animation: orb-spin 1s linear infinite;
+}
+.orb[data-state="processing"] .orb-core { color: var(--c-amber); }
+
+.orb[data-state="error"] .orb-ring { border-color: var(--c-rose); box-shadow: 0 0 24px rgba(251,113,133,0.2); }
+.orb[data-state="error"] .orb-core { color: var(--c-rose); }
+
+.orb-wave { display: flex; align-items: center; gap: 3px; height: 26px; }
+.orb-wave i {
+  width: 3px; border-radius: 2px; background: var(--c-mint);
+  animation: orb-wave 0.9s ease-in-out infinite;
+}
+.orb-wave i:nth-child(1) { height: 10px; animation-delay: 0s; }
+.orb-wave i:nth-child(2) { height: 18px; animation-delay: 0.15s; }
+.orb-wave i:nth-child(3) { height: 24px; animation-delay: 0.3s; }
+.orb-wave i:nth-child(4) { height: 16px; animation-delay: 0.45s; }
+.orb-wave i:nth-child(5) { height: 9px;  animation-delay: 0.6s; }
+
+.orb-label { font-size: 15px; font-weight: 500; color: var(--text); }
+.orb-label[data-state="loading"], .orb-label[data-state="processing"] { color: var(--text-2); }
+.orb-label[data-state="error"] {
+  color: var(--c-rose); max-width: 420px; text-align: center;
+  font-size: 13px; font-weight: 400;
+}
+.orb-hint { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12.5px; }
+.orb-hint kbd, .talk-last-empty kbd {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+  background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-radius: 5px; padding: 1px 6px;
+}
+
+.talk-last {
+  display: flex; align-items: center; gap: 14px; max-width: 640px;
+  background: none; border: none; cursor: pointer; padding: 0;
+  font-family: var(--font-display); font-size: 17px; color: var(--text-2);
+  transition: color 0.15s ease-out;
+}
+.talk-last:hover { color: var(--text); }
+.talk-last em { font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.talk-last-rule { width: 36px; height: 1px; background: var(--border-strong); flex-shrink: 0; }
+.talk-last-empty {
+  font-family: var(--font-ui); font-size: 13px; color: var(--text-3);
+  cursor: default; display: inline-flex; gap: 6px; align-items: center;
+}
+
+.talk-ambient {
+  background: none; border: none; cursor: pointer; padding: 4px 8px;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
+  transition: color 0.15s ease-out;
+}
+.talk-ambient:hover { color: var(--text-2); }
+
+/* History tabs (Transcripts | Insights) */
+.view-tabs {
+  position: absolute; top: 30px; right: var(--pad-section); z-index: 5;
+  display: flex; gap: 2px; padding: 3px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+}
+.view-tabs button {
+  background: none; border: none; cursor: pointer;
+  padding: 5px 14px; border-radius: 7px;
+  font-family: var(--font-ui); font-size: 12.5px; font-weight: 500;
+  color: var(--text-3); transition: color 0.12s, background 0.12s;
+}
+.view-tabs button:hover { color: var(--text-2); }
+.view-tabs button.active { color: var(--text); background: var(--surface-3); }
+
+@keyframes orb-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+@keyframes orb-pulse   { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+@keyframes orb-spin    { to { transform: rotate(360deg); } }
+@keyframes orb-wave    { 0%, 100% { transform: scaleY(0.6); } 50% { transform: scaleY(1.4); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .orb, .orb-ring, .orb-wave i { animation: none !important; }
+}
+
 /* ─── cards ─────────────────────────────────────────────── */
 
 .card {
@@ -229,7 +356,7 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap-card); }
 .stat {
-  position: relative; padding: 22px 22px 20px; min-height: 148px;
+  position: relative; padding: 18px 20px 16px; min-height: 108px;
   display: flex; flex-direction: column; justify-content: space-between;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-card); overflow: hidden; min-width: 0;
@@ -241,11 +368,15 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 .stat[data-accent="mint"]::before   { background: linear-gradient(90deg, transparent, var(--c-mint),   transparent); }
 
 .stat-value {
-  font-family: var(--font-display); font-size: clamp(34px, 4.4vw, 56px);
-  line-height: 0.9; letter-spacing: -0.02em; font-weight: 400;
-  padding-right: 56px; word-break: break-all;
+  font-family: var(--font-display); font-size: clamp(30px, 3.4vw, 44px);
+  line-height: 1; letter-spacing: -0.02em; font-weight: 400;
+  /* Numbers must NEVER wrap — "30" rendering as "3⏎0" reads as broken UI.
+     Ellipsize in the impossible case instead of breaking digits apart. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .stat-value em { font-style: italic; }
+/* Keep the value clear of the absolute-positioned delta badge */
+.stat-delta + .stat-value { padding-right: 64px; }
 .stat-unit { font-family: var(--font-ui); font-size: clamp(13px, 1.3vw, 18px); color: var(--text-3); margin-left: 4px; font-weight: 400; }
 .stat-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 4px; min-width: 0; }
 .stat-label .l { color: var(--text); font-size: 13px; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

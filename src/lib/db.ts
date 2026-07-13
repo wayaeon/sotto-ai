@@ -7,7 +7,7 @@ export interface Transcription {
   created_at: string;
 }
 
-const TRANSCRIPTIONS_KEY = "sotto_transcriptions";
+const TRANSCRIPTIONS_KEY = "verba_transcriptions";
 const MAX_STORED = 200;
 
 function load(): Transcription[] {
@@ -45,26 +45,26 @@ export function getTranscriptions(limit = 50): Transcription[] {
 }
 
 export function updateMetrics(wordCount: number, durationMs: number): void {
-  const totalWords = parseInt(localStorage.getItem("sotto_total_words") ?? "0") + wordCount;
-  localStorage.setItem("sotto_total_words", String(totalWords));
+  const totalWords = parseInt(localStorage.getItem("verba_total_words") ?? "0") + wordCount;
+  localStorage.setItem("verba_total_words", String(totalWords));
 
-  const sessions = parseInt(localStorage.getItem("sotto_sessions") ?? "0") + 1;
-  localStorage.setItem("sotto_sessions", String(sessions));
+  const sessions = parseInt(localStorage.getItem("verba_sessions") ?? "0") + 1;
+  localStorage.setItem("verba_sessions", String(sessions));
 
   const today = new Date().toDateString();
-  const lastDay = localStorage.getItem("sotto_last_day");
+  const lastDay = localStorage.getItem("verba_last_day");
   if (lastDay !== today) {
     const yesterday = new Date(Date.now() - 86_400_000).toDateString();
-    const streak = parseInt(localStorage.getItem("sotto_streak") ?? "0");
+    const streak = parseInt(localStorage.getItem("verba_streak") ?? "0");
     localStorage.setItem(
-      "sotto_streak",
+      "verba_streak",
       String(lastDay === yesterday ? streak + 1 : 1)
     );
-    localStorage.setItem("sotto_last_day", today);
+    localStorage.setItem("verba_last_day", today);
   }
 
-  const totalMs = parseInt(localStorage.getItem("sotto_total_ms") ?? "0") + durationMs;
-  localStorage.setItem("sotto_total_ms", String(totalMs));
+  const totalMs = parseInt(localStorage.getItem("verba_total_ms") ?? "0") + durationMs;
+  localStorage.setItem("verba_total_ms", String(totalMs));
   const wpm = totalMs > 0 ? Math.round((totalWords / totalMs) * 60_000) : 0;
-  localStorage.setItem("sotto_avg_wpm", String(wpm));
+  localStorage.setItem("verba_avg_wpm", String(wpm));
 }

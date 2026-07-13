@@ -3,8 +3,9 @@ import { onSidecarEvent, injectText, setModel as setModelIpc, type SidecarMessag
 import { useAppStore, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 
-export const useDownloadProgress = () => useAppStore((s) => s.downloadProgress);
-export const useDownloadModel    = () => useAppStore((s) => s.downloadModel);
+// Single source of truth for the default model.
+// Always parakeet TDT v3 — ONNX runtime, works on any hardware.
+const DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3";
 
 /**
  * primary: true  → Pill window only. Handles injection, history, metrics.
@@ -22,7 +23,6 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     commitSegment,
     setTier,
     setModel,
-    setDownloadProgress,
   } = useAppStore();
 
   const dictationStartMs = useRef<number | null>(null);
@@ -33,8 +33,14 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
         case "ready":
           setSidecarReady(true);
           {
-            const persistedModel = localStorage.getItem("sotto_model");
-            if (persistedModel) setModelIpc(persistedModel).catch((e) => console.warn("[set_model]", e));
+            // Load the user's chosen model on startup; fall back to the default.
+            // This is the single trigger for the first model load — the sidecar
+            // no longer preloads a model on its own (that caused a startup race).
+            const saved = localStorage.getItem("verba_model");
+            const startupModel = saved && saved.trim() ? saved : DEFAULT_MODEL;
+            localStorage.setItem("verba_model", startupModel);
+            setModel(startupModel);
+            setModelIpc(startupModel).catch((e) => console.warn("[set_model]", e));
           }
           break;
 
@@ -60,7 +66,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             const currentModel = useAppStore.getState().model ?? "";
             const currentTier  = useAppStore.getState().tier  ?? "";
 
-            localStorage.setItem("sotto_last_transcription", raw);
+            localStorage.setItem("verba_last_transcription", raw);
 
             // inject_text Rust command emits "inject-done" to all windows after completing
             injectText(raw).catch((e) => console.warn("[inject_text]", e));
@@ -88,6 +94,10 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             dictationStartMs.current = Date.now();
           }
           setRecordingState(state);
+          // A successful state transition clears any prior error
+          if (msg.msg === "recording_ptt" || msg.msg.startsWith("worker_ready")) {
+            useAppStore.getState().setLastError(null);
+          }
           // Track model load lifecycle
           if (msg.msg === "idle") setModelReady(true);
           else if (msg.msg === "loading_model") setModelReady(false);
@@ -97,7 +107,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             );
             if (parts.model) {
               setModel(parts.model);
-              localStorage.setItem("sotto_model", parts.model);
+              localStorage.setItem("verba_model", parts.model);
             }
             setModelReady(true);
           }
@@ -107,7 +117,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             );
             if (parts.model) {
               setModel(parts.model);
-              localStorage.setItem("sotto_model", parts.model);
+              localStorage.setItem("verba_model", parts.model);
             }
           }
           break;
@@ -115,23 +125,15 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
 
         case "hardware":
           setTier(msg.tier as any);
-          if (!localStorage.getItem("sotto_model")) setModel(msg.model);
-          localStorage.setItem("sotto_tier", msg.tier);
-          if (!localStorage.getItem("sotto_model")) localStorage.setItem("sotto_model", msg.model);
+          // Tier is informational only — never overwrite the user's model choice.
+          localStorage.setItem("verba_tier", msg.tier);
           break;
-
-        case "download_progress": {
-          const pct = (msg as any).percent as number;
-          const mdl = (msg as any).model as string;
-          setDownloadProgress(mdl, pct);
-          if (pct >= 100) setTimeout(() => setDownloadProgress(null, null), 1000);
-          break;
-        }
 
         case "error":
           console.error("[sidecar]", msg.msg);
           // Always reset to idle on any error — prevents stuck "Processing..." state
           setRecordingState("idle");
+          useAppStore.getState().setLastError(msg.msg);
           // If the sidecar crashed, model needs to reload on respawn
           if (msg.msg === "sidecar_crashed") setModelReady(false);
           break;

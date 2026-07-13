@@ -80,8 +80,8 @@ export default function HardwareScan({ onNext }: Props) {
       else if (ramGb >= 8)  { t = "tier3_en"; m = "medium.en"; }
       else                  { t = "tier4";    m = "small"; }
       setTier(t as any); setModel(m);
-      localStorage.setItem("sotto_tier", t);
-      localStorage.setItem("sotto_model", m);
+      localStorage.setItem("verba_tier", t);
+      localStorage.setItem("verba_model", m);
     }, 300 + specs.length * 550 + 100));
     return () => timers.forEach(clearTimeout);
   }, []);
@@ -105,7 +105,7 @@ export default function HardwareScan({ onNext }: Props) {
 
       <div style={s.eyebrow}>System Analysis</div>
       <h2 style={s.heading}>Detecting your hardware</h2>
-      <p style={s.sub}>Sotto selects the optimal AI model for your machine.</p>
+      <p style={s.sub}>Verba selects the optimal AI model for your machine.</p>
 
       <div style={s.list}>
         {specs.map((spec, i) => {
