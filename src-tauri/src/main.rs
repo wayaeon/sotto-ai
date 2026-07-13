@@ -48,7 +48,6 @@ fn main() {
                 .resizable(false)
                 .inner_size(60.0, 56.0)
                 .shadow(false)
-                .visible(false)   // hidden until model is ready — no loading flash
                 .build()?;
 
             // Position pill window at bottom-center of primary monitor (collapsed width)
@@ -67,6 +66,11 @@ fn main() {
                         (y as f64 * scale) as i32,
                     ));
                 }
+                // Re-assert topmost after show() — observed the always_on_top(true) set at
+                // build time doesn't stick once the window is actually shown, leaving the
+                // pill in normal z-order behind other foreground windows.
+                let _ = pill.set_always_on_top(true);
+                let _ = pill.show();
             }
 
             Ok(())
