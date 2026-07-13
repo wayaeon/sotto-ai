@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import HardwareScan from "./HardwareScan";
-import ModelDownload from "./ModelDownload";
 import PermissionsStep from "./PermissionsStep";
 import ReadyScreen from "./ReadyScreen";
 
-type Step = "hardware" | "download" | "permissions" | "ready";
-const STEPS: Step[] = ["hardware", "download", "permissions", "ready"];
+type Step = "hardware" | "permissions" | "ready";
+const STEPS: Step[] = ["hardware", "permissions", "ready"];
 
 interface Props {
   onComplete: () => void;
@@ -67,8 +66,7 @@ export default function SetupWizard({ onComplete }: Props) {
         padding: "48px 56px 40px",
         animation: "fadeUp 0.45s cubic-bezier(0.4, 0, 0.2, 1)",
       }}>
-        {step === "hardware"    && <HardwareScan    onNext={() => setStep("download")} />}
-        {step === "download"    && <ModelDownload   onNext={() => setStep("permissions")} />}
+        {step === "hardware"    && <HardwareScan    onNext={() => setStep("permissions")} />}
         {step === "permissions" && <PermissionsStep onNext={() => setStep("ready")} />}
         {step === "ready"       && <ReadyScreen     onComplete={finish} />}
       </div>

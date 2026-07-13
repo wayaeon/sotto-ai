@@ -11,15 +11,15 @@ export default function App() {
 
   // Rehydrate persisted state
   useEffect(() => {
-    if (localStorage.getItem("sotto_setup_complete") === "true") setSetupComplete(true);
-    const t = localStorage.getItem("sotto_tier");
-    const m = localStorage.getItem("sotto_model");
+    if (localStorage.getItem("verba_setup_complete") === "true") setSetupComplete(true);
+    const t = localStorage.getItem("verba_tier");
+    const m = localStorage.getItem("verba_model");
     if (t) setTier(t as any);
     if (m) setModel(m);
   }, []);
 
   useEffect(() => {
-    if (setupComplete) localStorage.setItem("sotto_setup_complete", "true");
+    if (setupComplete) localStorage.setItem("verba_setup_complete", "true");
   }, [setupComplete]);
 
   if (!setupComplete) return <SetupWizard onComplete={() => setSetupComplete(true)} />;

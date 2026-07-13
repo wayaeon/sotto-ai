@@ -21,9 +21,6 @@ fn main() {
             commands::toggle_handsfree,
             commands::ping_sidecar,
             commands::detect_hardware,
-            commands::check_downloads,
-            commands::download_model,
-            commands::pause_download_model,
             commands::set_model,
             commands::benchmark_model,
             commands::set_dictionary,
@@ -69,10 +66,12 @@ fn main() {
                         (y as f64 * scale) as i32,
                     ));
                 }
-                // Position can land the window in a state where Windows never issued
-                // the initial WM_SHOWWINDOW (observed: window exists, topmost, correct
-                // rect, but IsWindowVisible=False). Show explicitly rather than relying
-                // on WebviewWindowBuilder's implicit default.
+                // Show explicitly rather than relying on WebviewWindowBuilder's implicit
+                // default (observed: window exists, topmost, correct rect, but
+                // IsWindowVisible=False without this). Also re-assert topmost — the
+                // always_on_top(true) set at build time doesn't stick once the window is
+                // actually shown, leaving the pill in normal z-order behind other windows.
+                let _ = pill.set_always_on_top(true);
                 let _ = pill.show();
             }
 

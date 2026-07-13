@@ -6,9 +6,6 @@ export const stopPtt = () => invoke("stop_ptt");
 export const toggleHandsfree = () => invoke("toggle_handsfree");
 export const pingSidecar = () => invoke("ping_sidecar");
 export const detectHardware = () => invoke("detect_hardware");
-export const checkDownloads = () => invoke("check_downloads");
-export const downloadModel = (model?: string, token?: string) => invoke("download_model", { model, token });
-export const pauseDownloadModel = (model: string) => invoke("pause_download_model", { model });
 export const setModel = (model: string) => invoke("set_model", { model });
 export const benchmarkModel = (model: string, audioPath?: string | null) => invoke("benchmark_model", { model, audioPath });
 export const setDictionary = (words: string[]) => invoke("set_dictionary", { words });
@@ -26,7 +23,7 @@ export interface StageTiming {
   wav_write_ms?: number;
   queue_ms?: number;
   whisper_ms?: number;
-  inject_ms?: number; // added by frontend after inject completes
+  inject_ms?: number;
 }
 
 export interface HardwareInfo {
@@ -48,8 +45,8 @@ export interface HardwareInfo {
   has_intel_gpu?: boolean;
   ai_accelerators?: string[];
   detection_notes?: string[];
-  device_tier?: string;   // "cuda" | "directml" | "npu" | "cpu"
-  device_str?: string;    // same values, the string passed to runtime adapters
+  device_tier?: string;
+  device_str?: string;
 }
 
 export interface BenchmarkResult {
@@ -73,21 +70,6 @@ export type SidecarMessage =
   | { event: "pong" }
   | { event: "status"; msg: string }
   | ({ event: "hardware" } & HardwareInfo)
-  | {
-      event: "download_progress";
-      model: string;
-      percent: number;
-      bytes_downloaded?: number;
-      bytes_total?: number;
-      downloaded_label?: string;
-      total_label?: string;
-      paused?: boolean;
-      checked?: boolean;
-      downloaded?: boolean;
-      failed?: boolean;
-      benchmark_available?: boolean;
-      benchmark_unavailable_reason?: string;
-    }
   | ({ event: "benchmark_result" } & BenchmarkResult)
   | { event: "audio_level"; level: number };
 

@@ -333,7 +333,7 @@ def _http_get(
     """Download url → dest with no system proxy (avoids Windows credential forwarding)."""
     import requests
 
-    headers = {"User-Agent": "sotto/1.0"}
+    headers = {"User-Agent": "verba/1.0"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
 

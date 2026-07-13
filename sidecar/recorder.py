@@ -23,7 +23,7 @@ from .ipc import IPC, Event
 from .hardware import ModelTier, HardwareInfo
 from .models import best_available_model, model_dir
 
-_RECORDINGS_DIR  = Path.home() / ".sotto" / "recordings"
+_RECORDINGS_DIR  = Path.home() / ".verba" / "recordings"
 _SAMPLE_RATE     = 16000
 _SAMPLE_WIDTH    = 2       # 16-bit PCM
 _CHUNK_SIZE      = 1024
@@ -98,6 +98,12 @@ class Recorder:
         self._capture_start_ms: float = 0.0
 
         # ── transcription worker subprocess ───────────────────────────────────
+        # _model_lock serializes ALL worker lifecycle operations
+        # (_start_worker / _stop_worker / model switches). Without it, the
+        # startup set_model from the frontend races the preload thread and
+        # both poll/replace the same queues → lost "ready" → 120 s timeout.
+        self._model_lock = threading.Lock()
+        self._requested_model: str | None = None
         self._worker_proc:  multiprocessing.Process | None = None
         self._task_q:       multiprocessing.Queue | None = None
         self._result_q:     multiprocessing.Queue | None = None
@@ -115,10 +121,14 @@ class Recorder:
     # ── preload ───────────────────────────────────────────────────────────────
 
     def _preload(self) -> None:
-        """Start always-on pump → load model worker → signal ready."""
-        try:
-            self._ipc.send(Event.STATUS, msg="loading_model")
+        """Start the always-on audio pump.
 
+        Deliberately does NOT load a model. The frontend sends set_model
+        immediately after the READY event, and that is the single trigger
+        for the first model load. Loading here as well caused a race where
+        two threads fought over the worker queues and the load timed out.
+        """
+        try:
             # Start always-on audio pump — keeps mic stream open permanently
             self._pump_thread = threading.Thread(
                 target=self._audio_pump, daemon=True
@@ -127,12 +137,8 @@ class Recorder:
             # Wait for mic device to open (usually <500 ms)
             if not self._pump_ready.wait(timeout=8.0):
                 self._ipc.send(Event.ERROR, msg="Audio device did not open within 8 s")
-
-            self._start_worker()
-            self._ipc.send(Event.STATUS, msg="idle")
         except Exception as e:
             self._ipc.send(Event.ERROR, msg=f"Preload failed: {e}")
-            self._ipc.send(Event.STATUS, msg="idle")
 
     # ── always-on audio pump ──────────────────────────────────────────────────
 
@@ -217,7 +223,7 @@ class Recorder:
             target=_worker_loop,
             args=(self._model_name, model_path, runtime, self._device, self._task_q, self._result_q),
             daemon=False,
-            name="sotto-transcriber",
+            name="verba-transcriber",
         )
         self._worker_proc.start()
 
@@ -249,26 +255,27 @@ class Recorder:
         raise RuntimeError(f"Worker did not become ready within {_WORKER_INIT_S} s")
 
     def _ensure_worker(self) -> bool:
-        if (
-            self._worker_proc is not None
-            and self._worker_proc.is_alive()
-            and self._loaded_model_name == self._model_name
-        ):
-            return True
-        if self._worker_proc is not None:
-            self._stop_worker()
-        if self._worker_error:
-            self._ipc.send(Event.ERROR, msg=f"Selected model unavailable: {self._worker_error}")
-            return False
-        try:
-            self._ipc.send(Event.STATUS, msg="loading_model")
-            self._start_worker()
-            self._ipc.send(Event.STATUS, msg="idle")
-            return True
-        except Exception as e:
-            self._worker_error = str(e)
-            self._ipc.send(Event.ERROR, msg=f"Worker respawn failed: {e}")
-            return False
+        """Make sure a worker for the current model is alive. Always retryable —
+        a previous failure never permanently blocks a new attempt."""
+        with self._model_lock:
+            if (
+                self._worker_proc is not None
+                and self._worker_proc.is_alive()
+                and self._loaded_model_name == self._model_name
+            ):
+                return True
+            if self._worker_proc is not None:
+                self._stop_worker()
+            self._worker_error = None  # clear stale error — retry instead of refusing
+            try:
+                self._ipc.send(Event.STATUS, msg="loading_model")
+                self._start_worker()
+                self._ipc.send(Event.STATUS, msg="idle")
+                return True
+            except Exception as e:
+                self._worker_error = str(e)
+                self._ipc.send(Event.ERROR, msg=f"Worker respawn failed: {e}")
+                return False
 
     # ── hands-free (AudioToTextRecorder) ─────────────────────────────────────
 
@@ -305,10 +312,12 @@ class Recorder:
     # ── PTT ───────────────────────────────────────────────────────────────────
 
     def start_ptt(self) -> None:
-        """Instant PTT start — pump is already running, just open WAV and flip flag."""
-        if self._worker_error:
-            self._ipc.send(Event.ERROR, msg=f"Cannot record with selected model: {self._worker_error}")
-            return
+        """Instant PTT start — pump is already running, just open WAV and flip flag.
+
+        A previous worker failure does NOT block recording: _fetch_transcription
+        retries the worker via _ensure_worker, so the app self-heals instead of
+        staying dead until restart.
+        """
         if self._transcription_active:
             self._ipc.send(Event.ERROR, msg=f"{self._model_name} is still transcribing the previous recording")
             return
@@ -452,34 +461,53 @@ class Recorder:
     # ── model/dictionary swap ─────────────────────────────────────────────────
 
     def set_model(self, model_name: str) -> bool:
+        """Request a model switch. Non-blocking: the load runs on a background
+        thread (serialized by _model_lock) so the IPC loop stays responsive."""
         from .models import MODEL_CATALOG
 
         if model_name not in MODEL_CATALOG:
             self._ipc.send(Event.ERROR, msg=f"Unknown model: {model_name}")
             return False
-        if self._transcription_active:
-            self._ipc.send(Event.ERROR, msg=f"Cannot switch models while {self._model_name} is transcribing")
-            return False
-        if (
-            model_name == self._model_name
-            and self._worker_proc is not None
-            and self._worker_proc.is_alive()
-            and self._loaded_model_name == model_name
-        ):
-            self._ipc.send(Event.STATUS, msg=f"model_selected model={model_name}")
-            return True
 
-        with self._lock:
+        self._requested_model = model_name  # latest request wins
+        threading.Thread(
+            target=self._load_requested_model, daemon=True, name="verba-model-load"
+        ).start()
+        return True
+
+    def _load_requested_model(self) -> None:
+        with self._model_lock:
+            model_name = self._requested_model
+            if model_name is None:
+                return
+
+            # Already loaded and alive — confirm and bail, don't kill/restart.
+            if (
+                model_name == self._loaded_model_name
+                and self._worker_proc is not None
+                and self._worker_proc.is_alive()
+            ):
+                self._ipc.send(Event.STATUS, msg=f"model_selected model={model_name}")
+                return
+
+            if self._transcription_active:
+                self._ipc.send(
+                    Event.ERROR,
+                    msg=f"Cannot switch models while {self._model_name} is transcribing",
+                )
+                return
+
             self._model_name = model_name
             self._stop_worker()
-        try:
-            self._ipc.send(Event.STATUS, msg="loading_model")
-            self._start_worker()
-        except Exception as e:
-            self._worker_error = str(e)
-            self._ipc.send(Event.ERROR, msg=f"Model switch failed for {model_name}: {e}")
-            self._ipc.send(Event.STATUS, msg="idle")
-            return False
+            self._worker_error = None
+            try:
+                self._ipc.send(Event.STATUS, msg="loading_model")
+                self._start_worker()
+            except Exception as e:
+                self._worker_error = str(e)
+                self._ipc.send(Event.ERROR, msg=f"Model switch failed for {model_name}: {e}")
+                self._ipc.send(Event.STATUS, msg="idle")
+                return
 
         with self._lock:
             was_handsfree = self._handsfree
@@ -493,7 +521,6 @@ class Recorder:
                 threading.Thread(target=self._handsfree_loop, daemon=True).start()
         self._ipc.send(Event.STATUS, msg=f"model_selected model={model_name}")
         self._ipc.send(Event.STATUS, msg="idle")
-        return True
 
     def set_dictionary(self, words: list[str]) -> None:
         self._initial_prompt = ", ".join(words) if words else ""
@@ -508,7 +535,7 @@ class Recorder:
                     self._handsfree = True
                     threading.Thread(target=self._handsfree_loop, daemon=True).start()
 
-    # ── cleanup ───────────────────────────────────────────────────────────────
+    # ── cleanup ──────────────────
 
     def _stop_worker(self) -> None:
         if self._task_q is not None and self._worker_proc is not None:
@@ -536,7 +563,13 @@ class Recorder:
                 self._current_wf = None
             self._handsfree = False
         self._shutdown_event.set()   # stop audio pump
-        self._stop_worker()
+        # Don't deadlock on a load in progress — bounded wait, then force-stop.
+        acquired = self._model_lock.acquire(timeout=2)
+        try:
+            self._stop_worker()
+        finally:
+            if acquired:
+                self._model_lock.release()
         if self._recorder is not None:
             self._recorder.shutdown()
             self._recorder = None
