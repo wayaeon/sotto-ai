@@ -7,6 +7,7 @@ export interface Transcription {
   created_at: string;
   app_name: string | null;
   app_icon: string | null;
+  raw_text: string | null;
 }
 
 const TRANSCRIPTIONS_KEY = "verba_transcriptions";
@@ -28,7 +29,8 @@ export function insertTranscription(
   tier: string,
   durationMs: number,
   appName: string | null = null,
-  appIcon: string | null = null
+  appIcon: string | null = null,
+  rawText: string | null = null
 ): Transcription {
   const items = load();
   const item: Transcription = {
@@ -40,6 +42,7 @@ export function insertTranscription(
     created_at: new Date().toISOString(),
     app_name: appName,
     app_icon: appIcon,
+    raw_text: rawText,
   };
   items.push(item);
   localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(items.slice(-MAX_STORED)));
