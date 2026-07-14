@@ -76,6 +76,7 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
   background: rgba(255,255,255,0.012);
   padding: 16px 9px 12px;
   gap: 4px;
+  position: relative;
 }
 .sidebar[data-collapsed="true"] { width: 64px; }
 .sidebar[data-collapsed="true"] .brand-wordmark,
@@ -84,11 +85,6 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 .sidebar[data-collapsed="true"] .sidebar-section-label { display: none; }
 .sidebar[data-collapsed="true"] .nav-item { justify-content: center; padding: 10px; }
 .sidebar[data-collapsed="true"] .brand { justify-content: center; padding-inline: 0; }
-.sidebar[data-collapsed="true"] .sidebar-collapse {
-  position: absolute;
-  right: -2px;
-  top: 0;
-}
 .brand {
   display: flex; align-items: center; gap: 8px;
   padding: 2px 4px 18px;
@@ -111,20 +107,24 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
   min-width: 0;
 }
 .sidebar-collapse {
-  margin-left: auto;
-  width: 24px; height: 24px;
+  position: absolute;
+  right: -11px; top: 50%;
+  transform: translateY(-50%);
+  width: 22px; height: 22px;
   display: grid; place-items: center;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.035);
+  border-radius: 50%;
+  background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text-3);
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  z-index: 1;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
 .sidebar-collapse:hover {
-  background: rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.09);
   border-color: var(--border-strong);
   color: var(--text);
+  transform: translateY(-50%) scale(1.08);
 }
 
 .sidebar-section-label {

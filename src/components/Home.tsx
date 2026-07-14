@@ -2443,15 +2443,16 @@ function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, ti
           <WaveMark size={22} />
         </div>
         <div className="brand-wordmark">Verba</div>
-        <button
-          className="sidebar-collapse"
-          onClick={onToggleCollapse}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={collapsed ? "Expand" : "Collapse"}
-        >
-          {collapsed ? <Icons.ChevronRight size={14} /> : <Icons.ChevronLeft size={14} />}
-        </button>
       </div>
+
+      <button
+        className="sidebar-collapse"
+        onClick={onToggleCollapse}
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={collapsed ? "Expand" : "Collapse"}
+      >
+        {collapsed ? <Icons.ChevronRight size={12} /> : <Icons.ChevronLeft size={12} />}
+      </button>
 
       {navItems.map((item) => (
         <button
