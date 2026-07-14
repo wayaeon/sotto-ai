@@ -67,6 +67,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
 
         case "segment_done": {
           const raw = msg.text;
+          const rawTextBeforeFilter = msg.raw_text ?? null;
           commitSegment(raw);
 
           const durationMs = dictationStartMs.current
@@ -100,7 +101,8 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
 
             insertTranscription(
               raw, currentModel, currentTier, durationMs,
-              dictatedInto?.name ?? null, dictatedInto?.iconDataUri ?? null
+              dictatedInto?.name ?? null, dictatedInto?.iconDataUri ?? null,
+              rawTextBeforeFilter
             );
             updateMetrics(raw.trim().split(/\s+/).length, durationMs);
           }
