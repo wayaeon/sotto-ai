@@ -1,5 +1,6 @@
 use tauri::{AppHandle, Emitter};
 use serde_json::json;
+use crate::focus::emit_focused_app_async;
 use crate::sidecar::send_command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -35,6 +36,9 @@ pub fn register_hotkeys(app: &AppHandle) {
                         ptt1.store(true, Ordering::SeqCst);
                         app1.emit("sidecar-event", r#"{"event":"status","msg":"recording_ptt"}"#).ok();
                         send_command(&app1, json!({"cmd": "start_ptt"}));
+                        // Off the hotkey thread — can block on a favicon fetch,
+                        // must never delay start_ptt itself.
+                        emit_focused_app_async(app1.clone());
                     }
                 }
                 KeyRelease(MetaLeft) | KeyRelease(MetaRight) => {

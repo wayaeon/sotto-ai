@@ -85,3 +85,17 @@ export function onSidecarEvent(
     }
   });
 }
+
+export interface FocusedAppPayload {
+  name: string;
+  icon_data_uri: string | null;
+  kind: "app" | "site";
+}
+
+// Emitted directly by Rust (not via the sidecar's JSON-lines protocol) when a
+// PTT or hands-free utterance starts, carrying whatever app/site was focused.
+export function onFocusedApp(
+  handler: (app: FocusedAppPayload) => void
+): Promise<UnlistenFn> {
+  return listen<FocusedAppPayload>("focused-app", (event) => handler(event.payload));
+}

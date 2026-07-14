@@ -502,6 +502,10 @@ class Recorder:
                             speech_buf = bytearray(pending_buf)
                             speech_frames = consecutive_speech
                             pending_buf.clear()
+                            # Lets the UI show a live "listening" state instead
+                            # of silently doing nothing until a transcript
+                            # appears out of nowhere.
+                            self._ipc.send(Event.STATUS, msg="handsfree_ptt")
                 else:
                     consecutive_speech = 0
                     pending_buf.clear()
@@ -510,7 +514,12 @@ class Recorder:
                         silence_frames += 1
                         if silence_frames >= _HANDSFREE_SILENCE_FRAMES:
                             if speech_frames >= _HANDSFREE_MIN_SPEECH_FRAMES:
+                                self._ipc.send(Event.STATUS, msg="processing")
                                 self._transcribe_handsfree_utterance(bytes(speech_buf))
+                            else:
+                                # Passed onset but fizzled before the minimum —
+                                # back to "listening", not stuck on "recording".
+                                self._ipc.send(Event.STATUS, msg="idle")
                             in_speech = False
                             speech_buf.clear()
                             speech_frames = 0

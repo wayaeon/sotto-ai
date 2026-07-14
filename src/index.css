@@ -320,6 +320,14 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 }
 .talk-ambient:hover { color: var(--text-2); }
 
+/* Per-utterance summary — app/site icon + word count + duration for
+   whatever was just dictated, shown alongside the daily-aggregate ambient line. */
+.talk-summary {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
+}
+.talk-summary-icon { width: 14px; height: 14px; border-radius: 3px; object-fit: contain; flex-shrink: 0; }
+
 /* History tabs (Transcripts | Insights) */
 .view-tabs {
   position: absolute; top: 30px; right: var(--pad-section); z-index: 5;
