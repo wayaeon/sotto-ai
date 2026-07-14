@@ -60,3 +60,10 @@ def test_strip_filler_words_does_not_match_substring():
         strip_filler_words("The umbrella is red", ["um"])
         == "The umbrella is red"
     )
+
+
+def test_strip_filler_words_recapitalizes_after_mid_string_sentence_boundary():
+    assert (
+        strip_filler_words("Great point. Um, that's odd.", ["um"])
+        == "Great point. That's odd."
+    )

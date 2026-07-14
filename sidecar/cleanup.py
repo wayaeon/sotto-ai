@@ -95,6 +95,13 @@ def strip_filler_words(text: str, filler_words: list[str]) -> str:
     cleaned = re.sub(r"\s+([,.?!])", r"\1", cleaned)
     cleaned = re.sub(r"^,\s*", "", cleaned)
 
-    if cleaned:
-        cleaned = cleaned[0].upper() + cleaned[1:]
+    chars = list(cleaned)
+    capitalize_next = True
+    for idx, char in enumerate(chars):
+        if capitalize_next and char.isalpha():
+            chars[idx] = char.upper()
+            capitalize_next = False
+        elif char in ".?!":
+            capitalize_next = True
+    cleaned = "".join(chars)
     return cleaned
