@@ -2418,13 +2418,11 @@ function AccountScreen({ userName, userEmail, tier }: AccountScreenProps) {
 interface SidebarProps {
   view: View;
   onViewChange: (v: View) => void;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
   userName: string;
   tier: string | null;
 }
 
-function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, tier }: SidebarProps) {
+function Sidebar({ view, onViewChange, userName, tier }: SidebarProps) {
   const initial = (userName || "U")[0].toUpperCase();
   const isPro = tier !== null && tier !== "tier1";
 
@@ -2437,22 +2435,13 @@ function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, ti
   ];
 
   return (
-    <div className="sidebar" data-collapsed={String(collapsed)}>
+    <div className="sidebar">
       <div className="brand">
         <div className="brand-mark">
           <WaveMark size={22} />
         </div>
         <div className="brand-wordmark">Verba</div>
       </div>
-
-      <button
-        className="sidebar-collapse"
-        onClick={onToggleCollapse}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        title={collapsed ? "Expand" : "Collapse"}
-      >
-        {collapsed ? <Icons.ChevronRight size={12} /> : <Icons.ChevronLeft size={12} />}
-      </button>
 
       {navItems.map((item) => (
         <button
@@ -2483,7 +2472,6 @@ function Sidebar({ view, onViewChange, collapsed, onToggleCollapse, userName, ti
 export default function Home() {
   const { tier } = useAppStore();
   const [view, setView] = useState<View>("home");
-  const [collapsed, setCollapsed] = useState(false);
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [transcriptions, setTranscriptions] = useState<Transcription[]>([]);
@@ -2562,8 +2550,6 @@ export default function Home() {
       <Sidebar
         view={view}
         onViewChange={setView}
-        collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed((c) => !c)}
         userName={userName}
         tier={tier}
       />
