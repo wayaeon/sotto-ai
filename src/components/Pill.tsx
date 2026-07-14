@@ -10,9 +10,8 @@ const LANGUAGES = [
   { code: "FR", label: "French (Français)",  flag: "🇫🇷" },
 ];
 
-// Right side = wand(32) + gap(5) + notes(32) = 69px.
-// Left side must match so wavepill lands at exact center.
-const SIDE_W = 69;
+// Right side = notes(32). Left side must match so wavepill lands at exact center.
+const SIDE_W = 32;
 const PILL_WINDOW_W           = 380;
 const PILL_WINDOW_COLLAPSED_W = 60;
 const PILL_WINDOW_COLLAPSED_H = 56;
@@ -27,7 +26,7 @@ const ANIM_OUT_MS = 50;
 // The key invariant: handle is ONLY visible in "collapsed".
 // This prevents the handle from re-appearing inside the old expanded window.
 type PillPhase = "collapsed" | "expanding" | "expanded" | "collapsing";
-type Hovered   = null | "lang" | "dictate" | "enhance" | "history";
+type Hovered   = null | "lang" | "dictate" | "history";
 
 // Monitor cache — avoids a redundant IPC call on every resize.
 let monitorCache: Awaited<ReturnType<typeof currentMonitor>> | undefined;
@@ -449,18 +448,8 @@ export default function Pill() {
                   </button>
                 </div>
 
-                {/* RIGHT — wand + notes */}
-                <div style={{ width: SIDE_W, display: "flex", gap: 5, alignItems: "center" }}>
-                  <div
-                    style={{ position: "relative" }}
-                    onMouseEnter={() => setHoveredEl("enhance")}
-                    onMouseLeave={() => setHoveredEl(null)}
-                  >
-                    {hoveredEl === "enhance" && (
-                      <div style={s.tooltip}><span style={s.tooltipText}>Enhance</span></div>
-                    )}
-                    <button className="pbtn" style={s.iconBtn}><WandIcon /></button>
-                  </div>
+                {/* RIGHT — notes */}
+                <div style={{ width: SIDE_W, display: "flex", alignItems: "center" }}>
                   <div
                     style={{ position: "relative" }}
                     onMouseEnter={() => setHoveredEl("history")}
@@ -581,16 +570,6 @@ function GlobeIcon() {
       <circle cx="12" cy="12" r="10"/>
       <path d="M2 12h20"/>
       <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/>
-    </svg>
-  );
-}
-
-function WandIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/>
-      <path d="m14 7 3 3"/>
-      <path d="M5 6v4M19 14v4M10 2v2M7 8H3M21 16h-4M11 3H9"/>
     </svg>
   );
 }
