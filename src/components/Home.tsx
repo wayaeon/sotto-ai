@@ -558,9 +558,6 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
           <div className="eyebrow">Library · {transcriptions.length} transcription{transcriptions.length !== 1 ? "s" : ""}</div>
           <h1 className="page-title"><em>History</em></h1>
         </div>
-        <button className="btn btn-sm">
-          <Icons.Download size={13} /> Export
-        </button>
       </div>
 
       {/* Search + filters */}
@@ -656,11 +653,8 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
                 </div>
               </div>
 
-              {/* Waveform strip */}
+              {/* Waveform strip — decorative duration indicator, no audio is retained to play back */}
               <div className="card" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20, padding: "14px 18px" }}>
-                <button className="btn btn-sm" style={{ flexShrink: 0 }}>
-                  <Icons.Play size={12} />
-                </button>
                 <Waveform bars={40} height={24} color="var(--c-violet)" static />
                 <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
                   {fmtDuration(selected.duration_ms)}
