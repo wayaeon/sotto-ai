@@ -72,3 +72,29 @@ def restore_readable_transcript(text: str) -> str:
     if cleaned and cleaned[-1] not in ".?!":
         cleaned += "."
     return cleaned
+
+
+def strip_filler_words(text: str, filler_words: list[str]) -> str:
+    """Remove filler words/phrases as whole tokens, consuming a comma on
+    either side, then clean up leftover whitespace/punctuation and
+    re-capitalize the new sentence start if it changed. Pure rule-based
+    word-list matching — no LLM, no network, consistent with
+    restore_readable_transcript above."""
+    if not text or not filler_words:
+        return text
+
+    ordered = sorted({w.strip() for w in filler_words if w.strip()}, key=len, reverse=True)
+    if not ordered:
+        return text
+
+    alternation = "|".join(re.escape(w) for w in ordered)
+    pattern = rf"\s*,?\s*\b(?:{alternation})\b\s*,?\s*"
+    cleaned = re.sub(pattern, " ", text, flags=re.IGNORECASE)
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"\s+([,.?!])", r"\1", cleaned)
+    cleaned = re.sub(r"^,\s*", "", cleaned)
+
+    if cleaned:
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    return cleaned
