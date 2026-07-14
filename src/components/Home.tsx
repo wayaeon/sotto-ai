@@ -514,9 +514,10 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
   const filtered = useMemo(() => {
     return transcriptions.filter((t) => {
       if (search && !t.text.toLowerCase().includes(search.toLowerCase())) return false;
+      if (filter !== "all" && t.app_name !== filter) return false;
       return true;
     });
-  }, [transcriptions, search]);
+  }, [transcriptions, search, filter]);
 
   function handleCopy() {
     if (!selected) return;
@@ -537,7 +538,12 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
     URL.revokeObjectURL(url);
   }
 
-  const contextFilters = ["all", "email", "chat", "docs", "code"];
+  const contextFilters = useMemo(() => {
+    const names = new Set(
+      transcriptions.map((t) => t.app_name).filter((n): n is string => !!n)
+    );
+    return ["all", ...[...names].sort()];
+  }, [transcriptions]);
 
   return (
     <div className="main" style={{ overflow: "hidden" }}>
@@ -561,7 +567,7 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {contextFilters.map((f) => (
             <button
               key={f}
@@ -569,7 +575,7 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
               style={filter === f ? { background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.25)", color: "var(--c-violet)" } : {}}
               onClick={() => setFilter(f)}
             >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === "all" ? "All" : f}
             </button>
           ))}
         </div>
@@ -598,10 +604,11 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
                   className={`list-row${isSelected ? " selected" : ""}`}
                   style={{ gridTemplateColumns: "1fr" }}
                   onClick={() => setSelected(t)}
+                  title={t.text}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(125,211,252,0.08)", border: "1px solid rgba(125,211,252,0.14)", display: "grid", placeItems: "center", color: "var(--c-blue)", flexShrink: 0 }}>
-                      <Icons.FileText size={13} />
+                    <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(125,211,252,0.08)", border: "1px solid rgba(125,211,252,0.14)", display: "grid", placeItems: "center", color: "var(--c-blue)", flexShrink: 0, overflow: "hidden" }}>
+                      {t.app_icon ? <img src={t.app_icon} alt="" style={{ width: 16, height: 16 }} /> : <Icons.FileText size={13} />}
                     </div>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
