@@ -1110,6 +1110,20 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
     return sums.map((s, i) => (counts[i] > 0 ? Math.round(s / counts[i]) : 0));
   }, [transcriptions]);
   const maxWpm = Math.max(...wpmTrendData, 1);
+  const contextBreakdown = useMemo(() => {
+    const counts = new Map<string, number>();
+    inRange.forEach((t) => {
+      const key = t.app_name || "Unknown";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, 5);
+    const restCount = sorted.slice(5).reduce((sum, [, c]) => sum + c, 0);
+    if (restCount > 0) top.push(["Other", restCount]);
+    return top;
+  }, [inRange]);
+  const contextTotal = contextBreakdown.reduce((s, [, c]) => s + c, 0) || 1;
+  const CONTEXT_COLORS = ["var(--c-violet)", "var(--c-blue)", "var(--c-mint)", "var(--c-amber)", "var(--c-rose)", "var(--text-4)"];
 
   return (
     <div className="main fade-in">
@@ -1174,27 +1188,54 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
         {/* Heatmap */}
         <ActivityHeatmap transcriptions={transcriptions} />
 
-        {/* Context breakdown */}
+        {/* Context breakdown — which apps you actually dictated into, from real app_name data */}
         <SectionHead label="Context Breakdown" />
         <div className="card" style={{ display: "flex", alignItems: "center", gap: 24 }}>
-          <div style={{ textAlign: "center" }}>
-            <svg width={100} height={100} viewBox="0 0 36 36">
-              <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="3.8" />
-              <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--c-violet)" strokeWidth="3.8"
-                strokeDasharray={`${transcriptions.length > 0 ? 100 : 0} 100`}
-                strokeLinecap="round" transform="rotate(-90 18 18)" />
-            </svg>
-            <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>All notes</div>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-              <Chip tone="blue" dot>Note</Chip>
-              <div style={{ flex: 1, height: 4, background: "rgba(125,211,252,0.15)", borderRadius: 2, overflow: "hidden" }}>
-                <div style={{ width: "100%", height: "100%", background: "var(--c-blue)", borderRadius: 2 }} />
-              </div>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{transcriptions.length}</span>
+          {contextBreakdown.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "8px 0", color: "var(--text-4)", fontSize: 13, width: "100%" }}>
+              No data yet — start dictating to see which apps you use most.
             </div>
-          </div>
+          ) : (
+            <>
+              <div style={{ textAlign: "center" }}>
+                <svg width={100} height={100} viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="3.8" />
+                  {(() => {
+                    let cumulativePct = 0;
+                    return contextBreakdown.map(([name, count], i) => {
+                      const pct = (count / contextTotal) * 100;
+                      const el = (
+                        <circle
+                          key={name}
+                          cx="18" cy="18" r="15.9" fill="none"
+                          stroke={CONTEXT_COLORS[i % CONTEXT_COLORS.length]}
+                          strokeWidth="3.8"
+                          strokeDasharray={`${pct} ${100 - pct}`}
+                          strokeDashoffset={-cumulativePct}
+                          strokeLinecap="butt"
+                          transform="rotate(-90 18 18)"
+                        />
+                      );
+                      cumulativePct += pct;
+                      return el;
+                    });
+                  })()}
+                </svg>
+                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{contextTotal} notes</div>
+              </div>
+              <div style={{ flex: 1 }}>
+                {contextBreakdown.map(([name, count], i) => (
+                  <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+                    <Chip dot>{name}</Chip>
+                    <div style={{ flex: 1, height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ width: `${(count / contextTotal) * 100}%`, height: "100%", background: CONTEXT_COLORS[i % CONTEXT_COLORS.length], borderRadius: 2 }} />
+                    </div>
+                    <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{count}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Communication style */}
