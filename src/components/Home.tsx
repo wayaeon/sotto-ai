@@ -1131,6 +1131,7 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
   }, [inRange]);
   const contextTotal = contextBreakdown.reduce((s, [, c]) => s + c, 0) || 1;
   const CONTEXT_COLORS = ["var(--c-violet)", "var(--c-blue)", "var(--c-mint)", "var(--c-amber)", "var(--c-rose)", "var(--text-4)"];
+  const CONTEXT_CHIP_TONES = ["violet", "blue", "mint", "amber", "rose"];
 
   return (
     <div className="main fade-in">
@@ -1233,7 +1234,7 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
               <div style={{ flex: 1 }}>
                 {contextBreakdown.map(([name, count], i) => (
                   <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-                    <Chip dot>{name}</Chip>
+                    <Chip dot tone={CONTEXT_CHIP_TONES[i]}>{name}</Chip>
                     <div style={{ flex: 1, height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 2, overflow: "hidden" }}>
                       <div style={{ width: `${(count / contextTotal) * 100}%`, height: "100%", background: CONTEXT_COLORS[i % CONTEXT_COLORS.length], borderRadius: 2 }} />
                     </div>
@@ -2109,7 +2110,6 @@ function HotkeysPanel() {
 function AIPanel({ tier }: { tier: string | null }) {
   const [smartFormat, setSmartFormat] = useToggleSetting("smart_format", true);
   const [punctuation, setPunctuation] = useToggleSetting("punctuation", true);
-  const [fillers, setFillers] = useToggleSetting("fillers", true);
   const [tone, setTone] = useSetting("tone", "neutral");
   const [model, setModel] = useSetting("model", "cloud");
 
@@ -2128,13 +2128,6 @@ function AIPanel({ tier }: { tier: string | null }) {
           <p className="d">Automatically add commas, periods, and question marks.</p>
         </div>
         <Toggle on={punctuation} onChange={setPunctuation} />
-      </div>
-      <div className="setting-row">
-        <div className="setting-text">
-          <p className="t">Remove filler words</p>
-          <p className="d">Strip "um", "uh", "like" from transcripts.</p>
-        </div>
-        <Toggle on={fillers} onChange={setFillers} />
       </div>
       <div className="setting-row">
         <div className="setting-text">
