@@ -1945,6 +1945,84 @@ function AIPanel({ tier }: { tier: string | null }) {
   );
 }
 
+function FillerSection() {
+  const [enabled, setEnabled] = useToggleSetting("filler_enabled", true);
+  const [words, setWords] = useState<string[]>(getFillerWords);
+  const [term, setTerm] = useState("");
+
+  function sync(nextEnabled: boolean, nextWords: string[]) {
+    import("../lib/tauri").then(({ setFillerConfig }) => setFillerConfig(nextEnabled, nextWords).catch(() => {}));
+  }
+
+  function toggleEnabled(v: boolean) {
+    setEnabled(v);
+    sync(v, words);
+  }
+
+  function addWord() {
+    const w = term.trim().toLowerCase();
+    if (!w || words.includes(w)) return;
+    const updated = [...words, w];
+    setWords(updated);
+    saveFillerWords(updated);
+    sync(enabled, updated);
+    setTerm("");
+  }
+
+  function removeWord(w: string) {
+    const updated = words.filter((x) => x !== w);
+    setWords(updated);
+    saveFillerWords(updated);
+    sync(enabled, updated);
+  }
+
+  function resetDefault() {
+    setWords(DEFAULT_FILLER_WORDS);
+    saveFillerWords(DEFAULT_FILLER_WORDS);
+    sync(enabled, DEFAULT_FILLER_WORDS);
+  }
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <SectionHead label="Filler Words" action={<Toggle on={enabled} onChange={toggleEnabled} />} />
+      <p style={{ fontSize: 12.5, color: "var(--text-3)", margin: "0 0 14px" }}>
+        Strips these from dictated text before it's pasted.
+      </p>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <div className="input" style={{ flex: 1 }}>
+          <input
+            value={term}
+            onChange={(e) => setTerm(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addWord()}
+            placeholder="Add a word or phrase"
+          />
+        </div>
+        <button className="btn btn-sm btn-primary" onClick={addWord}>
+          <Icons.Plus size={13} /> Add
+        </button>
+        <button className="btn btn-sm btn-ghost" onClick={resetDefault} title="Reset to the default list">
+          Reset
+        </button>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {words.map((w) => (
+          <span key={w} className="chip" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {w}
+            <button
+              className="btn btn-ghost btn-sm"
+              style={{ padding: 2, color: "var(--c-rose)" }}
+              onClick={() => removeWord(w)}
+              title={`Remove "${w}"`}
+            >
+              <Icons.X size={10} />
+            </button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DictPanel() {
   const [entries, setEntries] = useState<DictEntry[]>(getDictionary);
   const [term, setTerm] = useState("");
@@ -2008,6 +2086,8 @@ function DictPanel() {
           ))}
         </div>
       )}
+
+      <FillerSection />
     </div>
   );
 }
