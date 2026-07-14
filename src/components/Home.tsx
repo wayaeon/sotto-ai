@@ -545,6 +545,12 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
     return ["all", ...[...names].sort()];
   }, [transcriptions]);
 
+  useEffect(() => {
+    if (filter !== "all" && !contextFilters.includes(filter)) {
+      setFilter("all");
+    }
+  }, [filter, contextFilters]);
+
   return (
     <div className="main" style={{ overflow: "hidden" }}>
       <div className="main-header">
