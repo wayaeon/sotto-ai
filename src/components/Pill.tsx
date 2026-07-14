@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { useAppStore } from "../stores/appStore";
 import { useSidecar } from "../hooks/useSidecar";
+import { toggleHandsfree } from "../lib/tauri";
 
 const LANGUAGES = [
   { code: "EN", label: "English",            flag: "🇺🇸" },
@@ -56,9 +57,8 @@ async function resizePillWindow(width: number, height: number) {
 
 export default function Pill() {
   useSidecar({ primary: true });
-  const { recordingState, sidecarReady, modelReady, setRecordingState } = useAppStore();
+  const { recordingState, sidecarReady, modelReady, setRecordingState, handsFreeActive, focusedApp } = useAppStore();
 
-  const pttActive  = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const [bottomPad,     setBottomPad]     = useState(52);
@@ -86,7 +86,11 @@ export default function Pill() {
   const isRecording  = recordingState === "recording";
   const isProcessing = recordingState === "processing";
   const isLoading    = recordingState === "loading";
-  const shouldShowBar = expanded || isRecording || isProcessing || isLoading;
+  // Hands-free keeps the bar up the whole time it's armed, not just mid-utterance —
+  // this is the pill's half of staying in sync with the Orb's persistent "listening"
+  // state instead of going silent between utterances.
+  const isListening   = handsFreeActive && !isRecording && !isProcessing;
+  const shouldShowBar = expanded || isRecording || isProcessing || isLoading || handsFreeActive;
 
   // ─── Phase state machine ──────────────────────────────────────────────────
   //
@@ -108,7 +112,7 @@ export default function Pill() {
   useEffect(() => {
     const targetHeight = showLangPanel
       ? PILL_WINDOW_PANEL_H
-      : isRecording || isProcessing || isLoading
+      : isRecording || isProcessing || isLoading || isListening
         ? PILL_WINDOW_ACTIVE_H
         : PILL_WINDOW_BAR_H;
 
@@ -171,7 +175,7 @@ export default function Pill() {
       return () => clearTimeout(t);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldShowBar, isRecording, isProcessing, isLoading, showLangPanel]);
+  }, [shouldShowBar, isRecording, isProcessing, isLoading, isListening, showLangPanel]);
 
   // Recording timer
   const [recSecs, setRecSecs] = useState(0);
@@ -200,21 +204,13 @@ export default function Pill() {
   };
   const cancelHide = () => clearTimeout(leaveTimer.current);
 
-  const startPtt = async () => {
-    if (pttActive.current) return;
+  // Click toggles hands-free, same as the Orb — Ctrl+Win stays the instant
+  // one-shot PTT path (wired directly in Rust, doesn't go through here).
+  const onDictateClick = () => {
     if (!sidecarReady || !modelReady) return;
-    pttActive.current = true;
-    setRecordingState("recording");
-    await invoke("start_ptt").catch(() => {});
-  };
-  const stopPtt = async () => {
-    if (!pttActive.current) return;
-    pttActive.current = false;
-    setRecordingState("idle");
-    if (sidecarReady) await invoke("stop_ptt").catch(() => {});
+    toggleHandsfree().catch(() => {});
   };
   const cancelRecording = async () => {
-    pttActive.current = false;
     setRecordingState("idle");
     if (sidecarReady) await invoke("stop_ptt").catch(() => {});
   };
@@ -287,6 +283,10 @@ export default function Pill() {
         @keyframes pulseGlow {
           0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,0); }
           50%       { box-shadow: 0 0 0 6px rgba(167,139,250,0.18); }
+        }
+        @keyframes pulseGlowMint {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+          50%       { box-shadow: 0 0 0 6px rgba(52,211,153,0.16); }
         }
         @keyframes micPulse {
           0%, 100% { opacity: 0.6; transform: scale(1); }
@@ -372,6 +372,9 @@ export default function Pill() {
                   animation: isRecording ? "pulseGlow 1.8s ease-in-out infinite" : "none",
                   minWidth: 100, gap: 8,
                 }}>
+                  {isRecording && focusedApp?.iconDataUri && (
+                    <img src={focusedApp.iconDataUri} alt="" title={focusedApp.name} style={s.appIcon} />
+                  )}
                   {isRecording && (
                     <span style={s.recTimer}>
                       {`${Math.floor(recSecs / 60)}:${String(recSecs % 60).padStart(2, "0")}`}
@@ -379,8 +382,23 @@ export default function Pill() {
                   )}
                   <WaveVisual state={recordingState} />
                 </div>
-                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(34,197,94,0.35)" }} onClick={stopPtt}>
+                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(34,197,94,0.35)" }} onClick={() => invoke("stop_ptt").catch(() => {})}>
                   <CheckIcon />
+                </button>
+              </div>
+
+            ) : isListening ? (
+              <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ ...s.dictatingBubble, border: "1px solid rgba(52,211,153,0.25)" }}>
+                  <span style={{ ...s.dictatingDot, background: "rgba(52,211,153,0.9)", animation: "micPulse 1.6s ease-in-out infinite" }} />
+                  <span style={s.dictatingText}>Listening…</span>
+                </div>
+                <button
+                  className="pbtn"
+                  style={{ ...s.wavePill, border: "1px solid rgba(52,211,153,0.5)", animation: "pulseGlowMint 2.2s ease-in-out infinite", minWidth: 100 }}
+                  onClick={onDictateClick}
+                >
+                  <WaveVisual state="idle" />
                 </button>
               </div>
 
@@ -443,7 +461,7 @@ export default function Pill() {
                       <span style={{ ...s.tooltipText, color: "#a78bfa", fontWeight: 600 }}>Ctrl+Win</span>
                     </div>
                   )}
-                  <button className="pbtn" style={s.wavePill} onClick={startPtt}>
+                  <button className="pbtn" style={s.wavePill} onClick={onDictateClick}>
                     <WaveVisual state={recordingState} />
                   </button>
                 </div>
@@ -787,6 +805,9 @@ const s: Record<string, React.CSSProperties> = {
   recTimer: {
     color: "rgba(167,139,250,0.9)", fontSize: 12, fontWeight: 600,
     fontVariantNumeric: "tabular-nums", letterSpacing: 0.5, flexShrink: 0,
+  },
+  appIcon: {
+    width: 14, height: 14, borderRadius: 3, flexShrink: 0, objectFit: "contain",
   },
   progressTrack: {
     width: 180, height: 3, borderRadius: 99,

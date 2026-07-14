@@ -384,6 +384,8 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
   const lastSegment = useAppStore((s) => s.lastSegment);
   const model = useAppStore((s) => s.model);
   const modelReady = useAppStore((s) => s.modelReady);
+  const lastDictationApp = useAppStore((s) => s.lastDictationApp);
+  const lastDictationStats = useAppStore((s) => s.lastDictationStats);
 
   // Today's words from actual transcription timestamps (not lifetime aggregates)
   const todayWords = useMemo(() => {
@@ -432,6 +434,20 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
         ) : (
           <div className="talk-last talk-last-empty">
             Hold <kbd>Ctrl</kbd> + <kbd>Win</kbd> and speak — your words appear wherever you're typing.
+          </div>
+        )}
+
+        {/* Per-utterance summary: what you just dictated into, and how much. */}
+        {lastDictationStats && (
+          <div className="talk-summary">
+            {lastDictationApp?.iconDataUri && (
+              <img src={lastDictationApp.iconDataUri} alt="" className="talk-summary-icon" />
+            )}
+            {lastDictationApp && <span>{lastDictationApp.name}</span>}
+            {lastDictationApp && <span>·</span>}
+            <span>{lastDictationStats.wordCount} word{lastDictationStats.wordCount === 1 ? "" : "s"}</span>
+            <span>·</span>
+            <span>{fmtDuration(lastDictationStats.durationMs)}</span>
           </div>
         )}
 

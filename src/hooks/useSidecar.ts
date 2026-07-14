@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { onSidecarEvent, injectText, setModel as setModelIpc, type SidecarMessage } from "../lib/tauri";
+import { onSidecarEvent, onFocusedApp, injectText, setModel as setModelIpc, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 
@@ -24,9 +24,21 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     setTier,
     setModel,
     setHandsFreeActive,
+    setFocusedApp,
+    setLastDictationApp,
+    setLastDictationStats,
   } = useAppStore();
 
   const dictationStartMs = useRef<number | null>(null);
+
+  // Separate listener/effect — this event comes straight from Rust, not
+  // through the sidecar's JSON-lines protocol like everything else here.
+  useEffect(() => {
+    const unlisten = onFocusedApp((app) => {
+      setFocusedApp({ name: app.name, iconDataUri: app.icon_data_uri, kind: app.kind });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [setFocusedApp]);
 
   useEffect(() => {
     const unlisten = onSidecarEvent((msg: SidecarMessage) => {
@@ -57,26 +69,40 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           const raw = msg.text;
           commitSegment(raw);
 
-          // Side effects run only in the primary (Pill) instance
-          if (raw.trim() && primary) {
-            const durationMs = dictationStartMs.current
-              ? Date.now() - dictationStartMs.current
-              : 0;
-            dictationStartMs.current = null;
+          const durationMs = dictationStartMs.current
+            ? Date.now() - dictationStartMs.current
+            : 0;
+          dictationStartMs.current = null;
 
+          // Runs in every window (each has its own store — sidecar-event
+          // broadcasts to all of them, so this is how they stay in sync
+          // instead of only the Pill knowing what was just dictated).
+          if (raw.trim()) {
+            // Snapshot now — focusedApp reflects whatever was focused when this
+            // utterance *started*; by the time segment_done fires the user may
+            // have already switched windows, so this pins it to the right one.
+            const dictatedInto = useAppStore.getState().focusedApp;
+            setLastDictationApp(dictatedInto);
+            setLastDictationStats({ wordCount: raw.trim().split(/\s+/).length, durationMs });
+          }
+
+          // Injection/history/metrics run only in the primary (Pill)
+          // instance, to avoid double-injecting and duplicate history rows.
+          if (raw.trim() && primary) {
             const currentModel = useAppStore.getState().model ?? "";
             const currentTier  = useAppStore.getState().tier  ?? "";
+            const dictatedInto = useAppStore.getState().lastDictationApp;
 
             localStorage.setItem("verba_last_transcription", raw);
 
             // inject_text Rust command emits "inject-done" to all windows after completing
             injectText(raw).catch((e) => console.warn("[inject_text]", e));
 
-            insertTranscription(raw, currentModel, currentTier, durationMs);
+            insertTranscription(
+              raw, currentModel, currentTier, durationMs,
+              dictatedInto?.name ?? null, dictatedInto?.iconDataUri ?? null
+            );
             updateMetrics(raw.trim().split(/\s+/).length, durationMs);
-          } else if (!primary) {
-            // Non-primary: still reset the timer so state stays consistent
-            dictationStartMs.current = null;
           }
           break;
         }
@@ -151,5 +177,5 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setSidecarReady, setModelReady, setRecordingState, appendWord, commitSegment, setTier, setModel]);
+  }, [setSidecarReady, setModelReady, setRecordingState, appendWord, commitSegment, setTier, setModel, setHandsFreeActive, setLastDictationApp, setLastDictationStats]);
 }

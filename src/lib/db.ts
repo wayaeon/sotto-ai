@@ -5,6 +5,8 @@ export interface Transcription {
   tier: string;
   duration_ms: number;
   created_at: string;
+  app_name: string | null;
+  app_icon: string | null;
 }
 
 const TRANSCRIPTIONS_KEY = "verba_transcriptions";
@@ -24,7 +26,9 @@ export function insertTranscription(
   text: string,
   model: string,
   tier: string,
-  durationMs: number
+  durationMs: number,
+  appName: string | null = null,
+  appIcon: string | null = null
 ): Transcription {
   const items = load();
   const item: Transcription = {
@@ -34,6 +38,8 @@ export function insertTranscription(
     tier: tier ?? "",
     duration_ms: durationMs,
     created_at: new Date().toISOString(),
+    app_name: appName,
+    app_icon: appIcon,
   };
   items.push(item);
   localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(items.slice(-MAX_STORED)));

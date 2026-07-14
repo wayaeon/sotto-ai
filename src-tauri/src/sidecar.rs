@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+use crate::focus::emit_focused_app_async;
 
 pub struct SidecarState {
     pub child: Arc<Mutex<Option<CommandChild>>>,
@@ -62,6 +63,12 @@ pub fn spawn_sidecar(app: &AppHandle) {
                                         pill.show().ok();
                                     }
                                 }
+                            }
+                            // A hands-free utterance just started (VAD onset committed
+                            // on the Python side) — this is the hands-free equivalent
+                            // of the PTT hotkey press, so detect focus here too.
+                            if line.contains("handsfree_ptt") {
+                                emit_focused_app_async(app_handle.clone());
                             }
                             app_handle.emit("sidecar-event", line).ok();
                         }
