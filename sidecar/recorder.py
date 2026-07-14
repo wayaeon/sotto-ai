@@ -112,6 +112,15 @@ class Recorder:
         self._model_name = best_available_model(hw.model_name)
         self._initial_prompt = ""
 
+        # Filler-word filter — on by default with a built-in list so it
+        # works before the user ever opens Settings. The frontend's own
+        # default list (Home.tsx DEFAULT_FILLER_WORDS) mirrors this.
+        self._filler_enabled = True
+        self._filler_words: list[str] = [
+            "um", "umm", "uh", "uhh", "like", "you know", "i mean",
+            "sort of", "kind of", "actually", "basically", "literally", "so yeah",
+        ]
+
         # ── always-on audio pump ──────────────────────────────────────────────
         self._pump_thread:   threading.Thread | None = None
         self._shutdown_event = threading.Event()
@@ -229,12 +238,21 @@ class Recorder:
         spec = MODEL_CATALOG.get(self._model_name)
         return spec.runtime if spec else "faster-whisper"
 
-    def _postprocess_transcript(self, text: str) -> str:
-        if self._runtime() != "onnx":
-            return text.strip()
-        from .cleanup import restore_readable_transcript
+    def _postprocess_transcript(self, text: str) -> tuple[str, str | None]:
+        if self._runtime() == "onnx":
+            from .cleanup import restore_readable_transcript
+            text = restore_readable_transcript(text)
+        else:
+            text = text.strip()
 
-        return restore_readable_transcript(text)
+        if not self._filler_enabled or not self._filler_words:
+            return text, None
+
+        from .cleanup import strip_filler_words
+        filtered = strip_filler_words(text, self._filler_words)
+        if filtered == text:
+            return text, None
+        return filtered, text
 
     def _ensure_model_downloaded(self) -> None:
         from .models import is_downloaded, _download_model
@@ -399,7 +417,7 @@ class Recorder:
                     status, value = self._result_q.get(timeout=2)
                     t_transcription_done_ms = time.time() * 1000
                     if status == "ok":
-                        value = self._postprocess_transcript(value)
+                        value, raw_value = self._postprocess_transcript(value)
                         if value:
                             timing: dict = {}
                             if timing_ctx:
@@ -413,6 +431,7 @@ class Recorder:
                             self._ipc.send(
                                 Event.SEGMENT_DONE,
                                 text=value,
+                                raw_text=raw_value,
                                 audio_path=audio_path,
                                 timing=timing,
                             )
@@ -599,6 +618,10 @@ class Recorder:
         # Not currently threaded into any runtime adapter's transcribe() call
         # (PTT never used it either) — kept for a future prompt-biasing pass.
         self._initial_prompt = ", ".join(words) if words else ""
+
+    def set_filler_config(self, enabled: bool, words: list[str]) -> None:
+        self._filler_enabled = enabled
+        self._filler_words = words
 
     # ── cleanup ──────────────────
 
