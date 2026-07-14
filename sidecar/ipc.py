@@ -15,6 +15,7 @@ class Command(str, Enum):
     SET_MODEL = "set_model"
     BENCHMARK_MODEL = "benchmark_model"
     SET_DICTIONARY = "set_dictionary"
+    SET_FILLER_CONFIG = "set_filler_config"
     CHECK_DOWNLOADS = "check_downloads"
     PING = "ping"
     QUIT = "quit"
