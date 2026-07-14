@@ -981,7 +981,16 @@ const INSIGHTS_STOP_WORDS = new Set([
 ]);
 
 function tokenizeForInsights(text: string): string[] {
-  return text.toLowerCase().match(/[a-z']+/g) ?? [];
+  return text.toLowerCase().match(/[\p{L}'-]+/gu) ?? [];
+}
+
+function buildFillerRegex(fillerWords: string[]): RegExp | null {
+  const cleaned = fillerWords.map((w) => w.trim().toLowerCase()).filter(Boolean);
+  if (cleaned.length === 0) return null;
+  const alternation = cleaned
+    .sort((a, b) => b.length - a.length)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`\\b(?:${alternation.join("|")})\\b`, "gi");
 }
 
 function mostUsedWords(
@@ -989,11 +998,12 @@ function mostUsedWords(
   fillerWords: string[],
   limit = 12
 ): Array<{ word: string; count: number }> {
-  const filler = new Set(fillerWords.map((w) => w.toLowerCase()));
+  const fillerRe = buildFillerRegex(fillerWords);
   const counts = new Map<string, number>();
   for (const t of transcriptions) {
-    for (const word of tokenizeForInsights(t.text)) {
-      if (INSIGHTS_STOP_WORDS.has(word) || filler.has(word) || word.length < 2) continue;
+    const withoutFillers = fillerRe ? t.text.replace(fillerRe, " ") : t.text;
+    for (const word of tokenizeForInsights(withoutFillers)) {
+      if (INSIGHTS_STOP_WORDS.has(word) || word.length < 2) continue;
       counts.set(word, (counts.get(word) ?? 0) + 1);
     }
   }
@@ -1004,12 +1014,8 @@ function mostUsedWords(
 }
 
 function countFillerWords(text: string, fillerWords: string[]): number {
-  const cleaned = fillerWords.map((w) => w.trim().toLowerCase()).filter(Boolean);
-  if (cleaned.length === 0) return 0;
-  const alternation = cleaned
-    .sort((a, b) => b.length - a.length)
-    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const re = new RegExp(`\\b(?:${alternation.join("|")})\\b`, "gi");
+  const re = buildFillerRegex(fillerWords);
+  if (!re) return 0;
   return (text.match(re) ?? []).length;
 }
 
