@@ -162,6 +162,23 @@ function saveDictionary(entries: DictEntry[]): void {
   localStorage.setItem("verba_dictionary", JSON.stringify(entries));
 }
 
+const DEFAULT_FILLER_WORDS = [
+  "um", "umm", "uh", "uhh", "like", "you know", "i mean",
+  "sort of", "kind of", "actually", "basically", "literally", "so yeah",
+];
+
+function getFillerWords(): string[] {
+  try {
+    const raw = localStorage.getItem("verba_filler_words");
+    if (raw) return JSON.parse(raw) as string[];
+  } catch { /* ignore */ }
+  return DEFAULT_FILLER_WORDS;
+}
+
+function saveFillerWords(words: string[]): void {
+  localStorage.setItem("verba_filler_words", JSON.stringify(words));
+}
+
 // ─── SVG Icons ────────────────────────────────────────────
 
 interface SvgProps {
@@ -320,9 +337,10 @@ interface StatProps {
   deltaDown?: boolean;
   accent: string;
   italic?: boolean;
+  hint?: string;
 }
 
-function Stat({ value, unit, label, sub, delta, deltaDown, accent, italic }: StatProps) {
+function Stat({ value, unit, label, sub, delta, deltaDown, accent, italic, hint }: StatProps) {
   return (
     <div className="stat" data-accent={accent}>
       {delta && <span className={`stat-delta${deltaDown ? " down" : ""}`}>{delta}</span>}
@@ -331,7 +349,7 @@ function Stat({ value, unit, label, sub, delta, deltaDown, accent, italic }: Sta
         {unit && <span className="stat-unit">{unit}</span>}
       </div>
       <div className="stat-label">
-        <span className="l">{label}</span>
+        <span className="l" title={hint}>{label}</span>
         {sub && <span className="sub">{sub}</span>}
       </div>
     </div>
