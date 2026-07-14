@@ -20,13 +20,39 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
 /// Detects the focused app off the calling thread and emits the result to
-/// every window once done. Detection can block on a favicon fetch over the
-/// network, so this must never be called from a thread that also needs to
-/// stay responsive (the hotkey listener thread, the sidecar's stdout loop).
+/// every window. Emits twice for browsers: the local app icon lands first
+/// (fast — no network, no UI Automation traversal) so the pill never waits
+/// on the slow path just to show *something*, then a second event follows
+/// with the site-specific favicon if that resolves. Must never be called
+/// from a thread that needs to stay responsive (the hotkey listener thread,
+/// the sidecar's stdout loop) since the favicon phase can block on network.
 pub fn emit_focused_app_async(app: AppHandle) {
     std::thread::spawn(move || {
-        if let Some(focused) = detect_focused_app() {
-            app.emit("focused-app", focused).ok();
+        let Some(exe_path) = focused_process_path() else { return };
+        let file_name = exe_path
+            .rsplit(['\\', '/'])
+            .next()
+            .unwrap_or(&exe_path)
+            .to_string();
+        let app_icon = extract_app_icon(&exe_path);
+        let browser = BROWSER_EXES
+            .iter()
+            .find(|(exe, _)| file_name.eq_ignore_ascii_case(exe));
+
+        let fast_name = match browser {
+            Some((_, label)) => label.to_string(),
+            None => file_name.strip_suffix(".exe").unwrap_or(&file_name).to_string(),
+        };
+        app.emit(
+            "focused-app",
+            FocusedApp { name: fast_name, icon_data_uri: app_icon, kind: "app" },
+        )
+        .ok();
+
+        if browser.is_some() {
+            if let Some(site) = detect_browser_site() {
+                app.emit("focused-app", site).ok();
+            }
         }
     });
 }
@@ -45,41 +71,6 @@ const BROWSER_EXES: &[(&str, &str)] = &[
     ("zen.exe", "Zen"),
     ("brave.exe", "Brave"),
 ];
-
-/// Best-effort — returns None rather than erroring if anything along the way
-/// fails (foreground window gone, process exited, permissions, etc).
-pub fn detect_focused_app() -> Option<FocusedApp> {
-    let exe_path = focused_process_path()?;
-    let file_name = exe_path.rsplit(['\\', '/']).next().unwrap_or(&exe_path).to_string();
-    let app_icon = extract_app_icon(&exe_path);
-
-    if let Some((_, browser_label)) = BROWSER_EXES
-        .iter()
-        .find(|(exe, _)| file_name.eq_ignore_ascii_case(exe))
-    {
-        if let Some(site) = detect_browser_site() {
-            return Some(site);
-        }
-        // Browser detected but couldn't read the URL or fetch a favicon
-        // (offline, unsupported browser tree, etc) — fall back to the
-        // browser's own icon rather than showing nothing.
-        return Some(FocusedApp {
-            name: browser_label.to_string(),
-            icon_data_uri: app_icon,
-            kind: "app",
-        });
-    }
-
-    let display_name = file_name
-        .strip_suffix(".exe")
-        .unwrap_or(&file_name)
-        .to_string();
-    Some(FocusedApp {
-        name: display_name,
-        icon_data_uri: app_icon,
-        kind: "app",
-    })
-}
 
 fn focused_process_path() -> Option<String> {
     unsafe {
