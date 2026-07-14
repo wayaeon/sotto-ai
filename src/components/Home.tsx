@@ -1078,6 +1078,39 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
     return `${pct >= 0 ? "↑" : "↓"}${Math.abs(pct)}%`;
   }, [richnessCurrent, richnessPrevious]);
 
+  const fillerTrendData = useMemo(() => {
+    const days = 30;
+    const bins = new Array(days).fill(0);
+    const now = Date.now();
+    transcriptions.forEach((t) => {
+      const age = (now - new Date(t.created_at).getTime()) / 86400000;
+      const idx = Math.floor(age);
+      if (idx >= 0 && idx < days) {
+        bins[days - 1 - idx] += countFillerWords(t.raw_text ?? t.text, fillerWordsForInsights);
+      }
+    });
+    return bins;
+  }, [transcriptions, fillerWordsForInsights]);
+  const maxFiller = Math.max(...fillerTrendData, 1);
+
+  const wpmTrendData = useMemo(() => {
+    const days = 30;
+    const sums = new Array(days).fill(0);
+    const counts = new Array(days).fill(0);
+    const now = Date.now();
+    transcriptions.forEach((t) => {
+      const age = (now - new Date(t.created_at).getTime()) / 86400000;
+      const idx = Math.floor(age);
+      if (idx >= 0 && idx < days && t.duration_ms > 0) {
+        const wpm = (wordCount(t.text) / t.duration_ms) * 60000;
+        sums[days - 1 - idx] += wpm;
+        counts[days - 1 - idx]++;
+      }
+    });
+    return sums.map((s, i) => (counts[i] > 0 ? Math.round(s / counts[i]) : 0));
+  }, [transcriptions]);
+  const maxWpm = Math.max(...wpmTrendData, 1);
+
   return (
     <div className="main fade-in">
       <div className="main-header">
@@ -1195,6 +1228,32 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
               ))}
             </div>
           )}
+        </div>
+
+        <SectionHead label="Filler Word Trend" />
+        <div className="card">
+          <svg width="100%" height="60" viewBox={`0 0 ${fillerTrendData.length * 12} 60`} preserveAspectRatio="none">
+            {fillerTrendData.map((v, i) => {
+              const h = (v / maxFiller) * 44;
+              return <rect key={i} x={i * 12} y={54 - h} width={10} height={h + 2} rx={2} fill="rgba(251,191,36,0.4)" />;
+            })}
+          </svg>
+          <div style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", marginTop: 6 }}>
+            Last 30 days — {fillerTrendData.reduce((a, b) => a + b, 0)} filler word{fillerTrendData.reduce((a, b) => a + b, 0) === 1 ? "" : "s"} caught
+          </div>
+        </div>
+
+        <SectionHead label="Speaking Pace Trend" />
+        <div className="card">
+          <svg width="100%" height="60" viewBox={`0 0 ${wpmTrendData.length * 12} 60`} preserveAspectRatio="none">
+            {wpmTrendData.map((v, i) => {
+              const h = (v / maxWpm) * 44;
+              return <rect key={i} x={i * 12} y={54 - h} width={10} height={h + 2} rx={2} fill="rgba(125,211,252,0.4)" />;
+            })}
+          </svg>
+          <div style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", marginTop: 6 }}>
+            Last 30 days — average words per minute per day
+          </div>
         </div>
       </div>
     </div>
