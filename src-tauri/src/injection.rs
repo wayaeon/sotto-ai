@@ -45,11 +45,21 @@ impl Injector {
         use uiautomation::UIAutomation;
         use uiautomation::patterns::{UITextPattern, UIValuePattern};
 
-        let Ok(automation) = UIAutomation::new() else { return true };
-        let Ok(element) = automation.get_focused_element() else { return true };
+        // UIAutomation::new() wraps a COM CoCreateInstance call — real
+        // initialization cost, not just a struct alloc. This sits on the
+        // critical path of every single dictation's paste, so a fresh
+        // instance per call was adding measurable latency to every
+        // transcription. Cache one per thread instead.
+        thread_local! {
+            static AUTOMATION: Option<UIAutomation> = UIAutomation::new().ok();
+        }
 
-        element.get_pattern::<UIValuePattern>().is_ok()
-            || element.get_pattern::<UITextPattern>().is_ok()
+        AUTOMATION.with(|automation| {
+            let Some(automation) = automation else { return true };
+            let Ok(element) = automation.get_focused_element() else { return true };
+            element.get_pattern::<UIValuePattern>().is_ok()
+                || element.get_pattern::<UITextPattern>().is_ok()
+        })
     }
 
     #[cfg(not(windows))]
