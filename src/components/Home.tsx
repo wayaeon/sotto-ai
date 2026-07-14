@@ -972,6 +972,53 @@ interface InsightsScreenProps {
   metrics: Metrics;
 }
 
+const INSIGHTS_STOP_WORDS = new Set([
+  "the", "a", "an", "is", "it", "to", "and", "of", "in", "on", "for", "that",
+  "this", "i", "you", "he", "she", "we", "they", "was", "were", "be", "been",
+  "being", "am", "are", "do", "does", "did", "have", "has", "had", "with",
+  "as", "at", "by", "from", "or", "but", "if", "not", "so", "my", "your",
+  "his", "her", "its", "our", "their",
+]);
+
+function tokenizeForInsights(text: string): string[] {
+  return text.toLowerCase().match(/[a-z']+/g) ?? [];
+}
+
+function mostUsedWords(
+  transcriptions: Transcription[],
+  fillerWords: string[],
+  limit = 12
+): Array<{ word: string; count: number }> {
+  const filler = new Set(fillerWords.map((w) => w.toLowerCase()));
+  const counts = new Map<string, number>();
+  for (const t of transcriptions) {
+    for (const word of tokenizeForInsights(t.text)) {
+      if (INSIGHTS_STOP_WORDS.has(word) || filler.has(word) || word.length < 2) continue;
+      counts.set(word, (counts.get(word) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([word, count]) => ({ word, count }));
+}
+
+function countFillerWords(text: string, fillerWords: string[]): number {
+  const cleaned = fillerWords.map((w) => w.trim().toLowerCase()).filter(Boolean);
+  if (cleaned.length === 0) return 0;
+  const alternation = cleaned
+    .sort((a, b) => b.length - a.length)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp(`\\b(?:${alternation.join("|")})\\b`, "gi");
+  return (text.match(re) ?? []).length;
+}
+
+function vocabularyRichness(transcriptions: Transcription[]): number {
+  const words = transcriptions.flatMap((t) => tokenizeForInsights(t.text));
+  if (words.length === 0) return 0;
+  return new Set(words).size / words.length;
+}
+
 function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
   const [range, setRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
 
@@ -992,6 +1039,38 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
 
   const maxVol = Math.max(...volumeData, 1);
 
+  const rangeDays = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : Infinity;
+  const inRange = useMemo(() => {
+    if (rangeDays === Infinity) return transcriptions;
+    const now = Date.now();
+    return transcriptions.filter(
+      (t) => (now - new Date(t.created_at).getTime()) / 86400000 <= rangeDays
+    );
+  }, [transcriptions, rangeDays]);
+  const priorRange = useMemo(() => {
+    if (rangeDays === Infinity) return [];
+    const now = Date.now();
+    return transcriptions.filter((t) => {
+      const age = (now - new Date(t.created_at).getTime()) / 86400000;
+      return age > rangeDays && age <= rangeDays * 2;
+    });
+  }, [transcriptions, rangeDays]);
+
+  const fillerWordsForInsights = useMemo(() => getFillerWords(), []);
+  const topWords = useMemo(
+    () => mostUsedWords(inRange, fillerWordsForInsights),
+    [inRange, fillerWordsForInsights]
+  );
+  const richnessCurrent = useMemo(() => vocabularyRichness(inRange), [inRange]);
+  const richnessPrevious = useMemo(
+    () => (rangeDays === Infinity ? null : vocabularyRichness(priorRange)),
+    [priorRange, rangeDays]
+  );
+  const richnessDelta = useMemo(() => {
+    if (richnessPrevious === null || richnessPrevious === 0) return undefined;
+    const pct = Math.round(((richnessCurrent - richnessPrevious) / richnessPrevious) * 100);
+    return `${pct >= 0 ? "↑" : "↓"}${Math.abs(pct)}%`;
+  }, [richnessCurrent, richnessPrevious]);
 
   return (
     <div className="main fade-in">
@@ -1077,6 +1156,39 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
               <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{transcriptions.length}</span>
             </div>
           </div>
+        </div>
+
+        {/* Communication style */}
+        <SectionHead label="Communication Style" />
+        <div className="stat-grid">
+          <Stat
+            value={Math.round(richnessCurrent * 100)}
+            unit="%"
+            label="Vocabulary richness"
+            hint="Unique words ÷ total words in this period — higher means more varied language."
+            delta={richnessDelta}
+            deltaDown={richnessDelta?.startsWith("↓")}
+            accent="violet"
+          />
+        </div>
+
+        <SectionHead label="Most-Used Words" />
+        <div className="card">
+          {topWords.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-4)", fontSize: 13 }}>
+              No data yet — start dictating to see your most-used words.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {topWords.map(({ word, count }, i) => (
+                <div key={word} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 18, fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{i + 1}</span>
+                  <span style={{ flex: 1, fontSize: 13, color: "var(--text-2)" }}>{word}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{count}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
