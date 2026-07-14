@@ -256,6 +256,15 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 
 .orb[data-state="recording"] .orb-ring { border-color: var(--c-mint); box-shadow: 0 0 34px rgba(52,211,153,0.28); }
 
+/* Hands-free armed but not currently mid-utterance — must read as clearly
+   distinct from "ready" so it's never a silent, easy-to-forget-about state. */
+.orb[data-state="listening"] .orb-ring {
+  border-color: var(--c-mint);
+  box-shadow: 0 0 24px rgba(52,211,153,0.22);
+  animation: orb-pulse 1.6s ease-in-out infinite;
+}
+.orb[data-state="listening"] .orb-core { color: var(--c-mint); }
+
 .orb[data-state="processing"] { cursor: default; }
 .orb[data-state="processing"] .orb-ring {
   border-color: rgba(251,191,36,0.25); border-top-color: var(--c-amber);

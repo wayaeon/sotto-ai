@@ -42,11 +42,16 @@ _WORKER_INIT_S   = 120     # seconds to wait for model load (GPU can take ~30 s)
 # ── hands-free VAD segmentation ──────────────────────────────────────────────
 _VAD_FRAME_MS           = 30
 _VAD_FRAME_BYTES        = int(_SAMPLE_RATE * _VAD_FRAME_MS / 1000) * _SAMPLE_WIDTH  # 960 B
-_VAD_AGGRESSIVENESS     = 2   # 0 (permissive) .. 3 (aggressive) — webrtcvad's own scale
-_HANDSFREE_SILENCE_MS   = 700    # trailing silence that ends an utterance
-_HANDSFREE_MIN_SPEECH_MS = 250   # ignore blips shorter than this
+_VAD_AGGRESSIVENESS     = 3   # 0 (permissive) .. 3 (aggressive) — webrtcvad's own scale
+_HANDSFREE_SILENCE_MS   = 800    # trailing silence that ends an utterance
+_HANDSFREE_MIN_SPEECH_MS = 400   # ignore blips shorter than this
+# A single 30ms frame passing webrtcvad's classifier is not enough to commit to
+# "this is speech" — clicks, hums, and other transients can pass it too. Require
+# this many *consecutive* speech frames before starting to record an utterance.
+_HANDSFREE_ONSET_MS = 150
 _HANDSFREE_SILENCE_FRAMES    = _HANDSFREE_SILENCE_MS // _VAD_FRAME_MS
 _HANDSFREE_MIN_SPEECH_FRAMES = _HANDSFREE_MIN_SPEECH_MS // _VAD_FRAME_MS
+_HANDSFREE_ONSET_FRAMES      = _HANDSFREE_ONSET_MS // _VAD_FRAME_MS
 # Deep enough that a cold worker load (_WORKER_INIT_S, worst case) can't
 # overflow the queue and silently drop audio spoken while it's loading.
 _PUMP_CHUNK_S           = _CHUNK_SIZE / _SAMPLE_RATE
@@ -449,14 +454,23 @@ class Recorder:
 
     def _handsfree_loop(self) -> None:
         """Consume pump audio, segment it with VAD, transcribe each finished
-        utterance through the same worker subprocess PTT uses."""
+        utterance through the same worker subprocess PTT uses.
+
+        A single 30ms frame passing webrtcvad's classifier is not trusted on
+        its own — clicks, hums, and other transients pass it too. Frames only
+        get committed to an in-progress utterance once _HANDSFREE_ONSET_FRAMES
+        consecutive frames have all classified as speech; anything shorter is
+        discarded as noise without ever reaching the worker.
+        """
         vad = webrtcvad.Vad(_VAD_AGGRESSIVENESS)
         audio_q = self._handsfree_queue
         frame_buf   = bytearray()
-        speech_buf  = bytearray()
+        pending_buf = bytearray()  # tentative onset frames, not yet committed
+        speech_buf  = bytearray()  # committed utterance audio
         in_speech   = False
-        speech_frames   = 0
-        silence_frames  = 0
+        consecutive_speech = 0
+        speech_frames  = 0
+        silence_frames = 0
 
         while self._handsfree and audio_q is not None:
             try:
@@ -474,23 +488,33 @@ class Recorder:
                     is_speech = False
 
                 if is_speech:
-                    if not in_speech:
-                        in_speech = True
-                        speech_buf.clear()
-                        speech_frames = 0
-                    speech_buf += frame
-                    speech_frames += 1
                     silence_frames = 0
-                elif in_speech:
-                    speech_buf += frame  # trailing silence, natural cutoff
-                    silence_frames += 1
-                    if silence_frames >= _HANDSFREE_SILENCE_FRAMES:
-                        if speech_frames >= _HANDSFREE_MIN_SPEECH_FRAMES:
-                            self._transcribe_handsfree_utterance(bytes(speech_buf))
-                        in_speech = False
-                        speech_buf.clear()
-                        speech_frames = 0
-                        silence_frames = 0
+                    if in_speech:
+                        speech_buf += frame
+                        speech_frames += 1
+                    else:
+                        pending_buf += frame
+                        consecutive_speech += 1
+                        if consecutive_speech >= _HANDSFREE_ONSET_FRAMES:
+                            # Sustained for long enough — commit the tentative
+                            # onset and start recording the utterance for real.
+                            in_speech = True
+                            speech_buf = bytearray(pending_buf)
+                            speech_frames = consecutive_speech
+                            pending_buf.clear()
+                else:
+                    consecutive_speech = 0
+                    pending_buf.clear()
+                    if in_speech:
+                        speech_buf += frame  # trailing silence, natural cutoff
+                        silence_frames += 1
+                        if silence_frames >= _HANDSFREE_SILENCE_FRAMES:
+                            if speech_frames >= _HANDSFREE_MIN_SPEECH_FRAMES:
+                                self._transcribe_handsfree_utterance(bytes(speech_buf))
+                            in_speech = False
+                            speech_buf.clear()
+                            speech_frames = 0
+                            silence_frames = 0
 
     def _transcribe_handsfree_utterance(self, pcm: bytes) -> None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")

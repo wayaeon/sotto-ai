@@ -13,6 +13,7 @@ interface AppState {
   model: string | null;
   setupComplete: boolean;
   lastError: string | null;   // last sidecar error — drives the orb's error state
+  handsFreeActive: boolean;   // true while hands-free is armed, even between utterances
 
   setRecordingState: (s: RecordingState) => void;
   appendWord: (word: string) => void;
@@ -23,6 +24,7 @@ interface AppState {
   setModel: (model: string) => void;
   setSetupComplete: (done: boolean) => void;
   setLastError: (msg: string | null) => void;
+  setHandsFreeActive: (active: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -35,6 +37,7 @@ export const useAppStore = create<AppState>((set) => ({
   model: null,
   setupComplete: false,
   lastError: null,
+  handsFreeActive: false,
 
   setRecordingState: (s) => set({ recordingState: s }),
   appendWord: (word) =>
@@ -49,4 +52,5 @@ export const useAppStore = create<AppState>((set) => ({
   setModel: (model) => set({ model }),
   setSetupComplete: (done) => set({ setupComplete: done }),
   setLastError: (msg) => set({ lastError: msg }),
+  setHandsFreeActive: (active) => set({ handsFreeActive: active }),
 }));
