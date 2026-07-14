@@ -7,10 +7,10 @@ import { setModel as setModelIpc, toggleHandsfree } from "../lib/tauri";
  * It never moves; states crossfade in place.
  */
 
-export type OrbState = "loading" | "ready" | "recording" | "processing" | "error";
+export type OrbState = "loading" | "ready" | "listening" | "recording" | "processing" | "error";
 
 export function useOrbState(): { state: OrbState; detail: string } {
-  const { recordingState, modelReady, model, lastError } = useAppStore();
+  const { recordingState, modelReady, model, lastError, handsFreeActive } = useAppStore();
 
   if (lastError && recordingState === "idle") {
     return { state: "error", detail: lastError };
@@ -20,6 +20,11 @@ export function useOrbState(): { state: OrbState; detail: string } {
     case "processing": return { state: "processing", detail: "Transcribing…" };
     case "loading":    return { state: "loading", detail: `Loading ${shortModel(model)}…` };
     default:
+      if (handsFreeActive) {
+        // Armed between utterances — must stay visually distinct from "ready"
+        // so hands-free never silently listens without you knowing.
+        return { state: "listening", detail: "Hands-free on — click to stop" };
+      }
       return modelReady
         ? { state: "ready", detail: "Start dictating" }
         : { state: "loading", detail: `Loading ${shortModel(model)}…` };
@@ -44,7 +49,7 @@ export default function Orb() {
       if (model) setModelIpc(model).catch(console.error);
       return;
     }
-    if (state === "ready" || state === "recording") {
+    if (state === "ready" || state === "listening" || state === "recording") {
       toggleHandsfree().catch(console.error);
     }
   };
@@ -81,6 +86,9 @@ export default function Orb() {
         <div className="orb-hint">
           or hold <kbd>Ctrl</kbd> + <kbd>Win</kbd> in any app
         </div>
+      )}
+      {state === "listening" && (
+        <div className="orb-hint">still listening between utterances — click to stop</div>
       )}
       {state === "error" && (
         <div className="orb-hint">click to retry</div>

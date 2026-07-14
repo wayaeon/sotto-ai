@@ -23,6 +23,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     commitSegment,
     setTier,
     setModel,
+    setHandsFreeActive,
   } = useAppStore();
 
   const dictationStartMs = useRef<number | null>(null);
@@ -120,6 +121,10 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
               localStorage.setItem("verba_model", parts.model);
             }
           }
+          // Hands-free stays armed between utterances — track it separately
+          // from recordingState so the UI can show it's still listening.
+          else if (msg.msg === "handsfree_on") setHandsFreeActive(true);
+          else if (msg.msg === "handsfree_off") setHandsFreeActive(false);
           break;
         }
 
