@@ -118,6 +118,12 @@ def main() -> None:
             if recorder is not None:
                 recorder.set_dictionary(words)
 
+        elif cmd == Command.SET_FILLER_CONFIG:
+            filler_enabled = payload.get("enabled", True)
+            filler_words = payload.get("words", [])
+            if recorder is not None:
+                recorder.set_filler_config(filler_enabled, filler_words)
+
         elif cmd == Command.START_PTT:
             recorder.start_ptt()
 
