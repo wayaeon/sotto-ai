@@ -9,6 +9,7 @@ export const detectHardware = () => invoke("detect_hardware");
 export const setModel = (model: string) => invoke("set_model", { model });
 export const benchmarkModel = (model: string, audioPath?: string | null) => invoke("benchmark_model", { model, audioPath });
 export const setDictionary = (words: string[]) => invoke("set_dictionary", { words });
+export const setFillerConfig = (enabled: boolean, words: string[]) => invoke("set_filler_config", { enabled, words });
 export const injectText = (text: string) => invoke("inject_text", { text });
 export const openUrl = (url: string) => invoke("open_url", { url });
 export const openPath = (path: string) => invoke("open_path", { path });
@@ -64,7 +65,7 @@ export interface BenchmarkResult {
 export type SidecarMessage =
   | { event: "ready" }
   | { event: "word"; text: string; partial: boolean }
-  | { event: "segment_done"; text: string; audio_path?: string; timing?: StageTiming }
+  | { event: "segment_done"; text: string; raw_text?: string | null; audio_path?: string; timing?: StageTiming }
   | { event: "audio_recorded"; audio_path: string }
   | { event: "error"; msg: string }
   | { event: "pong" }
