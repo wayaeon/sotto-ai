@@ -25,6 +25,7 @@ fn main() {
             commands::set_model,
             commands::benchmark_model,
             commands::set_dictionary,
+            commands::set_filler_config,
             commands::inject_text,
             commands::open_url,
             commands::open_path,

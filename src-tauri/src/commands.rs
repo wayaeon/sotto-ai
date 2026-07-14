@@ -64,6 +64,11 @@ pub fn set_dictionary(app: AppHandle, words: Vec<String>) {
 }
 
 #[tauri::command]
+pub fn set_filler_config(app: AppHandle, enabled: bool, words: Vec<String>) {
+    send_command(&app, json!({"cmd": "set_filler_config", "enabled": enabled, "words": words}));
+}
+
+#[tauri::command]
 pub fn inject_text(app: AppHandle, text: String) -> Result<(), String> {
     let t_start = std::time::Instant::now();
     let injector = Injector::new().map_err(|e| e.to_string())?;
