@@ -475,6 +475,35 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 .chip[data-tone="mint"]   { color: var(--c-mint);   background: rgba(52,211,153,0.08);  border-color: rgba(52,211,153,0.18);  }
 .chip[data-tone="rose"]   { color: var(--c-rose);   background: rgba(251,113,133,0.08); border-color: rgba(251,113,133,0.18); }
 
+/* Heatmap cells use an immediate, in-theme tooltip instead of the browser's
+   delayed title popup. */
+.heatmap-cell { position: relative; cursor: default; }
+.heatmap-cell::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%; top: calc(100% + 8px);
+  z-index: 20;
+  padding: 6px 8px;
+  border: 1px solid rgba(167,139,250,0.32);
+  border-radius: 8px;
+  background: rgba(19,19,24,0.98);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  color: var(--text-2);
+  font: 10px var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -2px);
+  transition: opacity 100ms ease, transform 100ms ease, visibility 100ms ease;
+}
+.heatmap-cell:hover::after,
+.heatmap-cell:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
 /* ─── buttons ────────────────────────────────────────────── */
 
 .btn {

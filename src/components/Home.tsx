@@ -847,7 +847,9 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                   return (
                     <div
                       key={hourIdx}
-                      title={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 — ${count} session${count !== 1 ? "s" : ""}`}
+                      className="heatmap-cell"
+                      data-tooltip={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 · ${count} session${count !== 1 ? "s" : ""}`}
+                      aria-label={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 — ${count} session${count !== 1 ? "s" : ""}`}
                       style={{ flex: 1, minWidth: 0, aspectRatio: "1", borderRadius: 4, background: heatCell(t, hue), border: "1px solid rgba(255,255,255,0.02)", transition: "background 0.15s" }}
                     />
                   );
@@ -882,7 +884,9 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                 return (
                   <div
                     key={i}
-                    title={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
+                    className="heatmap-cell"
+                    data-tooltip={`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
+                    aria-label={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
                     style={{
                       aspectRatio: "1",
                       borderRadius: 6,
@@ -943,7 +947,9 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                       return (
                         <div
                           key={di}
-                          title={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
+                          className="heatmap-cell"
+                          data-tooltip={`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
+                          aria-label={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
                           style={{
                             width: CELL_SZ, height: CELL_SZ, borderRadius: 2,
                             background: heatCell(t, 290),
