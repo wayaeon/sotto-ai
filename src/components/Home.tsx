@@ -848,7 +848,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                     <div
                       key={hourIdx}
                       title={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 — ${count} session${count !== 1 ? "s" : ""}`}
-                      style={{ flex: 1, height: 28, borderRadius: 4, background: heatCell(t, hue), border: "1px solid rgba(255,255,255,0.02)", transition: "background 0.15s" }}
+                      style={{ flex: 1, minWidth: 0, aspectRatio: "1", borderRadius: 4, background: heatCell(t, hue), border: "1px solid rgba(255,255,255,0.02)", transition: "background 0.15s" }}
                     />
                   );
                 })}
