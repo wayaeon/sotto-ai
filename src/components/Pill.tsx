@@ -48,11 +48,10 @@ async function resizePillWindow(width: number, height: number) {
     ? monitor.workArea.position.y + monitor.workArea.size.height - heightPx
     : 0;
 
-  // Parallel IPC — setSize + setPosition in one overlapped round-trip.
-  await Promise.all([
-    win.setSize(new PhysicalSize(widthPx, heightPx)),
-    monitor ? win.setPosition(new PhysicalPosition(x, y)) : Promise.resolve(),
-  ]);
+  // Resize first, then recenter. Windows can apply these operations in either
+  // order when fired together, which makes the collapsed handle visibly jump.
+  await win.setSize(new PhysicalSize(widthPx, heightPx));
+  if (monitor) await win.setPosition(new PhysicalPosition(x, y));
 }
 
 export default function Pill() {
