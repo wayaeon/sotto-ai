@@ -7,6 +7,7 @@ from sidecar import main
 def test_stdin_eof_shuts_down_recorder(monkeypatch):
     recorder = types.SimpleNamespace(shutdown_called=False)
     recorder.shutdown = lambda: setattr(recorder, "shutdown_called", True)
+    recorder.warmup = lambda: None
     hw = types.SimpleNamespace(to_dict=lambda: {}, model_name="small")
     ipc = types.SimpleNamespace(send=lambda *_args, **_kwargs: None)
 

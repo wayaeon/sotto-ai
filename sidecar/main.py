@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import sys
+import threading
 from sidecar.ipc import IPC, Command, Event
-from sidecar.hardware import detect as detect_hardware
+from sidecar.hardware import DEFAULT_MODEL, detect as detect_hardware
 from sidecar.recorder import Recorder
 from sidecar.models import benchmark_model_async, MODEL_CATALOG
 
@@ -68,12 +69,19 @@ def _iter_stdin_lines():
 def main() -> None:
     ipc = IPC()
 
-    # Detect hardware and create recorder immediately — no IPC handshake needed
-    hw = detect_hardware()
-    ipc.send(Event.HARDWARE, **hw.to_dict())
-    recorder = Recorder(ipc=ipc, hw=hw)
+    # Windows uses the fixed Parakeet path; probing remains available on demand
+    # for diagnostics and macOS keeps the existing hardware-driven path.
+    if sys.platform == "win32":
+        hw = None
+        recorder = Recorder(ipc=ipc, hw=None, model_name=DEFAULT_MODEL, device="cpu")
+    else:
+        hw = detect_hardware()
+        ipc.send(Event.HARDWARE, **hw.to_dict())
+        recorder = Recorder(ipc=ipc, hw=hw)
 
     ipc.send(Event.READY)
+    if sys.platform == "win32":
+        threading.Thread(target=recorder.warmup, name="parakeet-warmup", daemon=True).start()
 
     for line in _iter_stdin_lines():
         line = line.strip()
@@ -89,8 +97,8 @@ def main() -> None:
             ipc.send(Event.PONG)
 
         elif cmd == Command.DETECT_HARDWARE:
-            # Re-send cached result — hardware doesn't change at runtime
-            ipc.send(Event.HARDWARE, **hw.to_dict())
+            detected = detect_hardware()
+            ipc.send(Event.HARDWARE, **detected.to_dict())
 
         elif cmd == Command.SET_MODEL:
             model_name = payload.get("model", "")

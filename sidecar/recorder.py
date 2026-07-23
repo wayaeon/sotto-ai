@@ -105,11 +105,19 @@ def _worker_loop(model_name: str, model_path: str, runtime: str, device: str, ta
 
 
 class Recorder:
-    def __init__(self, ipc: IPC, hw: "HardwareInfo") -> None:
+    def __init__(
+        self,
+        ipc: IPC,
+        hw: "HardwareInfo | None" = None,
+        model_name: str | None = None,
+        device: str = "cpu",
+    ) -> None:
         self._ipc        = ipc
-        self._tier       = hw.tier
-        self._device     = hw.device_str
-        self._model_name = best_available_model(hw.model_name)
+        if hw is None and model_name is None:
+            raise ValueError("Recorder requires hardware info or an explicit model")
+        self._tier       = hw.tier if hw else ModelTier.TIER_CPU
+        self._device     = hw.device_str if hw else device
+        self._model_name = model_name or best_available_model(hw.model_name)
         self._initial_prompt = ""
 
         # Filler-word filter — on by default with a built-in list so it
@@ -328,6 +336,10 @@ class Recorder:
                 self._worker_error = str(e)
                 self._ipc.send(Event.ERROR, msg=f"Worker respawn failed: {e}")
                 return False
+
+    def warmup(self) -> None:
+        """Load the configured worker in the background after sidecar ready."""
+        self._ensure_worker()
 
     # ── PTT ───────────────────────────────────────────────────────────────────
 

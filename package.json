@@ -5,11 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:ui": "vite",
+    "dev:app": "pnpm exec tauri dev",
     "build": "tsc && vite build",
+    "build:app": "pnpm exec tauri build",
+    "run:local": "powershell -NoProfile -ExecutionPolicy Bypass -File ./run-local.ps1",
     "preview": "vite preview",
     "tauri": "cargo tauri"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

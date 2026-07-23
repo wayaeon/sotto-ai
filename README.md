@@ -8,12 +8,12 @@ No cloud. No subscription. No audio leaving your machine.
 
 ## What it does
 
-Sotto is a push-to-talk dictation app that runs entirely on your computer. It captures your voice, transcribes it with Whisper, optionally cleans it up with a local LLM (Ollama), and pastes the result directly into your active text field — all without touching the internet.
+Sotto is a push-to-talk dictation app that runs entirely on your computer. It captures your voice, transcribes it with Parakeet on Windows, optionally cleans it up with a local LLM (Ollama), and pastes the result directly into your active text field — all without touching the internet.
 
 | Stage | What happens |
 |-------|-------------|
 | 1 · Record | Hold `Ctrl + Win` → mic opens instantly (pre-warmed) |
-| 2 · Transcribe | Release → Whisper processes the audio locally |
+| 2 · Transcribe | Release → Parakeet processes the audio locally |
 | 3 · Polish *(optional)* | Local Ollama model fixes punctuation and speech errors |
 | 4 · Output | Text is pasted via clipboard into whatever you're typing |
 
@@ -27,7 +27,7 @@ Recordings are saved to `~/.sotto/recordings/` as timestamped WAV files.
 |-------|-----------|
 | App shell | [Tauri v2](https://tauri.app) (Rust + WebView) |
 | UI | React + TypeScript (Vite) |
-| Transcription | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) via [RealtimeSTT](https://github.com/KoljaB/RealtimeSTT) |
+| Transcription | NVIDIA Parakeet TDT 0.6B v3 on Windows |
 | Audio capture | PyAudio (direct mic → WAV, pre-warmed stream) |
 | VAD | Silero v5 (bundled ONNX) |
 | Sidecar binary | Python 3.11 → PyInstaller one-file exe |
@@ -38,14 +38,7 @@ Recordings are saved to `~/.sotto/recordings/` as timestamped WAV files.
 
 ## Models
 
-Sotto auto-selects a Whisper model based on your RAM:
-
-| RAM | Model | Notes |
-|-----|-------|-------|
-| < 4 GB | `tiny.en` | Fast, English only |
-| 4–8 GB | `base.en` | Good accuracy |
-| 8–16 GB | `medium.en` | Recommended |
-| 16 GB+ | `large-v2` | Best accuracy, multilingual |
+Windows uses Parakeet TDT 0.6B v3 as the fixed transcription model. It is warmed by the sidecar after startup, so the app can show ready immediately instead of waiting for the first dictation.
 
 Models are downloaded on first run to `~/.sotto/models/`.
 
@@ -58,7 +51,7 @@ Models are downloaded on first run to `~/.sotto/models/`.
 - Windows 10/11 (x64)
 - [Node.js 18+](https://nodejs.org) + [pnpm](https://pnpm.io)
 - [Rust](https://rustup.rs)
-- Python 3.11 + pip
+- Python 3.11 + pip (only needed to rebuild the sidecar)
 - [Ollama](https://ollama.ai) *(optional — for LLM polish)*
 
 ### Dev setup
@@ -78,9 +71,14 @@ python -m venv .venv
 pip install -r requirements.txt
 cd ..
 
-# 4. Run in dev mode
-.\dev.ps1
+# 4. Run the one stable hot-reload app session
+.\dev.bat
+
+# Browser-only UI work (no Rust or sidecar)
+.\dev-ui.bat
 ```
+
+Edit files under `src/` and save. Vite updates the running app; do not restart the dev script after every edit. Close the one terminal window when you are done.
 
 ### Build the sidecar binary
 
@@ -96,11 +94,14 @@ Copy-Item C:\Temp\sidecar_dist\sidecar.exe `
   src-tauri\binaries\sidecar-x86_64-pc-windows-msvc.exe
 ```
 
-### Build for release
+### Build and run the local Windows app
 
 ```powershell
-pnpm tauri build
+.\build-local.ps1
+.\run-local.ps1
 ```
+
+The installer is written to `%TEMP%\sotto-target\release\bundle\nsis\`. Windows local builds produce an NSIS installer. macOS Intel and Apple Silicon installers are produced by the tag workflow in `.github\workflows\release.yml`.
 
 ---
 
