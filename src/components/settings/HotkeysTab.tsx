@@ -1,7 +1,9 @@
+import { WINDOWS_SHORTCUTS } from "../../lib/shortcuts";
+
 export default function HotkeysTab() {
   const hotkeys = [
-    { action: "Push-to-talk", key: "Ctrl + Win" },
-    { action: "Hands-free toggle", key: "Ctrl + Win + Space" },
+    { action: "Push-to-talk", key: WINDOWS_SHORTCUTS.pushToTalk },
+    { action: "Hands-free toggle", key: WINDOWS_SHORTCUTS.handsFreeToggle },
   ];
 
   return (
