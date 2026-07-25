@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { onSidecarEvent, onFocusedApp, injectText, setModel as setModelIpc, type SidecarMessage } from "../lib/tauri";
+import { onSidecarEvent, onFocusedApp, injectText, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 
@@ -53,7 +53,6 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             // stale, worse model forever with no UI to fix it.)
             localStorage.setItem("verba_model", DEFAULT_MODEL);
             setModel(DEFAULT_MODEL);
-            setModelIpc(DEFAULT_MODEL).catch((e) => console.warn("[set_model]", e));
           }
           break;
 
