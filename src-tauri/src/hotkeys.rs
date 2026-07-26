@@ -34,7 +34,7 @@ pub fn register_hotkeys(app: &AppHandle) {
         let ptt1  = ptt_active.clone();
         let app1  = app.clone();
 
-        rdev::listen(move |event| {
+        if let Err(error) = rdev::listen(move |event| {
             use rdev::EventType::*;
             use rdev::Key::*;
 
@@ -63,6 +63,8 @@ pub fn register_hotkeys(app: &AppHandle) {
                 }
                 _ => {}
             }
-        }).ok();
+        }) {
+            eprintln!("[hotkey] global listener failed: {error:?}");
+        }
     });
 }

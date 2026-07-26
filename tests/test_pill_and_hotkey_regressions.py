@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -9,7 +10,20 @@ def test_pill_can_resize_from_its_collapsed_window():
     assert ".resizable(true)" in main
 
 
+def test_pill_can_read_its_monitor_before_resizing():
+    capability = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text(encoding="utf-8"))
+    assert "core:window:allow-current-monitor" in capability["permissions"]
+    assert "core:event:allow-listen" in capability["permissions"]
+
+
 def test_ptt_starts_regardless_of_ctrl_and_windows_key_press_order():
     hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
     assert "meta_down" in hotkeys
     assert hotkeys.count("maybe_start_ptt") >= 3
+
+
+def test_pill_uses_sidecar_audio_levels_without_opening_a_second_microphone_stream():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    hook = (ROOT / "src" / "hooks" / "useSidecar.ts").read_text(encoding="utf-8")
+    assert "navigator.mediaDevices.getUserMedia" not in pill
+    assert 'case "audio_level"' in hook

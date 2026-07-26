@@ -5,6 +5,9 @@
   "windows": ["main", "pill"],
   "permissions": [
     "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-current-monitor",
     "core:window:allow-set-position",
     "core:window:allow-set-size",
     "shell:allow-execute",

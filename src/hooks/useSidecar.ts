@@ -19,6 +19,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     setSidecarReady,
     setModelReady,
     setRecordingState,
+    setAudioLevel,
     appendWord,
     commitSegment,
     setTier,
@@ -161,6 +162,10 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           localStorage.setItem("verba_tier", msg.tier);
           break;
 
+        case "audio_level":
+          setAudioLevel(msg.level);
+          break;
+
         case "error":
           console.error("[sidecar]", msg.msg);
           // Always reset to idle on any error — prevents stuck "Processing..." state
@@ -178,5 +183,5 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setSidecarReady, setModelReady, setRecordingState, appendWord, commitSegment, setTier, setModel, setHandsFreeActive, setLastDictationApp, setLastDictationStats]);
+  }, [setSidecarReady, setModelReady, setRecordingState, setAudioLevel, appendWord, commitSegment, setTier, setModel, setHandsFreeActive, setLastDictationApp, setLastDictationStats]);
 }

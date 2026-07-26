@@ -56,7 +56,7 @@ async function resizePillWindow(width: number, height: number) {
 
 export default function Pill() {
   useSidecar({ primary: true });
-  const { recordingState, sidecarReady, modelReady, setRecordingState, handsFreeActive, focusedApp } = useAppStore();
+  const { recordingState, audioLevel, sidecarReady, modelReady, setRecordingState, handsFreeActive, focusedApp } = useAppStore();
 
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -118,7 +118,7 @@ export default function Pill() {
     if (shouldShowBar) {
       // Already expanded/expanding — just resize for height change (no gen bump).
       if (phaseRef.current === "expanded" || phaseRef.current === "expanding") {
-        resizePillWindow(PILL_WINDOW_W, targetHeight).catch(() => {});
+        resizePillWindow(PILL_WINDOW_W, targetHeight).catch((error) => console.error("[pill] resize failed", error));
         return;
       }
 
@@ -140,7 +140,8 @@ export default function Pill() {
             setPhase("expanded");
           });
         })
-        .catch(() => {
+        .catch((error) => {
+          console.error("[pill] resize failed", error);
           if (expandGenRef.current !== gen) return;
           requestAnimationFrame(() => {
             if (expandGenRef.current !== gen) return;
@@ -164,7 +165,7 @@ export default function Pill() {
         if (expandGenRef.current !== gen) return;
         setBarMounted(false);
         // Resize while handle is still hidden (phase = "collapsing").
-        await resizePillWindow(PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H).catch(() => {});
+        await resizePillWindow(PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H).catch((error) => console.error("[pill] resize failed", error));
         // Only after window is at collapsed size does the handle appear.
         if (expandGenRef.current !== gen) return;
         phaseRef.current = "collapsed";
@@ -356,7 +357,7 @@ export default function Pill() {
                   <XIcon />
                 </button>
                 <div style={{ ...s.wavePill, border: "1px solid rgba(251,191,36,0.4)", minWidth: 100 }}>
-                  <WaveVisual state="processing" />
+                  <WaveVisual state="processing" level={audioLevel} />
                 </div>
               </div>
 
@@ -379,7 +380,7 @@ export default function Pill() {
                       {`${Math.floor(recSecs / 60)}:${String(recSecs % 60).padStart(2, "0")}`}
                     </span>
                   )}
-                  <WaveVisual state={recordingState} />
+                  <WaveVisual state={recordingState} level={audioLevel} />
                 </div>
                 <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(34,197,94,0.35)" }} onClick={() => invoke("stop_ptt").catch(() => {})}>
                   <CheckIcon />
@@ -397,7 +398,7 @@ export default function Pill() {
                   style={{ ...s.wavePill, border: "1px solid rgba(52,211,153,0.5)", animation: "pulseGlowMint 2.2s ease-in-out infinite", minWidth: 100 }}
                   onClick={onDictateClick}
                 >
-                  <WaveVisual state="idle" />
+                  <WaveVisual state="idle" level={audioLevel} />
                 </button>
               </div>
 
@@ -461,7 +462,7 @@ export default function Pill() {
                     </div>
                   )}
                   <button className="pbtn" style={s.wavePill} onClick={onDictateClick}>
-                    <WaveVisual state={recordingState} />
+                    <WaveVisual state={recordingState} level={audioLevel} />
                   </button>
                 </div>
 
@@ -491,65 +492,15 @@ export default function Pill() {
 
 const BAR_COUNT = 10;
 
-function WaveVisual({ state }: { state: string }) {
+function WaveVisual({ state, level }: { state: string; level: number }) {
   const isRecording  = state === "recording";
   const isProcessing = state === "processing";
-
-  const [levels, setLevels] = useState<number[]>(Array(BAR_COUNT).fill(0));
-  const ctxRef      = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const streamRef   = useRef<MediaStream | null>(null);
-  const rafRef      = useRef<number>(0);
-
-  useEffect(() => {
-    if (!isRecording) {
-      cancelAnimationFrame(rafRef.current);
-      streamRef.current?.getTracks().forEach(t => t.stop());
-      ctxRef.current?.close();
-      ctxRef.current     = null;
-      analyserRef.current = null;
-      streamRef.current  = null;
-      setLevels(Array(BAR_COUNT).fill(0));
-      return;
-    }
-
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      .then(stream => {
-        streamRef.current = stream;
-        const ctx         = new AudioContext();
-        ctxRef.current    = ctx;
-        const analyser    = ctx.createAnalyser();
-        analyser.fftSize  = 256;
-        analyser.smoothingTimeConstant = 0.75;
-        analyserRef.current = analyser;
-        ctx.createMediaStreamSource(stream).connect(analyser);
-
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        const tick = () => {
-          analyser.getByteFrequencyData(data);
-          const newLevels = Array.from({ length: BAR_COUNT }, (_, i) => {
-            const bin = Math.floor((i / BAR_COUNT) * (data.length / 2));
-            return data[bin] / 255;
-          });
-          setLevels(newLevels);
-          rafRef.current = requestAnimationFrame(tick);
-        };
-        rafRef.current = requestAnimationFrame(tick);
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      streamRef.current?.getTracks().forEach(t => t.stop());
-      ctxRef.current?.close();
-    };
-  }, [isRecording]);
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2, height: 14 }}>
       {Array.from({ length: BAR_COUNT }).map((_, i) => {
         if (isRecording) {
-          const h = Math.max(0.15, levels[i]);
+          const h = Math.max(0.15, Math.min(1, level * (0.5 + (i % 5) / 5)));
           return (
             <div key={i} style={{
               width: 1.5, height: "100%", borderRadius: 2,

@@ -222,6 +222,7 @@ class Recorder:
             if wf is not None:
                 try:
                     wf.writeframes(data)
+                    self._ipc.send(Event.AUDIO_LEVEL, level=_pcm16_level(data))
                 except Exception:
                     pass
             if hf_queue is not None:

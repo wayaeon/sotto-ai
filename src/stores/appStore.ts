@@ -11,6 +11,7 @@ export interface FocusedApp {
 
 interface AppState {
   recordingState: RecordingState;
+  audioLevel: number;
   streamingWords: string;
   lastSegment: string;
   sidecarReady: boolean;
@@ -25,6 +26,7 @@ interface AppState {
   lastDictationStats: { wordCount: number; durationMs: number } | null;
 
   setRecordingState: (s: RecordingState) => void;
+  setAudioLevel: (level: number) => void;
   appendWord: (word: string) => void;
   commitSegment: (text: string) => void;
   setSidecarReady: (ready: boolean) => void;
@@ -41,6 +43,7 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   recordingState: "idle",
+  audioLevel: 0,
   streamingWords: "",
   lastSegment: "",
   sidecarReady: false,
@@ -55,6 +58,7 @@ export const useAppStore = create<AppState>((set) => ({
   lastDictationStats: null,
 
   setRecordingState: (s) => set({ recordingState: s }),
+  setAudioLevel: (level) => set({ audioLevel: level }),
   appendWord: (word) =>
     set((state) => ({
       streamingWords: state.streamingWords ? state.streamingWords + " " + word : word,
