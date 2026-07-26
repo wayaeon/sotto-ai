@@ -47,7 +47,7 @@ fn main() {
                 .transparent(true)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .resizable(false)
+                .resizable(true)
                 .inner_size(60.0, 56.0)
                 .shadow(false)
                 .build()?;

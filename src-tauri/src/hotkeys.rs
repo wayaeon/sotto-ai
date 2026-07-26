@@ -5,14 +5,32 @@ use crate::sidecar::send_command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+fn maybe_start_ptt(
+    app: &AppHandle,
+    ctrl_down: &AtomicBool,
+    meta_down: &AtomicBool,
+    ptt_active: &AtomicBool,
+) {
+    if ctrl_down.load(Ordering::SeqCst)
+        && meta_down.load(Ordering::SeqCst)
+        && !ptt_active.swap(true, Ordering::SeqCst)
+    {
+        app.emit("sidecar-event", r#"{"event":"status","msg":"recording_ptt"}"#).ok();
+        send_command(app, json!({"cmd": "start_ptt"}));
+        emit_focused_app_async(app.clone());
+    }
+}
+
 pub fn register_hotkeys(app: &AppHandle) {
     let app = app.clone();
 
     std::thread::spawn(move || {
         let ctrl_down  = Arc::new(AtomicBool::new(false));
+        let meta_down  = Arc::new(AtomicBool::new(false));
         let ptt_active = Arc::new(AtomicBool::new(false));
 
         let ctrl1 = ctrl_down.clone();
+        let meta1 = meta_down.clone();
         let ptt1  = ptt_active.clone();
         let app1  = app.clone();
 
@@ -23,6 +41,7 @@ pub fn register_hotkeys(app: &AppHandle) {
             match event.event_type {
                 KeyPress(ControlLeft) | KeyPress(ControlRight) => {
                     ctrl1.store(true, Ordering::SeqCst);
+                    maybe_start_ptt(&app1, &ctrl1, &meta1, &ptt1);
                 }
                 KeyRelease(ControlLeft) | KeyRelease(ControlRight) => {
                     ctrl1.store(false, Ordering::SeqCst);
@@ -32,16 +51,11 @@ pub fn register_hotkeys(app: &AppHandle) {
                     }
                 }
                 KeyPress(MetaLeft) | KeyPress(MetaRight) => {
-                    if ctrl1.load(Ordering::SeqCst) && !ptt1.load(Ordering::SeqCst) {
-                        ptt1.store(true, Ordering::SeqCst);
-                        app1.emit("sidecar-event", r#"{"event":"status","msg":"recording_ptt"}"#).ok();
-                        send_command(&app1, json!({"cmd": "start_ptt"}));
-                        // Off the hotkey thread — can block on a favicon fetch,
-                        // must never delay start_ptt itself.
-                        emit_focused_app_async(app1.clone());
-                    }
+                    meta1.store(true, Ordering::SeqCst);
+                    maybe_start_ptt(&app1, &ctrl1, &meta1, &ptt1);
                 }
                 KeyRelease(MetaLeft) | KeyRelease(MetaRight) => {
+                    meta1.store(false, Ordering::SeqCst);
                     if ptt1.swap(false, Ordering::SeqCst) {
                         app1.emit("sidecar-event", r#"{"event":"status","msg":"processing"}"#).ok();
                         send_command(&app1, json!({"cmd": "stop_ptt"}));
