@@ -53,6 +53,24 @@ export function getTranscriptions(limit = 50): Transcription[] {
   return load().slice(-limit).reverse();
 }
 
+export function updateTranscription(id: number, text: string): Transcription | null {
+  const items = load();
+  const index = items.findIndex((item) => item.id === id);
+  if (index < 0) return null;
+  const updated = { ...items[index], text };
+  items[index] = updated;
+  localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(items));
+  return updated;
+}
+
+export function deleteTranscription(id: number): boolean {
+  const items = load();
+  const next = items.filter((item) => item.id !== id);
+  if (next.length === items.length) return false;
+  localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(next));
+  return true;
+}
+
 export function updateMetrics(wordCount: number, durationMs: number): void {
   const totalWords = parseInt(localStorage.getItem("verba_total_words") ?? "0") + wordCount;
   localStorage.setItem("verba_total_words", String(totalWords));

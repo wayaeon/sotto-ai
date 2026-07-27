@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
-import { getTranscriptions, type Transcription } from "../lib/db";
+import { deleteTranscription, getTranscriptions, type Transcription, updateTranscription } from "../lib/db";
 import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
 
@@ -261,41 +261,6 @@ const Icons = {
 
 // ─── Shared Components ────────────────────────────────────
 
-interface WaveformProps {
-  bars?: number;
-  height?: number;
-  color?: string;
-  style?: React.CSSProperties;
-  static?: boolean;
-}
-
-function Waveform({ bars = 20, height = 28, color = "currentColor", style, static: isStatic = false }: WaveformProps) {
-  const heights = useMemo(() => {
-    return Array.from({ length: bars }, (_, i) => {
-      const h = Math.abs(Math.sin(i * 0.7 + 1.2)) * 0.65 + 0.35;
-      return Math.round(h * height);
-    });
-  }, [bars, height]);
-
-  return (
-    <div
-      className={`wave${isStatic ? " wave-static" : ""}`}
-      style={{ height, color, ...style }}
-    >
-      {heights.map((h, i) => (
-        <div
-          key={i}
-          className="bar"
-          style={{
-            height: h,
-            animationDelay: isStatic ? undefined : `${(i * 60) % 1200}ms`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
 interface KbdProps {
   keys: string[];
 }
@@ -481,35 +446,19 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
 
 // ─── History Screen ───────────────────────────────────────
 
-/** v2: History hosts two tabs — Transcripts (default) and Insights (DESIGN.md §4). */
-function HistoryView({ transcriptions, metrics }: { transcriptions: Transcription[]; metrics: Metrics }) {
-  const [tab, setTab] = useState<"transcripts" | "insights">("transcripts");
-  return (
-    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
-      <div className="view-tabs">
-        <button className={tab === "transcripts" ? "active" : ""} onClick={() => setTab("transcripts")}>
-          Transcripts
-        </button>
-        <button className={tab === "insights" ? "active" : ""} onClick={() => setTab("insights")}>
-          Insights
-        </button>
-      </div>
-      {tab === "transcripts"
-        ? <HistoryScreen transcriptions={transcriptions} />
-        : <InsightsScreen transcriptions={transcriptions} metrics={metrics} />}
-    </div>
-  );
-}
-
 interface HistoryScreenProps {
   transcriptions: Transcription[];
+  onChanged: () => void;
 }
 
-function HistoryScreen({ transcriptions }: HistoryScreenProps) {
+function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
   const [selected, setSelected] = useState<Transcription | null>(transcriptions[0] ?? null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const filtered = useMemo(() => {
     return transcriptions.filter((t) => {
@@ -529,13 +478,37 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
 
   function handleDownload() {
     if (!selected) return;
-    const blob = new Blob([selected.text], { type: "text/plain" });
+    const blob = new Blob([selected.text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `transcription-${selected.id}.txt`;
+    a.download = `sotto-${selected.created_at.slice(0, 10)}.txt`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function startEdit() {
+    if (!selected) return;
+    setDraft(selected.text);
+    setEditing(true);
+  }
+
+  function saveEdit() {
+    if (!selected) return;
+    const updated = updateTranscription(selected.id, draft.trim());
+    if (!updated) return;
+    setSelected(updated);
+    setEditing(false);
+    onChanged();
+  }
+
+  function removeSelected() {
+    if (!selected || !deleteTranscription(selected.id)) return;
+    setConfirmDelete(false);
+    setSelected(null);
+    onChanged();
   }
 
   const contextFilters = useMemo(() => {
@@ -550,6 +523,14 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
       setFilter("all");
     }
   }, [filter, contextFilters]);
+
+  useEffect(() => {
+    if (!filtered.some((item) => item.id === selected?.id)) {
+      setSelected(filtered[0] ?? null);
+      setEditing(false);
+      setConfirmDelete(false);
+    }
+  }, [filtered, selected?.id]);
 
   return (
     <div className="main" style={{ overflow: "hidden" }}>
@@ -653,14 +634,6 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
                 </div>
               </div>
 
-              {/* Waveform strip — decorative duration indicator, no audio is retained to play back */}
-              <div className="card" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20, padding: "14px 18px" }}>
-                <Waveform bars={40} height={24} color="var(--c-violet)" static />
-                <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
-                  {fmtDuration(selected.duration_ms)}
-                </span>
-              </div>
-
               {/* Text */}
               <div className="card" style={{ marginBottom: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -673,11 +646,23 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
                     <button className="btn btn-ghost btn-sm" onClick={handleDownload}>
                       <Icons.Download size={12} /> Download
                     </button>
+                    {editing ? (
+                      <>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>Cancel</button>
+                        <button className="btn btn-sm" onClick={saveEdit}><Icons.Check size={12} /> Save</button>
+                      </>
+                    ) : (
+                      <button className="btn btn-ghost btn-sm" onClick={startEdit}><Icons.Edit size={12} /> Edit</button>
+                    )}
                   </div>
                 </div>
-                <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text-2)", margin: 0, whiteSpace: "pre-wrap" }}>
-                  {selected.text}
-                </p>
+                {editing ? (
+                  <textarea className="transcript-editor" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label="Edit transcript" />
+                ) : (
+                  <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text-2)", margin: 0, whiteSpace: "pre-wrap" }}>
+                    {selected.text}
+                  </p>
+                )}
               </div>
 
               {/* Meta */}
@@ -688,6 +673,17 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
                   <div>Tier: <span style={{ color: "var(--text-2)" }}>{selected.tier || "—"}</span></div>
                   <div>Words: <span style={{ color: "var(--text-2)" }}>{wordCount(selected.text)}</span></div>
                   <div>Duration: <span style={{ color: "var(--text-2)" }}>{fmtDuration(selected.duration_ms)}</span></div>
+                </div>
+                <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                  {confirmDelete ? (
+                    <>
+                      <span style={{ color: "var(--c-rose)", fontSize: 12 }}>Delete this transcript?</span>
+                      <button className="btn btn-sm" onClick={removeSelected}>Delete</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                    </>
+                  ) : (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(true)}><Icons.Trash size={12} /> Delete</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -982,7 +978,6 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
 
 interface InsightsScreenProps {
   transcriptions: Transcription[];
-  metrics: Metrics;
 }
 
 const INSIGHTS_STOP_WORDS = new Set([
@@ -1038,25 +1033,10 @@ function vocabularyRichness(transcriptions: Transcription[]): number {
   return new Set(words).size / words.length;
 }
 
-function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
+function InsightsScreen({ transcriptions }: InsightsScreenProps) {
   const [range, setRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
 
   const ranges: Array<"7d" | "30d" | "90d" | "all"> = ["7d", "30d", "90d", "all"];
-
-  // Build daily volume data for sparkline (last 30 days)
-  const volumeData = useMemo(() => {
-    const days = 30;
-    const bins = new Array(days).fill(0);
-    const now = Date.now();
-    transcriptions.forEach((t) => {
-      const age = (now - new Date(t.created_at).getTime()) / 86400000;
-      const idx = Math.floor(age);
-      if (idx >= 0 && idx < days) bins[days - 1 - idx]++;
-    });
-    return bins;
-  }, [transcriptions]);
-
-  const maxVol = Math.max(...volumeData, 1);
 
   const rangeDays = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : Infinity;
   const inRange = useMemo(() => {
@@ -1066,6 +1046,26 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
       (t) => (now - new Date(t.created_at).getTime()) / 86400000 <= rangeDays
     );
   }, [transcriptions, rangeDays]);
+  const chartDays = useMemo(() => {
+    if (rangeDays !== Infinity) return rangeDays;
+    const oldest = transcriptions[transcriptions.length - 1];
+    return oldest ? Math.max(7, Math.ceil((Date.now() - new Date(oldest.created_at).getTime()) / 86400000)) : 7;
+  }, [rangeDays, transcriptions]);
+
+  // Build daily volume data for the selected period.
+  const volumeData = useMemo(() => {
+    const bins = new Array(chartDays).fill(0);
+    const now = Date.now();
+    inRange.forEach((t) => {
+      const age = (now - new Date(t.created_at).getTime()) / 86400000;
+      const idx = Math.floor(age);
+      if (idx >= 0 && idx < chartDays) bins[chartDays - 1 - idx]++;
+    });
+    return bins;
+  }, [chartDays, inRange]);
+
+  const maxVol = Math.max(...volumeData, 1);
+
   const priorRange = useMemo(() => {
     if (rangeDays === Infinity) return [];
     const now = Date.now();
@@ -1074,6 +1074,16 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
       return age > rangeDays && age <= rangeDays * 2;
     });
   }, [transcriptions, rangeDays]);
+  const periodMetrics = useMemo(() => {
+    const words = inRange.reduce((sum, item) => sum + wordCount(item.text), 0);
+    const duration = inRange.reduce((sum, item) => sum + item.duration_ms, 0);
+    return {
+      words,
+      duration,
+      sessions: inRange.length,
+      wpm: duration > 0 ? Math.round((words / duration) * 60_000) : 0,
+    };
+  }, [inRange]);
 
   const fillerWordsForInsights = useMemo(() => getFillerWords(), []);
   const topWords = useMemo(
@@ -1092,36 +1102,34 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
   }, [richnessCurrent, richnessPrevious]);
 
   const fillerTrendData = useMemo(() => {
-    const days = 30;
-    const bins = new Array(days).fill(0);
+    const bins = new Array(chartDays).fill(0);
     const now = Date.now();
-    transcriptions.forEach((t) => {
+    inRange.forEach((t) => {
       const age = (now - new Date(t.created_at).getTime()) / 86400000;
       const idx = Math.floor(age);
-      if (idx >= 0 && idx < days) {
-        bins[days - 1 - idx] += countFillerWords(t.raw_text ?? t.text, fillerWordsForInsights);
+      if (idx >= 0 && idx < chartDays) {
+        bins[chartDays - 1 - idx] += countFillerWords(t.raw_text ?? t.text, fillerWordsForInsights);
       }
     });
     return bins;
-  }, [transcriptions, fillerWordsForInsights]);
+  }, [chartDays, inRange, fillerWordsForInsights]);
   const maxFiller = Math.max(...fillerTrendData, 1);
 
   const wpmTrendData = useMemo(() => {
-    const days = 30;
-    const sums = new Array(days).fill(0);
-    const counts = new Array(days).fill(0);
+    const sums = new Array(chartDays).fill(0);
+    const counts = new Array(chartDays).fill(0);
     const now = Date.now();
-    transcriptions.forEach((t) => {
+    inRange.forEach((t) => {
       const age = (now - new Date(t.created_at).getTime()) / 86400000;
       const idx = Math.floor(age);
-      if (idx >= 0 && idx < days && t.duration_ms > 0) {
+      if (idx >= 0 && idx < chartDays && t.duration_ms > 0) {
         const wpm = (wordCount(t.text) / t.duration_ms) * 60000;
-        sums[days - 1 - idx] += wpm;
-        counts[days - 1 - idx]++;
+        sums[chartDays - 1 - idx] += wpm;
+        counts[chartDays - 1 - idx]++;
       }
     });
     return sums.map((s, i) => (counts[i] > 0 ? Math.round(s / counts[i]) : 0));
-  }, [transcriptions]);
+  }, [chartDays, inRange]);
   const maxWpm = Math.max(...wpmTrendData, 1);
   const contextBreakdown = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1163,16 +1171,16 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
       <div className="main-body stagger">
         {/* Big stats */}
         <div className="stat-grid">
-          <Stat value={metrics.totalWords > 0 ? metrics.totalWords.toLocaleString() : "—"} label="Total words" sub="dictated" accent="violet" italic />
-          <Stat value={metrics.avgWpm > 0 ? metrics.avgWpm : "—"} unit={metrics.avgWpm > 0 ? "wpm" : undefined} label="Avg. speed" accent="blue" />
-          <Stat value={metrics.totalMs > 0 ? fmtMinutes(Math.round(metrics.totalMs * 0.4)) : "—"} label="Time saved" sub="est." accent="amber" />
-          <Stat value={metrics.sessions > 0 ? `${metrics.sessions}` : "—"} label="Sessions" sub="total" accent="mint" />
+          <Stat value={periodMetrics.words > 0 ? periodMetrics.words.toLocaleString() : "—"} label="Words" sub="dictated" accent="violet" italic />
+          <Stat value={periodMetrics.wpm > 0 ? periodMetrics.wpm : "—"} unit={periodMetrics.wpm > 0 ? "wpm" : undefined} label="Speaking pace" accent="blue" />
+          <Stat value={periodMetrics.duration > 0 ? fmtMinutes(Math.round(periodMetrics.duration * 0.4)) : "—"} label="Time saved" sub="estimate" accent="amber" />
+          <Stat value={periodMetrics.sessions > 0 ? `${periodMetrics.sessions}` : "—"} label="Sessions" sub="this period" accent="mint" />
         </div>
 
         {/* Volume sparkline */}
         <SectionHead label="Daily Volume" />
         <div className="card card-glow" data-accent="violet">
-          {transcriptions.length === 0 ? (
+          {inRange.length === 0 ? (
             <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-4)", fontSize: 13 }}>
               No data yet — start dictating to see your volume trends.
             </div>
@@ -1195,12 +1203,12 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
             </svg>
           )}
           <div style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", marginTop: 6 }}>
-            Last 30 days — {transcriptions.length} total session{transcriptions.length !== 1 ? "s" : ""}
+            {range === "all" ? "All time" : `Last ${rangeDays} days`} — {inRange.length} session{inRange.length !== 1 ? "s" : ""}
           </div>
         </div>
 
         {/* Heatmap */}
-        <ActivityHeatmap transcriptions={transcriptions} />
+        <ActivityHeatmap transcriptions={inRange} />
 
         {/* Context breakdown — which apps you actually dictated into, from real app_name data */}
         <SectionHead label="Context Breakdown" />
@@ -1210,34 +1218,7 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
               No data yet — start dictating to see which apps you use most.
             </div>
           ) : (
-            <>
-              <div style={{ textAlign: "center" }}>
-                <svg width={100} height={100} viewBox="0 0 36 36">
-                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="3.8" />
-                  {(() => {
-                    let cumulativePct = 0;
-                    return contextBreakdown.map(([name, count], i) => {
-                      const pct = (count / contextTotal) * 100;
-                      const el = (
-                        <circle
-                          key={name}
-                          cx="18" cy="18" r="15.9" fill="none"
-                          stroke={CONTEXT_COLORS[i % CONTEXT_COLORS.length]}
-                          strokeWidth="3.8"
-                          strokeDasharray={`${pct} ${100 - pct}`}
-                          strokeDashoffset={-cumulativePct}
-                          strokeLinecap="butt"
-                          transform="rotate(-90 18 18)"
-                        />
-                      );
-                      cumulativePct += pct;
-                      return el;
-                    });
-                  })()}
-                </svg>
-                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{contextTotal} notes</div>
-              </div>
-              <div style={{ flex: 1 }}>
+            <div style={{ flex: 1 }}>
                 {contextBreakdown.map(([name, count], i) => (
                   <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
                     <Chip dot tone={CONTEXT_CHIP_TONES[i]}>{name}</Chip>
@@ -1248,7 +1229,6 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
                   </div>
                 ))}
               </div>
-            </>
           )}
         </div>
 
@@ -2848,6 +2828,11 @@ export default function Home() {
     saveCommands(cmds);
   };
 
+  const refreshTranscriptData = () => {
+    setTranscriptions(getTranscriptions(200));
+    setMetrics(getMetrics());
+  };
+
   const installTemplate = (tpl: Template) => {
     if (commands.some((c) => c.trigger === tpl.trigger)) return;
     const accents: Command["accent"][] = ["violet", "blue", "amber", "mint", "rose"];
@@ -2885,10 +2870,10 @@ export default function Home() {
         />
       )}
       {view === "history" && (
-        <HistoryView transcriptions={transcriptions} metrics={metrics} />
+        <HistoryScreen transcriptions={transcriptions} onChanged={refreshTranscriptData} />
       )}
       {view === "insights" && (
-        <InsightsScreen transcriptions={transcriptions} metrics={metrics} />
+        <InsightsScreen transcriptions={transcriptions} />
       )}
       {view === "commands" && (
         <CommandsScreen
