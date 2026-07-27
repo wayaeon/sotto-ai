@@ -388,7 +388,7 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
   if (metrics.streak > 0) ambient.push(`streak ${metrics.streak}d`);
 
   return (
-    <div className="main fade-in">
+    <div className="main fade-in settings-main">
       <div className="main-header talk-header">
         <div>
           <div className="eyebrow">
@@ -2340,9 +2340,9 @@ function SettingsScreen({ tier, onViewChange }: { tier: string | null; onViewCha
         </div>
       </div>
 
-      <div className="main-body" style={{ display: "flex", gap: 28, alignItems: "flex-start" }}>
+      <div className="main-body settings-body" style={{ display: "flex", alignItems: "flex-start" }}>
         {/* Sub-nav */}
-        <div style={{ width: 200, flexShrink: 0, position: "sticky", top: 0 }}>
+        <div className="settings-nav" style={{ flexShrink: 0, position: "sticky", top: 0 }}>
           {tabs.map((t) => (
             <button
               key={t.key}
