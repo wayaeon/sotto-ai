@@ -24,3 +24,13 @@ def test_sidebar_keeps_the_icon_rail_fixed_while_labels_expand():
     source = (ROOT / "src/index.css").read_text(encoding="utf-8")
     assert ".sidebar .nav-item { justify-content: flex-start; padding: 9px 8px; }" in source
     assert ".sidebar:hover .nav-item" not in source
+
+
+def test_library_uses_icon_app_filters_and_opens_details_only_on_selection():
+    source = (ROOT / "src/components/Home.tsx").read_text(encoding="utf-8")
+    assert "const [selected, setSelected] = useState<Transcription | null>(null);" in source
+    assert "const contextFilters = useMemo(() => {" in source
+    assert "apps.set(transcription.app_name, transcription.app_icon);" in source
+    assert "overflowX: \"auto\"" in source
+    assert "maxWidth: \"46%\"" in source
+    assert "{selected && (" in source

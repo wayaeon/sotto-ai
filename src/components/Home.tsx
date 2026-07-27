@@ -453,7 +453,7 @@ interface HistoryScreenProps {
 }
 
 function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
-  const [selected, setSelected] = useState<Transcription | null>(transcriptions[0] ?? null);
+  const [selected, setSelected] = useState<Transcription | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [copied, setCopied] = useState(false);
@@ -513,25 +513,33 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
   }
 
   const contextFilters = useMemo(() => {
-    const names = new Set(
-      transcriptions.map((t) => t.app_name).filter((n): n is string => !!n)
-    );
-    return ["all", ...[...names].sort()];
+    const apps = new Map<string, string | null>();
+    transcriptions.forEach((transcription) => {
+      if (transcription.app_name && !apps.has(transcription.app_name)) {
+        apps.set(transcription.app_name, transcription.app_icon);
+      }
+    });
+    return [
+      { name: "all", icon: null },
+      ...[...apps.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([name, icon]) => ({ name, icon })),
+    ];
   }, [transcriptions]);
 
   useEffect(() => {
-    if (filter !== "all" && !contextFilters.includes(filter)) {
+    if (filter !== "all" && !contextFilters.some((item) => item.name === filter)) {
       setFilter("all");
     }
   }, [filter, contextFilters]);
 
   useEffect(() => {
-    if (!filtered.some((item) => item.id === selected?.id)) {
-      setSelected(filtered[0] ?? null);
+    if (selected && !filtered.some((item) => item.id === selected.id)) {
+      setSelected(null);
       setEditing(false);
       setConfirmDelete(false);
     }
-  }, [filtered, selected?.id]);
+  }, [filtered, selected]);
 
   return (
     <div className="main" style={{ overflow: "hidden" }}>
@@ -544,7 +552,7 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
 
       {/* Search + filters */}
       <div style={{ padding: "12px 36px", display: "flex", gap: 10, alignItems: "center" }}>
-        <div className="input" style={{ flex: 1 }}>
+        <div className="input" style={{ flex: "1 1 240px", minWidth: 0 }}>
           <Icons.Search size={14} style={{ color: "var(--text-4)", flexShrink: 0 }} />
           <input
             placeholder="Search transcriptions…"
@@ -552,15 +560,20 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {contextFilters.map((f) => (
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: 2, minWidth: 36, maxWidth: "46%" }} aria-label="Filter by app">
+          {contextFilters.map(({ name, icon }) => (
             <button
-              key={f}
-              className={`btn btn-sm${filter === f ? "" : " btn-ghost"}`}
-              style={filter === f ? { background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.25)", color: "var(--c-violet)" } : {}}
-              onClick={() => setFilter(f)}
+              key={name}
+              className={`btn btn-sm${filter === name ? "" : " btn-ghost"}`}
+              style={{
+                width: 36, height: 36, padding: 0, flex: "0 0 36px", display: "grid", placeItems: "center",
+                ...(filter === name ? { background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.25)", color: "var(--c-violet)" } : {}),
+              }}
+              onClick={() => setFilter(name)}
+              title={name === "all" ? "All apps" : name}
+              aria-label={name === "all" ? "All apps" : name}
             >
-              {f === "all" ? "All" : f}
+              {icon ? <img src={icon} alt="" style={{ width: 18, height: 18, objectFit: "contain" }} /> : <Icons.Filter size={14} />}
             </button>
           ))}
         </div>
@@ -569,7 +582,7 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
       {/* Split pane */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden", borderTop: "1px solid var(--border)" }}>
         {/* List */}
-        <div style={{ width: 380, flexShrink: 0, borderRight: "1px solid var(--border)", overflowY: "auto" }}>
+        <div style={{ flex: 1, minWidth: 0, overflowY: "auto" }}>
           {filtered.length === 0 ? (
             <div className="empty" style={{ margin: 24 }}>
               <div className="empty-icon"><Icons.Clock size={22} /></div>
@@ -610,21 +623,17 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
           )}
         </div>
 
-        {/* Detail */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 28 }}>
-          {!selected ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-              <div style={{ textAlign: "center", color: "var(--text-4)" }}>
-                <Icons.FileText size={36} />
-                <p style={{ marginTop: 12, fontSize: 13 }}>Select a transcription</p>
-              </div>
-            </div>
-          ) : (
+        {/* Detail panel only opens after selecting a transcript. */}
+        {selected && (
+          <aside style={{ width: "min(46%, 560px)", flexShrink: 0, overflowY: "auto", padding: 28, borderLeft: "1px solid var(--border)", background: "var(--surface)" }}>
             <div>
               <div style={{ marginBottom: 20 }}>
-                <h2 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 400, margin: "0 0 8px" }}>
-                  {selected.text.slice(0, 60) || "Untitled"}
-                </h2>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 400, margin: "0 0 8px" }}>
+                    {selected.text.slice(0, 60) || "Untitled"}
+                  </h2>
+                  <button className="btn btn-ghost btn-sm" style={{ minWidth: 36, padding: 0, height: 36 }} onClick={() => setSelected(null)} aria-label="Close transcript" title="Close transcript"><Icons.X size={14} /></button>
+                </div>
                 <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
                   <span>{new Date(selected.created_at).toLocaleString()}</span>
                   <span>·</span>
@@ -688,8 +697,8 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          </aside>
+        )}
       </div>
     </div>
   );
