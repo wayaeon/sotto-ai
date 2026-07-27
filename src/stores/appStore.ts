@@ -9,6 +9,14 @@ export interface FocusedApp {
   kind: "app" | "site";
 }
 
+export interface ExternalContext {
+  source: "browser" | "cursor";
+  app: string;
+  site?: string;
+  field?: "email" | "compose" | "text" | "code";
+  activeFile?: string;
+}
+
 interface AppState {
   recordingState: RecordingState;
   audioLevel: number;
@@ -23,6 +31,7 @@ interface AppState {
   handsFreeActive: boolean;   // true while hands-free is armed, even between utterances
   wakePhraseActive: boolean;
   focusedApp: FocusedApp | null;       // app/site currently focused, live
+  externalContext: ExternalContext | null;
   lastDictationApp: FocusedApp | null; // app/site the most recently *completed* dictation went into
   lastDictationStats: { wordCount: number; durationMs: number } | null;
 
@@ -39,6 +48,7 @@ interface AppState {
   setHandsFreeActive: (active: boolean) => void;
   setWakePhraseActive: (active: boolean) => void;
   setFocusedApp: (app: FocusedApp | null) => void;
+  setExternalContext: (context: ExternalContext | null) => void;
   setLastDictationApp: (app: FocusedApp | null) => void;
   setLastDictationStats: (stats: { wordCount: number; durationMs: number } | null) => void;
 }
@@ -57,6 +67,7 @@ export const useAppStore = create<AppState>((set) => ({
   handsFreeActive: false,
   wakePhraseActive: false,
   focusedApp: null,
+  externalContext: null,
   lastDictationApp: null,
   lastDictationStats: null,
 
@@ -77,6 +88,7 @@ export const useAppStore = create<AppState>((set) => ({
   setHandsFreeActive: (active) => set({ handsFreeActive: active }),
   setWakePhraseActive: (active) => set({ wakePhraseActive: active }),
   setFocusedApp: (app) => set({ focusedApp: app }),
+  setExternalContext: (context) => set({ externalContext: context }),
   setLastDictationApp: (app) => set({ lastDictationApp: app }),
   setLastDictationStats: (stats) => set({ lastDictationStats: stats }),
 }));

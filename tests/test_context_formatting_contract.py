@@ -9,5 +9,5 @@ def test_primary_injection_uses_the_local_context_formatter_with_the_start_targe
 
     assert 'from "../lib/contextFormatting"' in hook
     assert "const dictationTarget = useRef" in hook
-    assert "const formatted = formatForContext(raw, resolveContextProfile(dictatedInto));" in hook
+    assert "const formatted = formatForContext(raw, resolveContextProfile(dictatedInto, dictationContext.current));" in hook
     assert "injectText(formatted)" in hook

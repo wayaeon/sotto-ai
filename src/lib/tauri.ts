@@ -94,10 +94,24 @@ export interface FocusedAppPayload {
   kind: "app" | "site";
 }
 
+export interface ExternalContextPayload {
+  source: "browser" | "cursor";
+  app: string;
+  site?: string;
+  field?: "email" | "compose" | "text" | "code";
+  activeFile?: string;
+}
+
 // Emitted directly by Rust (not via the sidecar's JSON-lines protocol) when a
 // PTT or hands-free utterance starts, carrying whatever app/site was focused.
 export function onFocusedApp(
   handler: (app: FocusedAppPayload) => void
 ): Promise<UnlistenFn> {
   return listen<FocusedAppPayload>("focused-app", (event) => handler(event.payload));
+}
+
+export function onExternalContext(
+  handler: (context: ExternalContextPayload) => void
+): Promise<UnlistenFn> {
+  return listen<ExternalContextPayload>("external-context", (event) => handler(event.payload));
 }

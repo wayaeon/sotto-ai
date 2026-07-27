@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { onSidecarEvent, onFocusedApp, injectText, type SidecarMessage } from "../lib/tauri";
-import { useAppStore, type FocusedApp, type RecordingState } from "../stores/appStore";
+import { onSidecarEvent, onFocusedApp, onExternalContext, injectText, type SidecarMessage } from "../lib/tauri";
+import { useAppStore, type ExternalContext, type FocusedApp, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 import { formatForContext, resolveContextProfile } from "../lib/contextFormatting";
 
@@ -28,12 +28,14 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     setHandsFreeActive,
     setWakePhraseActive,
     setFocusedApp,
+    setExternalContext,
     setLastDictationApp,
     setLastDictationStats,
   } = useAppStore();
 
   const dictationStartMs = useRef<number | null>(null);
   const dictationTarget = useRef<FocusedApp | null>(null);
+  const dictationContext = useRef<ExternalContext | null>(null);
 
   // Separate listener/effect — this event comes straight from Rust, not
   // through the sidecar's JSON-lines protocol like everything else here.
@@ -45,6 +47,14 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     });
     return () => { unlisten.then((fn) => fn()); };
   }, [setFocusedApp]);
+
+  useEffect(() => {
+    const unlisten = onExternalContext((context) => {
+      setExternalContext(context);
+      if (dictationStartMs.current !== null) dictationContext.current = context;
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [setExternalContext]);
 
   useEffect(() => {
     const unlisten = onSidecarEvent((msg: SidecarMessage) => {
@@ -74,7 +84,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           const raw = msg.text;
           const rawTextBeforeFilter = msg.raw_text ?? null;
           const dictatedInto = dictationTarget.current ?? useAppStore.getState().focusedApp;
-          const formatted = formatForContext(raw, resolveContextProfile(dictatedInto));
+          const formatted = formatForContext(raw, resolveContextProfile(dictatedInto, dictationContext.current));
           commitSegment(formatted);
 
           const durationMs = dictationStartMs.current
@@ -82,6 +92,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             : 0;
           dictationStartMs.current = null;
           dictationTarget.current = null;
+          dictationContext.current = null;
 
           // Runs in every window (each has its own store — sidecar-event
           // broadcasts to all of them, so this is how they stay in sync
@@ -130,6 +141,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           if (state === "recording" && dictationStartMs.current === null) {
             dictationStartMs.current = Date.now();
             dictationTarget.current = useAppStore.getState().focusedApp;
+            dictationContext.current = useAppStore.getState().externalContext;
           }
           setRecordingState(state);
           if (state === "idle") setAudioLevel(0);

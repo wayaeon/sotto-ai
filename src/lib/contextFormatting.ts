@@ -5,11 +5,23 @@ export interface FormattingTarget {
   kind: "app" | "site";
 }
 
+export interface FormattingContext {
+  source: "browser" | "cursor";
+  app: string;
+  site?: string;
+  field?: "email" | "compose" | "text" | "code";
+  activeFile?: string;
+}
+
 const EMAIL_CONTEXTS = ["gmail", "outlook", "protonmail", "thunderbird", "mail"];
 const CODE_CONTEXTS = ["cursor", "windsurf", "code", "visual studio"];
 const EMAIL_LOCAL_PART_STOP_WORDS = new Set(["i", "me", "we", "you", "he", "she", "it", "they", "there", "here"]);
 
-export function resolveContextProfile(target: FormattingTarget | null): FormatProfile {
+export function resolveContextProfile(target: FormattingTarget | null, context?: FormattingContext | null): FormatProfile {
+  if (context?.field === "code" || context?.source === "cursor") return "code";
+  if (context?.field === "email" || context?.field === "compose") return "email";
+  const contextualName = `${context?.app ?? ""} ${context?.site ?? ""}`.toLowerCase();
+  if (EMAIL_CONTEXTS.some((contextName) => contextualName.includes(contextName))) return "email";
   const name = target?.name.toLowerCase() ?? "";
   if (CODE_CONTEXTS.some((context) => name.includes(context))) return "code";
   if (EMAIL_CONTEXTS.some((context) => name.includes(context))) return "email";

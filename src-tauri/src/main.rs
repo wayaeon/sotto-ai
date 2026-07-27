@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod context_bridge;
 mod focus;
 mod hotkeys;
 mod injection;
@@ -33,6 +34,7 @@ fn main() {
         ])
         .setup(|app| {
             sidecar::spawn_sidecar(&app.handle());
+            context_bridge::start_context_bridge(app.handle().clone());
             tray::setup_tray(app)?;
             hotkeys::register_hotkeys(&app.handle());
 

@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Verba Local Context",
+  "version": "0.1.0",
+  "description": "Shares only active site and field type with the local Verba desktop app.",
+  "permissions": [],
+  "host_permissions": ["http://127.0.0.1:38471/*"],
+  "background": { "service_worker": "service-worker.js", "type": "module" },
+  "content_scripts": [{
+    "matches": ["http://*/*", "https://*/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }]
+}
