@@ -204,7 +204,7 @@ export default function Pill() {
   };
   const cancelHide = () => clearTimeout(leaveTimer.current);
 
-  // Click toggles hands-free, same as the Orb — Ctrl+Win stays the instant
+  // Click toggles hands-free, same as the Orb — Ctrl+Alt stays the instant
   // one-shot PTT path (wired directly in Rust, doesn't go through here).
   const onDictateClick = () => {
     if (!sidecarReady || !modelReady) return;
@@ -462,7 +462,7 @@ export default function Pill() {
                   {hoveredEl === "dictate" && (
                     <div style={s.tooltip}>
                       <span style={s.tooltipText}>Dictate</span>
-                      <span style={{ ...s.tooltipText, color: "#a78bfa", fontWeight: 600 }}>Ctrl+Win</span>
+                      <span style={{ ...s.tooltipText, color: "#a78bfa", fontWeight: 600 }}>Ctrl+Alt</span>
                     </div>
                   )}
                   <button className="pbtn" style={s.wavePill} onClick={onDictateClick}>

@@ -16,9 +16,10 @@ def test_pill_can_read_its_monitor_before_resizing():
     assert "core:event:allow-listen" in capability["permissions"]
 
 
-def test_ptt_starts_regardless_of_ctrl_and_windows_key_press_order():
+def test_ptt_starts_regardless_of_ctrl_and_alt_key_press_order():
     hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
-    assert "meta_down" in hotkeys
+    assert "alt_down" in hotkeys
+    assert "MetaLeft" not in hotkeys
     assert hotkeys.count("maybe_start_ptt") >= 3
 
 

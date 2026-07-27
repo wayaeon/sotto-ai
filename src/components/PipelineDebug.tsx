@@ -1106,7 +1106,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
             <TimingPanel timing={lastTiming} waitingForInject={waitingForInject} />
           ) : (
             <div style={{ ...css.timingPanel, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13, fontStyle: "italic" }}>
-              Press Ctrl+Win to see timing breakdown
+              Press Ctrl+Alt to see timing breakdown
             </div>
           )}
 
@@ -1123,7 +1123,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             <div style={css.logBody} ref={logRef}>
-              {log.length === 0 && <div style={css.logEmpty}>Waiting — press Ctrl+Win to dictate</div>}
+              {log.length === 0 && <div style={css.logEmpty}>Waiting — press Ctrl+Alt to dictate</div>}
               {log.map((l, i) => <div key={i} style={css.logLine}>{l}</div>)}
             </div>
           </div>
@@ -1151,7 +1151,7 @@ export default function PipelineDebug({ onClose }: { onClose: () => void }) {
       )}
 
       <div style={css.hint}>
-        Press <kbd style={css.kbd}>Ctrl + Win</kbd> to start dictation
+        Press <kbd style={css.kbd}>Ctrl + Alt</kbd> to start dictation
       </div>
     </div>
   );

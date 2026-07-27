@@ -417,7 +417,7 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
           </button>
         ) : (
           <div className="talk-last talk-last-empty">
-            Hold <kbd>Ctrl</kbd> + <kbd>Win</kbd> and speak — your words appear wherever you're typing.
+          Hold <kbd>Ctrl</kbd> + <kbd>Alt</kbd> and speak — your words appear wherever you're typing.
           </div>
         )}
 
@@ -2017,7 +2017,7 @@ function AudioPanel() {
 
 function HotkeysPanel() {
   const hotkeys = [
-    { name: "Push-to-talk",      keys: ["Ctrl", "Shift", "F9"] },
+    { name: "Push-to-talk",      keys: ["Ctrl", "Alt"] },
     { name: "Hands-free toggle", keys: ["Ctrl", "Shift", "F10"] },
     { name: "Cancel recording",  keys: ["Escape"] },
     { name: "Open Verba",        keys: ["Ctrl", "Shift", "S"] },

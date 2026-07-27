@@ -8,7 +8,7 @@ def test_setup_and_settings_use_the_shared_windows_shortcut():
     source = (ROOT / "src" / "lib" / "shortcuts.ts").read_text(encoding="utf-8")
     ready = (ROOT / "src" / "components" / "setup" / "ReadyScreen.tsx").read_text(encoding="utf-8")
     hotkeys = (ROOT / "src" / "components" / "settings" / "HotkeysTab.tsx").read_text(encoding="utf-8")
-    assert 'pushToTalk: "Ctrl + Win"' in source
+    assert 'pushToTalk: "Ctrl + Alt"' in source
     assert "WINDOWS_SHORTCUTS" in ready
     assert "WINDOWS_SHORTCUTS" in hotkeys
 

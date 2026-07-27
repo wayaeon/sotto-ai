@@ -92,7 +92,7 @@ export default function Orb() {
       <div className="orb-label" data-state={state}>{detail}</div>
       {state === "ready" && (
         <div className="orb-hint">
-          or hold <kbd>Ctrl</kbd> + <kbd>Win</kbd> in any app
+          or hold <kbd>Ctrl</kbd> + <kbd>Alt</kbd> in any app
         </div>
       )}
       {state === "listening" && (

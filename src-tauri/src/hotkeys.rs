@@ -8,11 +8,11 @@ use std::sync::Arc;
 fn maybe_start_ptt(
     app: &AppHandle,
     ctrl_down: &AtomicBool,
-    meta_down: &AtomicBool,
+    alt_down: &AtomicBool,
     ptt_active: &AtomicBool,
 ) {
     if ctrl_down.load(Ordering::SeqCst)
-        && meta_down.load(Ordering::SeqCst)
+        && alt_down.load(Ordering::SeqCst)
         && !ptt_active.swap(true, Ordering::SeqCst)
     {
         app.emit("sidecar-event", r#"{"event":"status","msg":"recording_ptt"}"#).ok();
@@ -26,11 +26,11 @@ pub fn register_hotkeys(app: &AppHandle) {
 
     std::thread::spawn(move || {
         let ctrl_down  = Arc::new(AtomicBool::new(false));
-        let meta_down  = Arc::new(AtomicBool::new(false));
+        let alt_down   = Arc::new(AtomicBool::new(false));
         let ptt_active = Arc::new(AtomicBool::new(false));
 
         let ctrl1 = ctrl_down.clone();
-        let meta1 = meta_down.clone();
+        let alt1  = alt_down.clone();
         let ptt1  = ptt_active.clone();
         let app1  = app.clone();
 
@@ -41,7 +41,7 @@ pub fn register_hotkeys(app: &AppHandle) {
             match event.event_type {
                 KeyPress(ControlLeft) | KeyPress(ControlRight) => {
                     ctrl1.store(true, Ordering::SeqCst);
-                    maybe_start_ptt(&app1, &ctrl1, &meta1, &ptt1);
+                    maybe_start_ptt(&app1, &ctrl1, &alt1, &ptt1);
                 }
                 KeyRelease(ControlLeft) | KeyRelease(ControlRight) => {
                     ctrl1.store(false, Ordering::SeqCst);
@@ -50,12 +50,12 @@ pub fn register_hotkeys(app: &AppHandle) {
                         send_command(&app1, json!({"cmd": "stop_ptt"}));
                     }
                 }
-                KeyPress(MetaLeft) | KeyPress(MetaRight) => {
-                    meta1.store(true, Ordering::SeqCst);
-                    maybe_start_ptt(&app1, &ctrl1, &meta1, &ptt1);
+                KeyPress(Alt) => {
+                    alt1.store(true, Ordering::SeqCst);
+                    maybe_start_ptt(&app1, &ctrl1, &alt1, &ptt1);
                 }
-                KeyRelease(MetaLeft) | KeyRelease(MetaRight) => {
-                    meta1.store(false, Ordering::SeqCst);
+                KeyRelease(Alt) => {
+                    alt1.store(false, Ordering::SeqCst);
                     if ptt1.swap(false, Ordering::SeqCst) {
                         app1.emit("sidecar-event", r#"{"event":"status","msg":"processing"}"#).ok();
                         send_command(&app1, json!({"cmd": "stop_ptt"}));
