@@ -537,7 +537,7 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
       <div className="main-header">
         <div>
           <div className="eyebrow">Library · {transcriptions.length} transcription{transcriptions.length !== 1 ? "s" : ""}</div>
-          <h1 className="page-title"><em>History</em></h1>
+          <h1 className="page-title"><em>Library</em></h1>
         </div>
       </div>
 
@@ -709,7 +709,7 @@ function heatCell(t: number, hue: number): string {
 }
 
 function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }) {
-  const [mode, setMode] = useState<HeatmapMode>("24h");
+  const mode: HeatmapMode = "24h";
 
   // ── 24h: day-of-week × hour ──────────────────────────────
   const grid24h = useMemo(() => {
@@ -798,24 +798,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
 
   return (
     <>
-      <SectionHead
-        label="When You Dictate"
-        action={
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span className="chip"><span className="chip-dot" style={{ background: "var(--c-violet)" }} />{modeLabel}</span>
-            <div style={{ display: "flex", gap: 4 }}>
-              {(["24h", "30d", "365d"] as HeatmapMode[]).map((m) => (
-                <button
-                  key={m}
-                  className={`btn btn-sm${mode === m ? "" : " btn-ghost"}`}
-                  style={mode === m ? { background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.25)", color: "var(--c-violet)" } : {}}
-                  onClick={() => setMode(m)}
-                >{m}</button>
-              ))}
-            </div>
-          </div>
-        }
-      />
+      <SectionHead label="When You Dictate" action={<span className="chip"><span className="chip-dot" style={{ background: "var(--c-violet)" }} />{modeLabel}</span>} />
       <div className="card" style={{ overflowX: "auto" }}>
         {transcriptions.length === 0 ? (
           <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-4)", fontSize: 13 }}>
@@ -1052,20 +1035,6 @@ function InsightsScreen({ transcriptions }: InsightsScreenProps) {
     return oldest ? Math.max(7, Math.ceil((Date.now() - new Date(oldest.created_at).getTime()) / 86400000)) : 7;
   }, [rangeDays, transcriptions]);
 
-  // Build daily volume data for the selected period.
-  const volumeData = useMemo(() => {
-    const bins = new Array(chartDays).fill(0);
-    const now = Date.now();
-    inRange.forEach((t) => {
-      const age = (now - new Date(t.created_at).getTime()) / 86400000;
-      const idx = Math.floor(age);
-      if (idx >= 0 && idx < chartDays) bins[chartDays - 1 - idx]++;
-    });
-    return bins;
-  }, [chartDays, inRange]);
-
-  const maxVol = Math.max(...volumeData, 1);
-
   const priorRange = useMemo(() => {
     if (rangeDays === Infinity) return [];
     const now = Date.now();
@@ -1175,36 +1144,6 @@ function InsightsScreen({ transcriptions }: InsightsScreenProps) {
           <Stat value={periodMetrics.wpm > 0 ? periodMetrics.wpm : "—"} unit={periodMetrics.wpm > 0 ? "wpm" : undefined} label="Speaking pace" accent="blue" />
           <Stat value={periodMetrics.duration > 0 ? fmtMinutes(Math.round(periodMetrics.duration * 0.4)) : "—"} label="Time saved" sub="estimate" accent="amber" />
           <Stat value={periodMetrics.sessions > 0 ? `${periodMetrics.sessions}` : "—"} label="Sessions" sub="this period" accent="mint" />
-        </div>
-
-        {/* Volume sparkline */}
-        <SectionHead label="Daily Volume" />
-        <div className="card card-glow" data-accent="violet">
-          {inRange.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-4)", fontSize: 13 }}>
-              No data yet — start dictating to see your volume trends.
-            </div>
-          ) : (
-            <svg width="100%" height="80" viewBox={`0 0 ${volumeData.length * 12} 80`} preserveAspectRatio="none">
-              {volumeData.map((v, i) => {
-                const h = (v / maxVol) * 60;
-                return (
-                  <rect
-                    key={i}
-                    x={i * 12}
-                    y={70 - h}
-                    width={10}
-                    height={h + 2}
-                    rx={2}
-                    fill="rgba(167,139,250,0.4)"
-                  />
-                );
-              })}
-            </svg>
-          )}
-          <div style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", marginTop: 6 }}>
-            {range === "all" ? "All time" : `Last ${rangeDays} days`} — {inRange.length} session{inRange.length !== 1 ? "s" : ""}
-          </div>
         </div>
 
         {/* Heatmap */}
@@ -2728,11 +2667,11 @@ function Sidebar({ view, onViewChange, userName, tier }: SidebarProps) {
   const initial = (userName || "U")[0].toUpperCase();
   const isPro = tier !== null && tier !== "tier1";
 
-  // v2 IA: three destinations (DESIGN.md §2). Insights lives inside History;
   // Commands/Account live inside Settings; Debug opens via Ctrl+Shift+D.
   const navItems: Array<{ key: View; label: string; icon: React.ReactNode }> = [
     { key: "home",     label: "Talk",     icon: <Icons.Mic size={16} /> },
     { key: "history",  label: "History",  icon: <Icons.Clock size={16} /> },
+    { key: "insights", label: "Insights", icon: <Icons.BarChart size={16} /> },
     { key: "settings", label: "Settings", icon: <Icons.Settings size={16} /> },
   ];
 
