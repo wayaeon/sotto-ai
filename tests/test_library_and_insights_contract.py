@@ -18,3 +18,9 @@ def test_library_has_real_transcript_actions_and_insights_has_one_range():
     assert "URL.createObjectURL" in source
     assert "document.body.appendChild" in source
     assert 'const [range, setRange]' in source
+
+
+def test_sidebar_keeps_the_icon_rail_fixed_while_labels_expand():
+    source = (ROOT / "src/index.css").read_text(encoding="utf-8")
+    assert ".sidebar .nav-item { justify-content: flex-start; padding: 9px 8px; }" in source
+    assert ".sidebar:hover .nav-item" not in source

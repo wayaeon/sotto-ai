@@ -83,8 +83,8 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 .sidebar .nav-label,
 .sidebar .sidebar-footer-text,
 .sidebar .sidebar-section-label { display: none; }
-.sidebar .nav-item { justify-content: center; padding: 10px; }
-.sidebar .brand { justify-content: center; padding-inline: 0; }
+.sidebar .nav-item { justify-content: flex-start; padding: 9px 8px; }
+.sidebar .brand { justify-content: flex-start; padding-inline: 4px; }
 .sidebar:hover {
   width: 112px;
 }
@@ -92,8 +92,6 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 .sidebar:hover .sidebar-section-label { display: block; }
 .sidebar:hover .sidebar-footer-text { display: flex; }
 .sidebar:hover .nav-label { display: inline; }
-.sidebar:hover .nav-item { justify-content: flex-start; padding: 9px 8px; }
-.sidebar:hover .brand { justify-content: flex-start; padding-inline: 4px; }
 .brand {
   display: flex; align-items: center; gap: 8px;
   padding: 2px 4px 18px;
