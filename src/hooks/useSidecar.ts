@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { onSidecarEvent, onFocusedApp, injectText, type SidecarMessage } from "../lib/tauri";
-import { useAppStore, type RecordingState } from "../stores/appStore";
+import { useAppStore, type FocusedApp, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
+import { formatForContext, resolveContextProfile } from "../lib/contextFormatting";
 
 // Single source of truth for the default model.
 // Always parakeet TDT v3 — ONNX runtime, works on any hardware.
@@ -32,12 +33,15 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
   } = useAppStore();
 
   const dictationStartMs = useRef<number | null>(null);
+  const dictationTarget = useRef<FocusedApp | null>(null);
 
   // Separate listener/effect — this event comes straight from Rust, not
   // through the sidecar's JSON-lines protocol like everything else here.
   useEffect(() => {
     const unlisten = onFocusedApp((app) => {
-      setFocusedApp({ name: app.name, iconDataUri: app.icon_data_uri, kind: app.kind });
+      const target = { name: app.name, iconDataUri: app.icon_data_uri, kind: app.kind } as FocusedApp;
+      setFocusedApp(target);
+      if (dictationStartMs.current !== null) dictationTarget.current = target;
     });
     return () => { unlisten.then((fn) => fn()); };
   }, [setFocusedApp]);
@@ -69,43 +73,45 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
         case "segment_done": {
           const raw = msg.text;
           const rawTextBeforeFilter = msg.raw_text ?? null;
-          commitSegment(raw);
+          const dictatedInto = dictationTarget.current ?? useAppStore.getState().focusedApp;
+          const formatted = formatForContext(raw, resolveContextProfile(dictatedInto));
+          commitSegment(formatted);
 
           const durationMs = dictationStartMs.current
             ? Date.now() - dictationStartMs.current
             : 0;
           dictationStartMs.current = null;
+          dictationTarget.current = null;
 
           // Runs in every window (each has its own store — sidecar-event
           // broadcasts to all of them, so this is how they stay in sync
           // instead of only the Pill knowing what was just dictated).
-          if (raw.trim()) {
+          if (formatted.trim()) {
             // Snapshot now — focusedApp reflects whatever was focused when this
             // utterance *started*; by the time segment_done fires the user may
             // have already switched windows, so this pins it to the right one.
-            const dictatedInto = useAppStore.getState().focusedApp;
             setLastDictationApp(dictatedInto);
-            setLastDictationStats({ wordCount: raw.trim().split(/\s+/).length, durationMs });
+            setLastDictationStats({ wordCount: formatted.trim().split(/\s+/).length, durationMs });
           }
 
           // Injection/history/metrics run only in the primary (Pill)
           // instance, to avoid double-injecting and duplicate history rows.
-          if (raw.trim() && primary) {
+          if (formatted.trim() && primary) {
             const currentModel = useAppStore.getState().model ?? "";
             const currentTier  = useAppStore.getState().tier  ?? "";
             const dictatedInto = useAppStore.getState().lastDictationApp;
 
-            localStorage.setItem("verba_last_transcription", raw);
+            localStorage.setItem("verba_last_transcription", formatted);
 
             // inject_text Rust command emits "inject-done" to all windows after completing
-            injectText(raw).catch((e) => console.warn("[inject_text]", e));
+            injectText(formatted).catch((e) => console.warn("[inject_text]", e));
 
             insertTranscription(
-              raw, currentModel, currentTier, durationMs,
+              formatted, currentModel, currentTier, durationMs,
               dictatedInto?.name ?? null, dictatedInto?.iconDataUri ?? null,
               rawTextBeforeFilter
             );
-            updateMetrics(raw.trim().split(/\s+/).length, durationMs);
+            updateMetrics(formatted.trim().split(/\s+/).length, durationMs);
           }
           break;
         }
@@ -123,6 +129,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           const state = statusMap[msg.msg] ?? "idle";
           if (state === "recording" && dictationStartMs.current === null) {
             dictationStartMs.current = Date.now();
+            dictationTarget.current = useAppStore.getState().focusedApp;
           }
           setRecordingState(state);
           if (state === "idle") setAudioLevel(0);
