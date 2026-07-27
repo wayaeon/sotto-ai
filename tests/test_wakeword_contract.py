@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_wakeword_detector_is_local_and_uses_the_fixed_phrase():
     source = (ROOT / "sidecar/wakeword.py").read_text(encoding="utf-8")
     assert 'WAKE_PHRASE = "VERBA DICTATE"' in source
+    assert 'WAKE_PHRASE_VARIANTS = ("VERBA DICTATE", "VERB DICTATE")' in source
     assert "sherpa_onnx.KeywordSpotter" in source
     assert "num_threads=1" in source
     assert "keywords_threshold=0.20" in source

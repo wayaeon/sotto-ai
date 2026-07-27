@@ -9,6 +9,7 @@ from .models import WAKE_WORD_DIR, wake_word_model_ready
 
 
 WAKE_PHRASE = "VERBA DICTATE"
+WAKE_PHRASE_VARIANTS = ("VERBA DICTATE", "VERB DICTATE")
 _KEYWORD_SCORE = 2.0
 _KEYWORD_THRESHOLD = 0.20
 _ENCODER = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
@@ -47,14 +48,12 @@ class WakeWordDetector:
         """Create the tokenized fixed phrase after the KWS assets are present."""
         import sentencepiece as spm
 
-        tokens = spm.SentencePieceProcessor(model_file=str(model_dir / "bpe.model")).encode(
-            WAKE_PHRASE, out_type=str
-        )
-        if not tokens:
+        tokenizer = spm.SentencePieceProcessor(model_file=str(model_dir / "bpe.model"))
+        token_sets = [tokenizer.encode(phrase, out_type=str) for phrase in WAKE_PHRASE_VARIANTS]
+        if not all(token_sets):
             raise RuntimeError("Wake phrase cannot be represented by the local model")
-        (model_dir / "keywords.txt").write_text(
-            f"{' '.join(tokens)} :2.0 #0.20 @VERBA_DICTATE\n", encoding="utf-8"
-        )
+        lines = [f"{' '.join(tokens)} :2.0 #0.20 @VERBA_DICTATE" for tokens in token_sets]
+        (model_dir / "keywords.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def accept_pcm16(self, frame: bytes) -> bool:
         samples = array("h")
