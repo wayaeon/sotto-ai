@@ -16,6 +16,15 @@ def test_wakeword_detector_is_local_and_uses_the_fixed_phrase():
     assert "onnx_asr" not in source
 
 
+def test_windows_uses_the_native_offline_phrase_listener():
+    source = (ROOT / "sidecar/windows_wake.py").read_text(encoding="utf-8")
+    recorder = (ROOT / "sidecar/recorder.py").read_text(encoding="utf-8")
+    assert "SAPI.SpSharedRecognizer" in source
+    assert '"verba dictate"' in source
+    assert "WindowsWakePhraseListener" in recorder
+    assert "_wake_dictation_loop" in recorder
+
+
 def test_wakeword_model_readiness_requires_all_runtime_files():
     source = (ROOT / "sidecar/models.py").read_text(encoding="utf-8")
     assert "def wake_word_model_ready()" in source

@@ -6,6 +6,7 @@ huggingface_hub>=0.23
 requests>=2.32
 pyaudio>=0.2.14
 webrtcvad-wheels>=2.0.14
+pywin32>=306; sys_platform == "win32"
 
 # Optional runtime deps — installed only if needed for specific models
 torch-directml; sys_platform == "win32"
