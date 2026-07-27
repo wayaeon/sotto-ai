@@ -20,3 +20,4 @@ def test_browser_and_cursor_companions_only_publish_metadata_to_the_local_bridge
     assert "127.0.0.1:38471/context" in browser
     assert "activeFile" in cursor
     assert "workspaceFiles" not in cursor
+    assert (ROOT / "integrations" / "verba-cursor" / ".vscode" / "launch.json").exists()
