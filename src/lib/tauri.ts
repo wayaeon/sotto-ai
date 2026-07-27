@@ -12,6 +12,15 @@ export const benchmarkModel = (model: string, audioPath?: string | null) => invo
 export const setDictionary = (words: string[]) => invoke("set_dictionary", { words });
 export const setFillerConfig = (enabled: boolean, words: string[]) => invoke("set_filler_config", { enabled, words });
 export const injectText = (text: string) => invoke("inject_text", { text });
+export interface CloudFormatRequest {
+  text: string;
+  profile: string;
+  app?: string;
+  site?: string;
+  field?: string;
+  activeFile?: string;
+}
+export const cloudFormat = (request: CloudFormatRequest) => invoke<string>("cloud_format", { request });
 export const openUrl = (url: string) => invoke("open_url", { url });
 export const openPath = (path: string) => invoke("open_path", { path });
 

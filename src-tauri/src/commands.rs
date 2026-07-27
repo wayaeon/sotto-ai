@@ -2,6 +2,7 @@ use tauri::{AppHandle, Emitter};
 use serde_json::json;
 use crate::sidecar::send_command;
 use crate::injection::Injector;
+use crate::cloud_formatter::{self, CloudFormatRequest};
 
 #[tauri::command]
 pub fn open_url(url: String) {
@@ -82,4 +83,9 @@ pub fn inject_text(app: AppHandle, text: String) -> Result<(), String> {
     // Emit to ALL windows from Rust — guaranteed cross-window broadcast
     app.emit("inject-done", json!({ "inject_ms": inject_ms, "pasted": pasted })).ok();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn cloud_format(request: CloudFormatRequest) -> Result<String, String> {
+    cloud_formatter::format(request).await
 }

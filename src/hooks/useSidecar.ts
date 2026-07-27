@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { onSidecarEvent, onFocusedApp, onExternalContext, injectText, type SidecarMessage } from "../lib/tauri";
+import { cloudFormat, onSidecarEvent, onFocusedApp, onExternalContext, injectText, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type ExternalContext, type FocusedApp, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 import { formatForContext, resolveContextProfile } from "../lib/contextFormatting";
@@ -84,8 +84,9 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           const raw = msg.text;
           const rawTextBeforeFilter = msg.raw_text ?? null;
           const dictatedInto = dictationTarget.current ?? useAppStore.getState().focusedApp;
-          const formatted = formatForContext(raw, resolveContextProfile(dictatedInto, dictationContext.current));
-          commitSegment(formatted);
+          const context = dictationContext.current;
+          const profile = resolveContextProfile(dictatedInto, context);
+          const formatted = formatForContext(raw, profile);
 
           const durationMs = dictationStartMs.current
             ? Date.now() - dictationStartMs.current
@@ -94,36 +95,46 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           dictationTarget.current = null;
           dictationContext.current = null;
 
-          // Runs in every window (each has its own store — sidecar-event
-          // broadcasts to all of them, so this is how they stay in sync
-          // instead of only the Pill knowing what was just dictated).
-          if (formatted.trim()) {
-            // Snapshot now — focusedApp reflects whatever was focused when this
-            // utterance *started*; by the time segment_done fires the user may
-            // have already switched windows, so this pins it to the right one.
+          const finish = (finalText: string) => {
+            commitSegment(finalText);
+            if (finalText.trim()) {
             setLastDictationApp(dictatedInto);
-            setLastDictationStats({ wordCount: formatted.trim().split(/\s+/).length, durationMs });
+              setLastDictationStats({ wordCount: finalText.trim().split(/\s+/).length, durationMs });
+            }
+
+            if (finalText.trim() && primary) {
+              const currentModel = useAppStore.getState().model ?? "";
+              const currentTier  = useAppStore.getState().tier  ?? "";
+              const destination = useAppStore.getState().lastDictationApp;
+
+              localStorage.setItem("verba_last_transcription", finalText);
+
+              injectText(finalText).catch((e) => console.warn("[inject_text]", e));
+
+              insertTranscription(
+                finalText, currentModel, currentTier, durationMs,
+                destination?.name ?? null, destination?.iconDataUri ?? null,
+                rawTextBeforeFilter
+              );
+              updateMetrics(finalText.trim().split(/\s+/).length, durationMs);
+            }
+          };
+
+          if (!primary || !formatted.trim()) {
+            finish(formatted);
+            break;
           }
 
-          // Injection/history/metrics run only in the primary (Pill)
-          // instance, to avoid double-injecting and duplicate history rows.
-          if (formatted.trim() && primary) {
-            const currentModel = useAppStore.getState().model ?? "";
-            const currentTier  = useAppStore.getState().tier  ?? "";
-            const dictatedInto = useAppStore.getState().lastDictationApp;
-
-            localStorage.setItem("verba_last_transcription", formatted);
-
-            // inject_text Rust command emits "inject-done" to all windows after completing
-            injectText(formatted).catch((e) => console.warn("[inject_text]", e));
-
-            insertTranscription(
-              formatted, currentModel, currentTier, durationMs,
-              dictatedInto?.name ?? null, dictatedInto?.iconDataUri ?? null,
-              rawTextBeforeFilter
-            );
-            updateMetrics(formatted.trim().split(/\s+/).length, durationMs);
-          }
+          cloudFormat({
+            text: formatted,
+            profile,
+            app: dictatedInto?.name,
+            site: context?.site,
+            field: context?.field,
+            activeFile: context?.activeFile,
+          })
+            .catch(() => formatted)
+            .then((cloudText) => finish(cloudText.trim() || formatted));
           break;
         }
 
