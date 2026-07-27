@@ -14,6 +14,6 @@ nemo_toolkit[asr]
 transformers>=5.2,<6
 accelerate
 funasr
-sherpa-onnx
+sherpa-onnx>=1.13,<2
 onnx-asr[hub]>=0.11
 mistral-common[audio]>=1.11.3

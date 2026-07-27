@@ -3,6 +3,7 @@ import { useAppStore } from "../stores/appStore";
 import { deleteTranscription, getTranscriptions, type Transcription, updateTranscription } from "../lib/db";
 import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
+import { setWakePhraseEnabled } from "../lib/tauri";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -1931,11 +1932,20 @@ function GeneralPanel() {
 }
 
 function AudioPanel() {
+  const lastError = useAppStore((state) => state.lastError);
   const [device, setDevice] = useSetting("input_device", "default");
   const [gain, setGain] = useSetting("gain", "80");
   const [noise, setNoise] = useToggleSetting("noise_suppression", true);
   const [echo, setEcho] = useToggleSetting("echo_cancel", true);
   const [wakeVoice, setWakeVoice] = useToggleSetting("wake_on_voice", false);
+  const setWakePhrase = (enabled: boolean) => {
+    setWakePhraseEnabled(enabled)
+      .then(() => setWakeVoice(enabled))
+      .catch(() => setWakeVoice(false));
+  };
+  useEffect(() => {
+    if (lastError?.startsWith("Wake phrase")) setWakeVoice(false);
+  }, [lastError]);
 
   return (
     <div>
@@ -1996,10 +2006,10 @@ function AudioPanel() {
       </div>
       <div className="setting-row">
         <div className="setting-text">
-          <p className="t">Wake on voice</p>
-          <p className="d">Automatically start recording when speech is detected.</p>
+          <p className="t">Wake phrase</p>
+          <p className="d">Say “Verba, dictate” to start one hands-free dictation.</p>
         </div>
-        <Toggle on={wakeVoice} onChange={setWakeVoice} />
+        <Toggle on={wakeVoice} onChange={setWakePhrase} />
       </div>
     </div>
   );

@@ -39,6 +39,11 @@ pub fn toggle_handsfree(app: AppHandle) {
 }
 
 #[tauri::command]
+pub fn set_wake_phrase_enabled(app: AppHandle, enabled: bool) {
+    send_command(&app, json!({"cmd": "set_wake_phrase_enabled", "enabled": enabled}));
+}
+
+#[tauri::command]
 pub fn ping_sidecar(app: AppHandle) {
     send_command(&app, json!({"cmd": "ping"}));
 }

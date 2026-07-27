@@ -20,6 +20,7 @@ fn main() {
             commands::start_ptt,
             commands::stop_ptt,
             commands::toggle_handsfree,
+            commands::set_wake_phrase_enabled,
             commands::ping_sidecar,
             commands::detect_hardware,
             commands::set_model,

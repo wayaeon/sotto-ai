@@ -6,6 +6,7 @@ import time
 import threading
 import wave
 import importlib.util
+import tarfile
 from fnmatch import fnmatch
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,21 @@ if TYPE_CHECKING:
 # Models are stored in ~/.verba
 _DATA_DIR = Path(os.environ.get("WISPR_DATA_DIR", Path.home() / ".verba"))
 MODELS_DIR = _DATA_DIR / "models"
+WAKE_WORD_MODEL_NAME = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+WAKE_WORD_DIR = MODELS_DIR / WAKE_WORD_MODEL_NAME
+WAKE_WORD_ARCHIVE_URL = (
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/"
+    f"{WAKE_WORD_MODEL_NAME}.tar.bz2"
+)
+_WAKE_WORD_FILES = (
+    "tokens.txt",
+    "bpe.model",
+    "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+    "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+    "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+    "keywords.txt",
+)
+_WAKE_WORD_DOWNLOAD_LOCK = threading.Lock()
 _ACTIVE_DOWNLOADS: set[str] = set()
 _DOWNLOAD_PAUSES: dict[str, threading.Event] = {}
 _DOWNLOAD_LAST_PROGRESS: dict[str, dict] = {}
@@ -80,6 +96,74 @@ def format_bytes(bytes_value: int | float | None) -> str:
 
 def model_dir(model_name: str) -> Path:
     return MODELS_DIR / model_name
+
+
+def wake_word_model_ready() -> tuple[bool, str]:
+    """Return whether the local KWS model is safe to arm."""
+    if not _module_available("sherpa_onnx"):
+        return False, "Wake phrase runtime is not installed"
+    missing = [name for name in _WAKE_WORD_FILES if not (WAKE_WORD_DIR / name).is_file()]
+    if missing:
+        return False, "Wake phrase model is not downloaded"
+    return True, ""
+
+
+def download_wake_word_model(ipc: "IPC") -> bool:
+    """Download the small local KWS package only after the user enables it."""
+    from .ipc import Event
+    import requests
+
+    with _WAKE_WORD_DOWNLOAD_LOCK:
+        ready, _ = wake_word_model_ready()
+        if ready:
+            return True
+        archive = MODELS_DIR / f"{WAKE_WORD_MODEL_NAME}.tar.bz2.incomplete"
+        staging = MODELS_DIR / f".{WAKE_WORD_MODEL_NAME}.extracting"
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        ipc.send(Event.STATUS, msg="wake_downloading")
+        try:
+            with requests.get(WAKE_WORD_ARCHIVE_URL, stream=True, timeout=(10, 120)) as response:
+                response.raise_for_status()
+                with archive.open("wb") as out:
+                    for chunk in response.iter_content(chunk_size=1024 * 256):
+                        if chunk:
+                            out.write(chunk)
+
+            if staging.exists():
+                import shutil
+                shutil.rmtree(staging)
+            staging.mkdir()
+            with tarfile.open(archive, "r:bz2") as bundle:
+                destination = staging.resolve()
+                members = []
+                for member in bundle.getmembers():
+                    target = (destination / member.name).resolve()
+                    if destination not in target.parents and target != destination:
+                        raise RuntimeError("Wake phrase archive contains an unsafe path")
+                    members.append(member)
+                bundle.extractall(staging, members=members, filter="data")
+            extracted = staging / WAKE_WORD_MODEL_NAME
+            if not extracted.is_dir():
+                raise RuntimeError("Wake phrase archive has an unexpected layout")
+            if WAKE_WORD_DIR.exists():
+                import shutil
+                shutil.rmtree(WAKE_WORD_DIR)
+            extracted.replace(WAKE_WORD_DIR)
+            from .wakeword import WakeWordDetector
+            WakeWordDetector.prepare_keywords(WAKE_WORD_DIR)
+            ready, reason = wake_word_model_ready()
+            if not ready:
+                raise RuntimeError(reason)
+            ipc.send(Event.STATUS, msg="wake_model_ready")
+            return True
+        except Exception as exc:
+            ipc.send(Event.ERROR, msg=f"Wake phrase setup failed: {exc}")
+            return False
+        finally:
+            archive.unlink(missing_ok=True)
+            if staging.exists():
+                import shutil
+                shutil.rmtree(staging)
 
 
 def _dir_bytes(path: Path, repo_id: str | None = None) -> int:

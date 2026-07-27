@@ -25,6 +25,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     setTier,
     setModel,
     setHandsFreeActive,
+    setWakePhraseActive,
     setFocusedApp,
     setLastDictationApp,
     setLastDictationStats,
@@ -113,6 +114,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           const statusMap: Record<string, RecordingState> = {
             recording_ptt:  "recording",
             handsfree_ptt:  "recording",
+            wake_dictating: "recording",
             recording:      "recording",
             processing:     "processing",
             loading_model:  "loading",
@@ -153,6 +155,8 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           // from recordingState so the UI can show it's still listening.
           else if (msg.msg === "handsfree_on") setHandsFreeActive(true);
           else if (msg.msg === "handsfree_off") setHandsFreeActive(false);
+          else if (msg.msg === "wake_armed" || msg.msg === "wake_detected" || msg.msg === "wake_dictating") setWakePhraseActive(true);
+          else if (msg.msg === "wake_off") setWakePhraseActive(false);
           break;
         }
 
@@ -183,5 +187,5 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setSidecarReady, setModelReady, setRecordingState, setAudioLevel, appendWord, commitSegment, setTier, setModel, setHandsFreeActive, setLastDictationApp, setLastDictationStats]);
+  }, [setSidecarReady, setModelReady, setRecordingState, setAudioLevel, appendWord, commitSegment, setTier, setModel, setHandsFreeActive, setWakePhraseActive, setLastDictationApp, setLastDictationStats]);
 }

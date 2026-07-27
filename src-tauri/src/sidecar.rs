@@ -67,7 +67,7 @@ pub fn spawn_sidecar(app: &AppHandle) {
                             // A hands-free utterance just started (VAD onset committed
                             // on the Python side) — this is the hands-free equivalent
                             // of the PTT hotkey press, so detect focus here too.
-                            if line.contains("handsfree_ptt") {
+                            if line.contains("handsfree_ptt") || line.contains("wake_dictating") {
                                 emit_focused_app_async(app_handle.clone());
                             }
                             app_handle.emit("sidecar-event", line).ok();

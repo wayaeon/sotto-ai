@@ -21,6 +21,7 @@ interface AppState {
   setupComplete: boolean;
   lastError: string | null;   // last sidecar error — drives the orb's error state
   handsFreeActive: boolean;   // true while hands-free is armed, even between utterances
+  wakePhraseActive: boolean;
   focusedApp: FocusedApp | null;       // app/site currently focused, live
   lastDictationApp: FocusedApp | null; // app/site the most recently *completed* dictation went into
   lastDictationStats: { wordCount: number; durationMs: number } | null;
@@ -36,6 +37,7 @@ interface AppState {
   setSetupComplete: (done: boolean) => void;
   setLastError: (msg: string | null) => void;
   setHandsFreeActive: (active: boolean) => void;
+  setWakePhraseActive: (active: boolean) => void;
   setFocusedApp: (app: FocusedApp | null) => void;
   setLastDictationApp: (app: FocusedApp | null) => void;
   setLastDictationStats: (stats: { wordCount: number; durationMs: number } | null) => void;
@@ -53,6 +55,7 @@ export const useAppStore = create<AppState>((set) => ({
   setupComplete: false,
   lastError: null,
   handsFreeActive: false,
+  wakePhraseActive: false,
   focusedApp: null,
   lastDictationApp: null,
   lastDictationStats: null,
@@ -72,6 +75,7 @@ export const useAppStore = create<AppState>((set) => ({
   setSetupComplete: (done) => set({ setupComplete: done }),
   setLastError: (msg) => set({ lastError: msg }),
   setHandsFreeActive: (active) => set({ handsFreeActive: active }),
+  setWakePhraseActive: (active) => set({ wakePhraseActive: active }),
   setFocusedApp: (app) => set({ focusedApp: app }),
   setLastDictationApp: (app) => set({ lastDictationApp: app }),
   setLastDictationStats: (stats) => set({ lastDictationStats: stats }),

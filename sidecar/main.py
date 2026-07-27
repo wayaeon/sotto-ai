@@ -141,6 +141,9 @@ def main() -> None:
         elif cmd == Command.TOGGLE_HANDSFREE:
             recorder.toggle_handsfree()
 
+        elif cmd == Command.SET_WAKE_PHRASE_ENABLED:
+            recorder.set_wake_phrase_enabled(bool(payload.get("enabled", False)))
+
         elif cmd == Command.QUIT:
             recorder.shutdown()
             break

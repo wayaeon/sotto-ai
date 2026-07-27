@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 export const startPtt = () => invoke("start_ptt");
 export const stopPtt = () => invoke("stop_ptt");
 export const toggleHandsfree = () => invoke("toggle_handsfree");
+export const setWakePhraseEnabled = (enabled: boolean) => invoke("set_wake_phrase_enabled", { enabled });
 export const pingSidecar = () => invoke("ping_sidecar");
 export const detectHardware = () => invoke("detect_hardware");
 export const setModel = (model: string) => invoke("set_model", { model });

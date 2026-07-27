@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { useAppStore } from "../stores/appStore";
 import { useSidecar } from "../hooks/useSidecar";
-import { toggleHandsfree } from "../lib/tauri";
+import { setWakePhraseEnabled, toggleHandsfree } from "../lib/tauri";
 
 const LANGUAGES = [
   { code: "EN", label: "English",            flag: "🇺🇸" },
@@ -56,7 +56,7 @@ async function resizePillWindow(width: number, height: number) {
 
 export default function Pill() {
   useSidecar({ primary: true });
-  const { recordingState, audioLevel, sidecarReady, modelReady, setRecordingState, handsFreeActive, focusedApp } = useAppStore();
+  const { recordingState, audioLevel, sidecarReady, modelReady, setRecordingState, handsFreeActive, wakePhraseActive, focusedApp } = useAppStore();
 
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -88,8 +88,8 @@ export default function Pill() {
   // Hands-free keeps the bar up the whole time it's armed, not just mid-utterance —
   // this is the pill's half of staying in sync with the Orb's persistent "listening"
   // state instead of going silent between utterances.
-  const isListening   = handsFreeActive && !isRecording && !isProcessing;
-  const shouldShowBar = expanded || isRecording || isProcessing || isLoading || handsFreeActive;
+  const isListening   = (handsFreeActive || wakePhraseActive) && !isRecording && !isProcessing;
+  const shouldShowBar = expanded || isRecording || isProcessing || isLoading || handsFreeActive || wakePhraseActive;
 
   // ─── Phase state machine ──────────────────────────────────────────────────
   //
@@ -208,6 +208,10 @@ export default function Pill() {
   // one-shot PTT path (wired directly in Rust, doesn't go through here).
   const onDictateClick = () => {
     if (!sidecarReady || !modelReady) return;
+    if (wakePhraseActive) {
+      setWakePhraseEnabled(false).catch(() => {});
+      return;
+    }
     toggleHandsfree().catch(() => {});
   };
   const cancelRecording = async () => {
@@ -391,7 +395,7 @@ export default function Pill() {
               <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{ ...s.dictatingBubble, border: "1px solid rgba(52,211,153,0.25)" }}>
                   <span style={{ ...s.dictatingDot, background: "rgba(52,211,153,0.9)", animation: "micPulse 1.6s ease-in-out infinite" }} />
-                  <span style={s.dictatingText}>Listening…</span>
+                  <span style={s.dictatingText}>{wakePhraseActive ? "Wake phrase armed" : "Listening…"}</span>
                 </div>
                 <button
                   className="pbtn"

@@ -1,0 +1,74 @@
+"""Small, local keyword spotter used to gate background dictation."""
+from __future__ import annotations
+
+from array import array
+import sys
+from pathlib import Path
+
+from .models import WAKE_WORD_DIR, wake_word_model_ready
+
+
+WAKE_PHRASE = "VERBA DICTATE"
+_ENCODER = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
+_DECODER = "decoder-epoch-12-avg-2-chunk-16-left-64.onnx"
+_JOINER = "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
+
+
+class WakeWordDetector:
+    """One-thread local KWS stream. It never loads a transcription model."""
+
+    def __init__(self, model_dir: Path = WAKE_WORD_DIR) -> None:
+        ready, reason = wake_word_model_ready()
+        if not ready:
+            raise RuntimeError(reason)
+
+        import sherpa_onnx
+
+        self._model_dir = model_dir
+        self._spotter = sherpa_onnx.KeywordSpotter(
+            tokens=str(model_dir / "tokens.txt"),
+            encoder=str(model_dir / _ENCODER),
+            decoder=str(model_dir / _DECODER),
+            joiner=str(model_dir / _JOINER),
+            keywords_file=str(model_dir / "keywords.txt"),
+            num_threads=1,
+            keywords_score=2.0,
+            keywords_threshold=0.35,
+            provider="cpu",
+        )
+        self._stream = self._spotter.create_stream()
+
+    @staticmethod
+    def prepare_keywords(model_dir: Path = WAKE_WORD_DIR) -> None:
+        """Create the tokenized fixed phrase after the KWS assets are present."""
+        import sentencepiece as spm
+
+        tokens = spm.SentencePieceProcessor(model_file=str(model_dir / "bpe.model")).encode(
+            WAKE_PHRASE, out_type=str
+        )
+        if not tokens:
+            raise RuntimeError("Wake phrase cannot be represented by the local model")
+        (model_dir / "keywords.txt").write_text(
+            f"{' '.join(tokens)} :2.0 #0.35 @VERBA_DICTATE\n", encoding="utf-8"
+        )
+
+    def accept_pcm16(self, frame: bytes) -> bool:
+        samples = array("h")
+        samples.frombytes(frame)
+        if sys.byteorder != "little":
+            samples.byteswap()
+        self._stream.accept_waveform(16000, [sample / 32768.0 for sample in samples])
+        while self._spotter.is_ready(self._stream):
+            self._spotter.decode_stream(self._stream)
+        result = self._spotter.get_result(self._stream).upper().replace("_", " ")
+        if result == WAKE_PHRASE:
+            self._spotter.reset_stream(self._stream)
+            return True
+        return False
+
+    def close(self) -> None:
+        self._stream = None
+
+    def reset(self) -> None:
+        if self._stream is not None:
+            self._spotter.reset_stream(self._stream)
