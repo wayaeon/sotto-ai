@@ -125,6 +125,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             dictationStartMs.current = Date.now();
           }
           setRecordingState(state);
+          if (state === "idle") setAudioLevel(0);
           // A successful state transition clears any prior error
           if (msg.msg === "recording_ptt" || msg.msg.startsWith("worker_ready")) {
             useAppStore.getState().setLastError(null);

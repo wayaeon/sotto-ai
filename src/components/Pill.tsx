@@ -499,12 +499,16 @@ const BAR_COUNT = 10;
 function WaveVisual({ state, level }: { state: string; level: number }) {
   const isRecording  = state === "recording";
   const isProcessing = state === "processing";
+  const isActive = isRecording || level > 0.001;
+  // Microphone RMS is normally a small fraction; square-root gain makes
+  // ordinary speech visibly move without pinning loud speech at full height.
+  const visualLevel = Math.min(1, Math.max(0.12, Math.sqrt(level * 18)));
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2, height: 14 }}>
       {Array.from({ length: BAR_COUNT }).map((_, i) => {
-        if (isRecording) {
-          const h = Math.max(0.15, Math.min(1, level * (0.5 + (i % 5) / 5)));
+        if (isActive) {
+          const h = Math.min(1, 0.1 + visualLevel * [0.48, 0.7, 0.9, 0.62, 0.82][i % 5]);
           return (
             <div key={i} style={{
               width: 1.5, height: "100%", borderRadius: 2,

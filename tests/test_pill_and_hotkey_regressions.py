@@ -28,3 +28,11 @@ def test_pill_uses_sidecar_audio_levels_without_opening_a_second_microphone_stre
     hook = (ROOT / "src" / "hooks" / "useSidecar.ts").read_text(encoding="utf-8")
     assert "navigator.mediaDevices.getUserMedia" not in pill
     assert 'case "audio_level"' in hook
+
+
+def test_pill_waveform_amplifies_real_speech_and_wake_capture_emits_levels():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    recorder = (ROOT / "sidecar" / "recorder.py").read_text(encoding="utf-8")
+    assert "Math.sqrt(level * 18)" in pill
+    assert "const isActive = isRecording || level > 0.001;" in pill
+    assert "if wf is not None or hf_queue is not None:" in recorder
