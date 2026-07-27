@@ -1,7 +1,5 @@
 /* ─── Sotto — global styles ─────────────────────────────── */
 
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500;600&display=swap');
-
 :root {
   --bg: #0a0a0c;
   --bg-window: #0d0d10;
@@ -28,9 +26,9 @@
     rgba(251,191,36,0.55) 66%,
     rgba(52,211,153,0.55) 100%);
 
-  --font-display: "Instrument Serif", "Times New Roman", serif;
-  --font-ui: "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --font-display: Georgia, "Times New Roman", serif;
+  --font-ui: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "Cascadia Mono", ui-monospace, monospace;
 
   --pad-card: 22px;
   --pad-section: 36px;

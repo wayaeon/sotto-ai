@@ -9,7 +9,7 @@ import { setModel as setModelIpc, setWakePhraseEnabled, toggleHandsfree } from "
 
 export type OrbState = "loading" | "ready" | "listening" | "recording" | "processing" | "error";
 
-export function useOrbState(): { state: OrbState; detail: string } {
+function useOrbState(): { state: OrbState; detail: string } {
   const { recordingState, modelReady, model, lastError, handsFreeActive, wakePhraseActive } = useAppStore();
 
   if (lastError && recordingState === "idle") {
