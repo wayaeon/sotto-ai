@@ -548,7 +548,14 @@ class Recorder:
         frame_buf = bytearray()
         wake_phrase_buf = bytearray()
         dictation_buf = bytearray()
-        consecutive_speech = speech_frames = silence_frames = 0
+        consecutive_speech = speech_frames = silence_frames = trailing_silence_frames = 0
+
+        def begin_dictation() -> None:
+            wake_phrase_buf.clear()
+            dictation_buf.clear()
+            self._wake_mode = "dictating"
+            self._ipc.send(Event.STATUS, msg="wake_detected")
+            self._ipc.send(Event.STATUS, msg="wake_dictating")
 
         while self._wake_mode != "off" and audio_q is not None:
             try:
@@ -566,23 +573,30 @@ class Recorder:
 
                 if self._wake_mode == "armed":
                     if is_speech:
+                        trailing_silence_frames = 0
                         consecutive_speech += 1
                         wake_phrase_buf += frame
                         if consecutive_speech >= _HANDSFREE_ONSET_FRAMES:
                             detector = self._wake_detector
                             detector_audio = bytes(wake_phrase_buf) if consecutive_speech == _HANDSFREE_ONSET_FRAMES else frame
                             if detector is not None and detector.accept_pcm16(detector_audio):
-                                wake_phrase_buf.clear()
-                                dictation_buf.clear()
                                 speech_frames = silence_frames = 0
-                                self._wake_mode = "dictating"
-                                self._ipc.send(Event.STATUS, msg="wake_detected")
-                                self._ipc.send(Event.STATUS, msg="wake_dictating")
+                                begin_dictation()
                     else:
                         consecutive_speech = 0
-                        wake_phrase_buf.clear()
                         detector = self._wake_detector
-                        if detector is not None:
+                        if wake_phrase_buf and detector is not None:
+                            # KWS needs one or two blank frames to finalize a
+                            # phrase that ends exactly before the user pauses.
+                            trailing_silence_frames += 1
+                            if detector.accept_pcm16(frame):
+                                speech_frames = silence_frames = 0
+                                begin_dictation()
+                            elif trailing_silence_frames >= 10:
+                                wake_phrase_buf.clear()
+                                trailing_silence_frames = 0
+                                detector.reset()
+                        elif detector is not None:
                             detector.reset()
                 elif self._wake_mode == "dictating":
                     if is_speech:

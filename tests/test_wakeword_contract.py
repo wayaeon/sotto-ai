@@ -31,6 +31,8 @@ def test_recorder_keeps_wake_phrase_out_of_the_transcribed_audio():
     assert 'msg="wake_detected"' in source
     assert "wake_phrase_buf.clear()" in source
     assert 'msg="wake_armed"' in source
+    assert "trailing_silence_frames" in source
+    assert "wake_phrase_buf and detector is not None" in source
 
 
 def test_wake_phrase_has_a_real_ipc_and_settings_bridge():
