@@ -5,11 +5,11 @@ from array import array
 import sys
 from pathlib import Path
 
-from .models import WAKE_WORD_DIR, wake_word_model_ready
+from .models import WAKE_WORD_DIR, WAKE_WORD_KEYWORDS_FILE, wake_word_model_ready
 
 
-WAKE_PHRASE = "VERBA DICTATE"
-WAKE_PHRASE_VARIANTS = ("VERBA DICTATE", "VERB DICTATE")
+WAKE_PHRASE = "VERBA"
+WAKE_PHRASE_VARIANTS = ("VERBA",)
 _KEYWORD_SCORE = 2.0
 _KEYWORD_THRESHOLD = 0.20
 _ENCODER = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
@@ -35,7 +35,7 @@ class WakeWordDetector:
             encoder=str(model_dir / _ENCODER),
             decoder=str(model_dir / _DECODER),
             joiner=str(model_dir / _JOINER),
-            keywords_file=str(model_dir / "keywords.txt"),
+            keywords_file=str(WAKE_WORD_KEYWORDS_FILE),
             num_threads=1,
             keywords_score=_KEYWORD_SCORE,
             keywords_threshold=0.20,
@@ -52,8 +52,9 @@ class WakeWordDetector:
         token_sets = [tokenizer.encode(phrase, out_type=str) for phrase in WAKE_PHRASE_VARIANTS]
         if not all(token_sets):
             raise RuntimeError("Wake phrase cannot be represented by the local model")
-        lines = [f"{' '.join(tokens)} :2.0 #0.20 @VERBA_DICTATE" for tokens in token_sets]
-        (model_dir / "keywords.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        lines = [f"{' '.join(tokens)} :2.0 #0.20 @VERBA" for tokens in token_sets]
+        WAKE_WORD_KEYWORDS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        WAKE_WORD_KEYWORDS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def accept_pcm16(self, frame: bytes) -> bool:
         samples = array("h")

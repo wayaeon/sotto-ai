@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import multiprocessing
 import queue
-import sys
 import threading
 import time
 import wave
@@ -161,8 +160,6 @@ class Recorder:
         self._handsfree_queue: "queue.Queue[bytes] | None" = None
         self._wake_mode = "off"
         self._wake_detector = None
-        self._wake_listener = None
-        self._wake_stop_event = threading.Event()
 
         _RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         threading.Thread(target=self._preload, daemon=True).start()
@@ -482,7 +479,6 @@ class Recorder:
         with self._lock:
             if self._wake_mode != "off":
                 self._wake_mode = "off"
-                self._wake_stop_event.set()
                 detector, self._wake_detector = self._wake_detector, None
                 if detector is not None:
                     detector.close()
@@ -501,9 +497,7 @@ class Recorder:
         with self._lock:
             if not enabled:
                 self._wake_mode = "off"
-                self._wake_stop_event.set()
                 detector, self._wake_detector = self._wake_detector, None
-                self._wake_listener = None
                 if not self._handsfree:
                     self._handsfree_queue = None
                 if detector is not None:
@@ -517,14 +511,10 @@ class Recorder:
                 self._handsfree_queue = None
                 self._ipc.send(Event.STATUS, msg="handsfree_off")
             self._wake_mode = "arming"
-            self._wake_stop_event.clear()
         threading.Thread(target=self._arm_wake_phrase, name="verba-wake-word", daemon=True).start()
         return True
 
     def _arm_wake_phrase(self) -> None:
-        if sys.platform == "win32":
-            self._arm_windows_wake_phrase()
-            return
         try:
             from .models import download_wake_word_model, wake_word_model_ready
             from .wakeword import WakeWordDetector
@@ -549,95 +539,6 @@ class Recorder:
                 self._handsfree_queue = None
             self._ipc.send(Event.ERROR, msg=f"Wake phrase unavailable: {exc}")
             self._ipc.send(Event.STATUS, msg="wake_off")
-
-    def _arm_windows_wake_phrase(self) -> None:
-        try:
-            from .windows_wake import WindowsWakePhraseListener
-
-            listener = WindowsWakePhraseListener()
-            with self._lock:
-                if self._wake_mode != "arming":
-                    return
-                self._wake_listener = listener
-                self._wake_mode = "armed"
-            self._ipc.send(Event.STATUS, msg="wake_armed")
-            listener.run(self._wake_stop_event, self._start_windows_wake_dictation)
-        except Exception as exc:
-            with self._lock:
-                self._wake_mode = "off"
-                self._wake_listener = None
-            self._ipc.send(Event.ERROR, msg=f"Wake phrase unavailable: {exc}")
-            self._ipc.send(Event.STATUS, msg="wake_off")
-
-    def _start_windows_wake_dictation(self) -> None:
-        with self._lock:
-            if self._wake_mode != "armed":
-                return
-            self._wake_mode = "dictating"
-            self._wake_stop_event.set()
-            self._handsfree_queue = queue.Queue(maxsize=_HANDSFREE_QUEUE_MAXLEN)
-        self._ipc.send(Event.STATUS, msg="wake_detected")
-        self._ipc.send(Event.STATUS, msg="wake_dictating")
-        threading.Thread(target=self._wake_dictation_loop, name="verba-wake-dictation", daemon=True).start()
-
-    def _wake_dictation_loop(self) -> None:
-        """Capture exactly one post-phrase utterance, ending it on silence."""
-        vad = webrtcvad.Vad(_VAD_AGGRESSIVENESS)
-        with self._lock:
-            audio_q = self._handsfree_queue
-        frame_buf = bytearray()
-        pending_buf = bytearray()
-        speech_buf = bytearray()
-        in_speech = False
-        consecutive_speech = speech_frames = silence_frames = 0
-
-        while self._wake_mode == "dictating" and audio_q is not None:
-            try:
-                chunk = audio_q.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            frame_buf += chunk
-            while len(frame_buf) >= _VAD_FRAME_BYTES:
-                frame = bytes(frame_buf[:_VAD_FRAME_BYTES])
-                del frame_buf[:_VAD_FRAME_BYTES]
-                try:
-                    is_speech = vad.is_speech(frame, _SAMPLE_RATE)
-                except Exception:
-                    is_speech = False
-                if is_speech:
-                    silence_frames = 0
-                    if in_speech:
-                        speech_buf += frame
-                        speech_frames += 1
-                    else:
-                        pending_buf += frame
-                        consecutive_speech += 1
-                        if consecutive_speech >= _HANDSFREE_ONSET_FRAMES:
-                            in_speech = True
-                            speech_buf = bytearray(pending_buf)
-                            speech_frames = consecutive_speech
-                            pending_buf.clear()
-                else:
-                    consecutive_speech = 0
-                    pending_buf.clear()
-                    if in_speech:
-                        speech_buf += frame
-                        silence_frames += 1
-                        if silence_frames >= _HANDSFREE_SILENCE_FRAMES:
-                            if speech_frames >= _HANDSFREE_MIN_SPEECH_FRAMES:
-                                self._ipc.send(Event.STATUS, msg="processing")
-                                self._transcribe_handsfree_utterance(bytes(speech_buf))
-                            self._rearm_windows_wake_phrase()
-                            return
-
-    def _rearm_windows_wake_phrase(self) -> None:
-        with self._lock:
-            if self._wake_mode == "off":
-                return
-            self._handsfree_queue = None
-            self._wake_mode = "arming"
-            self._wake_stop_event.clear()
-        threading.Thread(target=self._arm_windows_wake_phrase, name="verba-wake-word", daemon=True).start()
 
     def _wake_phrase_loop(self) -> None:
         """VAD-gate the KWS model, then collect only audio after the phrase."""
@@ -895,9 +796,7 @@ class Recorder:
                 self._current_wf = None
             self._handsfree = False
             self._wake_mode = "off"
-            self._wake_stop_event.set()
             detector, self._wake_detector = self._wake_detector, None
-            self._wake_listener = None
             self._handsfree_queue = None
             if detector is not None:
                 detector.close()

@@ -96,7 +96,7 @@ export default function Orb() {
         </div>
       )}
       {state === "listening" && (
-        <div className="orb-hint">{wakePhraseActive ? "say Verba, dictate — click to stop" : "still listening between utterances — click to stop"}</div>
+        <div className="orb-hint">{wakePhraseActive ? "say Verba — click to stop" : "still listening between utterances — click to stop"}</div>
       )}
       {state === "error" && (
         <div className="orb-hint">click to retry</div>

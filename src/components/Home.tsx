@@ -2007,7 +2007,7 @@ function AudioPanel() {
       <div className="setting-row">
         <div className="setting-text">
           <p className="t">Wake phrase</p>
-          <p className="d">Say “Verba, dictate” to start one hands-free dictation.</p>
+          <p className="d">Say “Verba” to start one hands-free dictation.</p>
         </div>
         <Toggle on={wakeVoice} onChange={setWakePhrase} />
       </div>

@@ -22,6 +22,7 @@ _DATA_DIR = Path(os.environ.get("WISPR_DATA_DIR", Path.home() / ".verba"))
 MODELS_DIR = _DATA_DIR / "models"
 WAKE_WORD_MODEL_NAME = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 WAKE_WORD_DIR = MODELS_DIR / WAKE_WORD_MODEL_NAME
+WAKE_WORD_KEYWORDS_FILE = _DATA_DIR / "wake" / "keywords.txt"
 WAKE_WORD_ARCHIVE_URL = (
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/"
     f"{WAKE_WORD_MODEL_NAME}.tar.bz2"
@@ -32,7 +33,6 @@ _WAKE_WORD_FILES = (
     "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
     "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
     "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    "keywords.txt",
 )
 _WAKE_WORD_DOWNLOAD_LOCK = threading.Lock()
 _ACTIVE_DOWNLOADS: set[str] = set()
