@@ -9,6 +9,8 @@ from .models import WAKE_WORD_DIR, wake_word_model_ready
 
 
 WAKE_PHRASE = "VERBA DICTATE"
+_KEYWORD_SCORE = 2.0
+_KEYWORD_THRESHOLD = 0.20
 _ENCODER = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
 _DECODER = "decoder-epoch-12-avg-2-chunk-16-left-64.onnx"
 _JOINER = "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
@@ -24,6 +26,8 @@ class WakeWordDetector:
 
         import sherpa_onnx
 
+        self.prepare_keywords(model_dir)
+
         self._model_dir = model_dir
         self._spotter = sherpa_onnx.KeywordSpotter(
             tokens=str(model_dir / "tokens.txt"),
@@ -32,8 +36,8 @@ class WakeWordDetector:
             joiner=str(model_dir / _JOINER),
             keywords_file=str(model_dir / "keywords.txt"),
             num_threads=1,
-            keywords_score=2.0,
-            keywords_threshold=0.35,
+            keywords_score=_KEYWORD_SCORE,
+            keywords_threshold=0.20,
             provider="cpu",
         )
         self._stream = self._spotter.create_stream()
@@ -49,7 +53,7 @@ class WakeWordDetector:
         if not tokens:
             raise RuntimeError("Wake phrase cannot be represented by the local model")
         (model_dir / "keywords.txt").write_text(
-            f"{' '.join(tokens)} :2.0 #0.35 @VERBA_DICTATE\n", encoding="utf-8"
+            f"{' '.join(tokens)} :2.0 #0.20 @VERBA_DICTATE\n", encoding="utf-8"
         )
 
     def accept_pcm16(self, frame: bytes) -> bool:

@@ -9,6 +9,8 @@ def test_wakeword_detector_is_local_and_uses_the_fixed_phrase():
     assert 'WAKE_PHRASE = "VERBA DICTATE"' in source
     assert "sherpa_onnx.KeywordSpotter" in source
     assert "num_threads=1" in source
+    assert "keywords_threshold=0.20" in source
+    assert ":2.0 #0.20 @VERBA_DICTATE" in source
     assert "faster_whisper" not in source
     assert "onnx_asr" not in source
 
