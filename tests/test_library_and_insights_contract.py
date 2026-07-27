@@ -32,5 +32,6 @@ def test_library_uses_icon_app_filters_and_opens_details_only_on_selection():
     assert "const contextFilters = useMemo(() => {" in source
     assert "apps.set(transcription.app_name, transcription.app_icon);" in source
     assert "overflowX: \"auto\"" in source
-    assert "maxWidth: \"46%\"" in source
+    assert "flex: \"1 1 0\"" in source
+    assert "maxWidth: 280" in source
     assert "{selected && (" in source

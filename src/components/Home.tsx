@@ -552,7 +552,7 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
 
       {/* Search + filters */}
       <div style={{ padding: "12px 36px", display: "flex", gap: 10, alignItems: "center" }}>
-        <div className="input" style={{ flex: "1 1 240px", minWidth: 0 }}>
+        <div className="input" style={{ flex: "0 1 240px", minWidth: 132, maxWidth: 280 }}>
           <Icons.Search size={14} style={{ color: "var(--text-4)", flexShrink: 0 }} />
           <input
             placeholder="Search transcriptions…"
@@ -560,7 +560,7 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: 2, minWidth: 36, maxWidth: "46%" }} aria-label="Filter by app">
+        <div style={{ display: "flex", flex: "1 1 0", gap: 6, overflowX: "auto", padding: 2, minWidth: 36 }} aria-label="Filter by app">
           {contextFilters.map(({ name, icon }) => (
             <button
               key={name}
