@@ -74,7 +74,8 @@ export type SidecarMessage =
   | { event: "status"; msg: string }
   | ({ event: "hardware" } & HardwareInfo)
   | ({ event: "benchmark_result" } & BenchmarkResult)
-  | { event: "audio_level"; level: number };
+  | { event: "audio_level"; level: number }
+  | { event: "tablet_posture"; posture: "tablet" | "laptop" };
 
 export function onSidecarEvent(
   handler: (msg: SidecarMessage) => void

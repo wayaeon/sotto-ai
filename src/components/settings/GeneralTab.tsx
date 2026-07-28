@@ -13,6 +13,7 @@ const SETTINGS: Setting[] = [
   { key: "show_overlay",      label: "Show pill while recording",      sub: "Display the floating pill when transcription is active", default: true  },
   { key: "inject_text",       label: "Inject text into active window", sub: "Type transcribed text directly into the focused field",  default: true  },
   { key: "copy_to_clipboard", label: "Copy to clipboard",             sub: "Also copy each transcription to your clipboard",        default: true  },
+  { key: "always_show_touch_control", label: "Always show touch control", sub: "Keep the large dictation button visible if your tablet posture is not detected", default: false },
 ];
 
 function getStored(key: string, def: boolean): boolean {

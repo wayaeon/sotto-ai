@@ -578,6 +578,8 @@ class Recorder:
                         consecutive_speech += 1
                         wake_phrase_buf += frame
                         if consecutive_speech >= _HANDSFREE_ONSET_FRAMES:
+                            if consecutive_speech == _HANDSFREE_ONSET_FRAMES:
+                                self._ipc.send(Event.STATUS, msg="wake_listening")
                             detector = self._wake_detector
                             detector_audio = bytes(wake_phrase_buf) if consecutive_speech == _HANDSFREE_ONSET_FRAMES else frame
                             if detector is not None and detector.accept_pcm16(detector_audio):
@@ -597,6 +599,7 @@ class Recorder:
                                 wake_phrase_buf.clear()
                                 trailing_silence_frames = 0
                                 detector.reset()
+                                self._ipc.send(Event.STATUS, msg="wake_armed")
                         elif detector is not None:
                             detector.reset()
                 elif self._wake_mode == "dictating":

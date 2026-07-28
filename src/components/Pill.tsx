@@ -56,7 +56,7 @@ async function resizePillWindow(width: number, height: number) {
 
 export default function Pill() {
   useSidecar({ primary: true });
-  const { recordingState, audioLevel, sidecarReady, modelReady, setRecordingState, handsFreeActive, wakePhraseActive, focusedApp } = useAppStore();
+  const { recordingState, audioLevel, sidecarReady, modelReady, setRecordingState, handsFreeActive, wakePhraseActive, focusedApp, tabletPosture } = useAppStore();
 
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -90,6 +90,13 @@ export default function Pill() {
   // state instead of going silent between utterances.
   const isListening   = (handsFreeActive || wakePhraseActive) && !isRecording && !isProcessing;
   const shouldShowBar = expanded || isRecording || isProcessing || isLoading || handsFreeActive || wakePhraseActive;
+  const touchControl = tabletPosture === "tablet" || localStorage.getItem("verba_setting_always_show_touch_control") === "true";
+
+  useEffect(() => {
+    if (phase === "collapsed" && !shouldShowBar) {
+      resizePillWindow(touchControl ? 76 : PILL_WINDOW_COLLAPSED_W, touchControl ? 76 : PILL_WINDOW_COLLAPSED_H).catch(() => {});
+    }
+  }, [phase, shouldShowBar, touchControl]);
 
   // ─── Phase state machine ──────────────────────────────────────────────────
   //
@@ -165,7 +172,7 @@ export default function Pill() {
         if (expandGenRef.current !== gen) return;
         setBarMounted(false);
         // Resize while handle is still hidden (phase = "collapsing").
-        await resizePillWindow(PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H).catch((error) => console.error("[pill] resize failed", error));
+        await resizePillWindow(touchControl ? 76 : PILL_WINDOW_COLLAPSED_W, touchControl ? 76 : PILL_WINDOW_COLLAPSED_H).catch((error) => console.error("[pill] resize failed", error));
         // Only after window is at collapsed size does the handle appear.
         if (expandGenRef.current !== gen) return;
         phaseRef.current = "collapsed";
@@ -175,7 +182,7 @@ export default function Pill() {
       return () => clearTimeout(t);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldShowBar, isRecording, isProcessing, isLoading, isListening, showLangPanel]);
+  }, [shouldShowBar, isRecording, isProcessing, isLoading, isListening, showLangPanel, touchControl]);
 
   // Recording timer
   const [recSecs, setRecSecs] = useState(0);
@@ -221,6 +228,10 @@ export default function Pill() {
   const copyRecent = async () => {
     const text = localStorage.getItem("verba_last_transcription") ?? "";
     if (text) navigator.clipboard.writeText(text).catch(() => {});
+  };
+  const startTouchDictation = () => {
+    if (!sidecarReady || !modelReady || isProcessing || isLoading) return;
+    toggleHandsfree().catch(() => {});
   };
 
   const cycleLang = () => {
@@ -314,7 +325,20 @@ export default function Pill() {
             including during "collapsing", so it cannot jump above the
             exiting bar while the window is still expanded.
         ─────────────────────────────────────────────────────────────────── */}
-        <div
+        {touchControl ? (
+          <button
+            className="pbtn"
+            aria-label="Start hands-free dictation"
+            style={{
+              ...s.touchControl,
+              opacity: isCollapsed ? 1 : 0,
+              transform: isCollapsed ? "translateX(-50%) scale(1)" : "translateX(-50%) scale(0.78)",
+              transition: isCollapsed ? handleTx : "none",
+              pointerEvents: isCollapsed ? "auto" : "none",
+            }}
+            onClick={startTouchDictation}
+          ><MicIcon /></button>
+        ) : <div
           style={{
             ...s.handle,
             opacity:       isCollapsed ? 1 : 0,
@@ -329,7 +353,7 @@ export default function Pill() {
           }}
           onMouseEnter={() => { cancelHide(); setExpanded(true); }}
           onMouseLeave={scheduleHide}
-        />
+        />}
 
         {/* ── Expanded bar ─────────────────────────────────────────────── */}
         {barMounted && (
@@ -595,6 +619,10 @@ function CheckIcon() {
   );
 }
 
+function MicIcon() {
+  return <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,1)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>;
+}
+
 /* ── Styles ── */
 
 const s: Record<string, React.CSSProperties> = {
@@ -632,6 +660,12 @@ const s: Record<string, React.CSSProperties> = {
     // transform + opacity driven inline; transition set inline too.
     transformOrigin: "center bottom",
     // Horizontal centering via translateX(-50%) baked into inline transform.
+  },
+  touchControl: {
+    position: "absolute", left: 0, bottom: 0, width: 64, height: 64, borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    background: "rgba(8,8,16,0.96)", border: "1px solid rgba(167,139,250,0.62)",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.42), 0 0 0 6px rgba(167,139,250,0.1)",
   },
   barRow: {
     // Absolutely positioned relative to anchor (bottom-center).

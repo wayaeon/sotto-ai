@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_wakeword_detector_is_local_and_uses_the_fixed_phrase():
     source = (ROOT / "sidecar/wakeword.py").read_text(encoding="utf-8")
     assert 'WAKE_PHRASE = "VERBA"' in source
-    assert 'WAKE_PHRASE_VARIANTS = ("verba",)' in source
+    assert 'WAKE_PHRASE_VARIANTS = ("verba dictate",)' in source
     assert "sherpa_onnx.KeywordSpotter" in source
     assert "num_threads=1" in source
     assert "keywords_threshold=0.20" in source
@@ -46,6 +46,7 @@ def test_recorder_keeps_wake_phrase_out_of_the_transcribed_audio():
     assert 'self._wake_mode = "off"' in source
     assert "def set_wake_phrase_enabled(self, enabled: bool) -> bool:" in source
     assert 'msg="wake_detected"' in source
+    assert 'msg="wake_listening"' in source
     assert "wake_phrase_buf.clear()" in source
     assert 'msg="wake_armed"' in source
     assert "trailing_silence_frames" in source
@@ -64,9 +65,10 @@ def test_wake_phrase_has_a_real_ipc_and_settings_bridge():
     assert 'invoke("set_wake_phrase_enabled", { enabled })' in tauri
     assert "setWakePhraseEnabled" in home
     assert "Wake phrase" in home
-    assert "Say “Verba”" in home
+    assert "Verba dictate" in home
     hook = (ROOT / "src/hooks/useSidecar.ts").read_text(encoding="utf-8")
     assert 'wake_dictating: "recording"' in hook
-    assert 'msg.msg === "wake_armed"' in hook
+    assert 'wake_listening' in hook
+    assert 'wake_armed: "armed"' in hook
     sidecar = (ROOT / "src-tauri/src/sidecar.rs").read_text(encoding="utf-8")
     assert 'line.contains("wake_dictating")' in sidecar

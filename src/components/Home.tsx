@@ -1942,6 +1942,7 @@ function GeneralPanel() {
 
 function AudioPanel() {
   const lastError = useAppStore((state) => state.lastError);
+  const wakePhraseStatus = useAppStore((state) => state.wakePhraseStatus);
   const [device, setDevice] = useSetting("input_device", "default");
   const [gain, setGain] = useSetting("gain", "80");
   const [noise, setNoise] = useToggleSetting("noise_suppression", true);
@@ -2016,7 +2017,8 @@ function AudioPanel() {
       <div className="setting-row">
         <div className="setting-text">
           <p className="t">Wake phrase</p>
-          <p className="d">Say “Verba” to start one hands-free dictation.</p>
+          <p className="d">Say “Verba dictate” to start one hands-free dictation.</p>
+          {wakeVoice && <p className="d" style={{ color: "var(--c-mint)", marginTop: 5 }}>Wake listener: {wakePhraseStatus === "hearing" ? "hearing speech" : wakePhraseStatus}</p>}
         </div>
         <Toggle on={wakeVoice} onChange={setWakePhrase} />
       </div>

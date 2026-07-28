@@ -39,6 +39,8 @@ interface AppState {
   lastError: string | null;   // last sidecar error — drives the orb's error state
   handsFreeActive: boolean;   // true while hands-free is armed, even between utterances
   wakePhraseActive: boolean;
+  wakePhraseStatus: "off" | "armed" | "hearing" | "detected" | "dictating";
+  tabletPosture: "tablet" | "laptop";
   focusedApp: FocusedApp | null;       // app/site currently focused, live
   externalContext: ExternalContext | null;
   lastDictationApp: FocusedApp | null; // app/site the most recently *completed* dictation went into
@@ -57,6 +59,8 @@ interface AppState {
   setLastError: (msg: string | null) => void;
   setHandsFreeActive: (active: boolean) => void;
   setWakePhraseActive: (active: boolean) => void;
+  setWakePhraseStatus: (status: AppState["wakePhraseStatus"]) => void;
+  setTabletPosture: (posture: AppState["tabletPosture"]) => void;
   setFocusedApp: (app: FocusedApp | null) => void;
   setExternalContext: (context: ExternalContext | null) => void;
   setLastDictationApp: (app: FocusedApp | null) => void;
@@ -77,6 +81,8 @@ export const useAppStore = create<AppState>((set) => ({
   lastError: null,
   handsFreeActive: false,
   wakePhraseActive: false,
+  wakePhraseStatus: "off",
+  tabletPosture: "laptop",
   focusedApp: null,
   externalContext: null,
   lastDictationApp: null,
@@ -99,6 +105,8 @@ export const useAppStore = create<AppState>((set) => ({
   setLastError: (msg) => set({ lastError: msg }),
   setHandsFreeActive: (active) => set({ handsFreeActive: active }),
   setWakePhraseActive: (active) => set({ wakePhraseActive: active }),
+  setWakePhraseStatus: (wakePhraseStatus) => set({ wakePhraseStatus }),
+  setTabletPosture: (tabletPosture) => set({ tabletPosture }),
   setFocusedApp: (app) => set({ focusedApp: app }),
   setExternalContext: (context) => set({ externalContext: context }),
   setLastDictationApp: (app) => set({ lastDictationApp: app }),

@@ -9,7 +9,7 @@ from .models import WAKE_WORD_DIR, WAKE_WORD_KEYWORDS_FILE, wake_word_model_read
 
 
 WAKE_PHRASE = "VERBA"
-WAKE_PHRASE_VARIANTS = ("verba",)
+WAKE_PHRASE_VARIANTS = ("verba dictate",)
 _KEYWORD_SCORE = 2.0
 _KEYWORD_THRESHOLD = 0.20
 _ENCODER = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"

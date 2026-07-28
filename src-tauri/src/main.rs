@@ -7,6 +7,7 @@ mod hotkeys;
 mod injection;
 mod sidecar;
 mod storage;
+mod tablet_posture;
 mod tray;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -39,6 +40,7 @@ fn main() {
         .setup(|app| {
             sidecar::spawn_sidecar(&app.handle());
             context_bridge::start_context_bridge(app.handle().clone());
+            tablet_posture::start_tablet_posture_bridge(app.handle().clone());
             tray::setup_tray(app)?;
             hotkeys::register_hotkeys(&app.handle());
 
