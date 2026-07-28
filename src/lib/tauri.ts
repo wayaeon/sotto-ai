@@ -68,6 +68,7 @@ export type SidecarMessage =
   | { event: "word"; text: string; partial: boolean }
   | { event: "segment_done"; text: string; raw_text?: string | null; audio_path?: string; timing?: StageTiming }
   | { event: "audio_recorded"; audio_path: string }
+  | { event: "download_progress"; model: string; percent: number; bytes_downloaded: number; bytes_total: number; downloaded_label: string; total_label: string }
   | { event: "error"; msg: string }
   | { event: "pong" }
   | { event: "status"; msg: string }

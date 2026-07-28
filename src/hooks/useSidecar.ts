@@ -25,6 +25,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     commitSegment,
     setTier,
     setModel,
+    setModelDownload,
     setHandsFreeActive,
     setWakePhraseActive,
     setFocusedApp,
@@ -163,6 +164,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
               localStorage.setItem("verba_model", parts.model);
             }
             setModelReady(true);
+            setModelDownload(null);
           }
           else if (msg.msg.startsWith("model_selected")) {
             const parts = Object.fromEntries(
@@ -181,6 +183,18 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           else if (msg.msg === "wake_off") setWakePhraseActive(false);
           break;
         }
+
+        case "download_progress":
+          if (msg.model === DEFAULT_MODEL) {
+            setModelDownload({
+              percent: msg.percent,
+              bytesDownloaded: msg.bytes_downloaded,
+              bytesTotal: msg.bytes_total,
+              downloadedLabel: msg.downloaded_label,
+              totalLabel: msg.total_label,
+            });
+          }
+          break;
 
         case "hardware":
           setTier(msg.tier as any);
@@ -209,5 +223,5 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setSidecarReady, setModelReady, setRecordingState, setAudioLevel, appendWord, commitSegment, setTier, setModel, setHandsFreeActive, setWakePhraseActive, setLastDictationApp, setLastDictationStats]);
+  }, [setSidecarReady, setModelReady, setRecordingState, setAudioLevel, appendWord, commitSegment, setTier, setModel, setModelDownload, setHandsFreeActive, setWakePhraseActive, setLastDictationApp, setLastDictationStats]);
 }

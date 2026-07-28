@@ -8,7 +8,7 @@ interface Props {
 const DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3";
 
 export default function ModelStep({ onNext }: Props) {
-  const { sidecarReady, modelReady, lastError, setLastError } = useAppStore();
+  const { sidecarReady, modelReady, modelDownload, lastError, setLastError } = useAppStore();
   const canContinue = sidecarReady && modelReady;
 
   const retry = () => {
@@ -27,9 +27,14 @@ export default function ModelStep({ onNext }: Props) {
         <div style={{ flex: 1 }}>
           <div style={title}>Parakeet TDT 0.6B v3</div>
           <div style={rowSub}>Local, fast, and tuned for Windows dictation.</div>
+          {modelDownload && !modelReady && (
+            <div style={download}>
+              Downloading Parakeet — {Math.round(modelDownload.percent)}% · {modelDownload.downloadedLabel} / {modelDownload.totalLabel}
+            </div>
+          )}
         </div>
         <span style={canContinue ? checkBadge : statusBadge}>
-          {canContinue ? "✓ Ready" : sidecarReady ? "Warming" : "Starting"}
+          {canContinue ? "✓ Ready" : modelDownload ? "Downloading" : sidecarReady ? "Warming" : "Starting"}
         </span>
       </div>
 
@@ -42,7 +47,7 @@ export default function ModelStep({ onNext }: Props) {
       )}
 
       {!lastError && !canContinue && (
-        <div style={hint}>The model will stay marked as warming until the sidecar confirms it is loaded.</div>
+        <div style={hint}>{modelDownload ? "This one-time download is about 640 MB. Verba will load it automatically when it finishes." : "Preparing the local transcription engine…"}</div>
       )}
 
       <button onClick={onNext} disabled={!canContinue} style={canContinue ? primaryButton : disabledButton}>
@@ -72,6 +77,7 @@ const modelIcon: React.CSSProperties = {
 };
 const title: React.CSSProperties = { color: "var(--text)", fontSize: 14, fontWeight: 600, marginBottom: 4 };
 const rowSub: React.CSSProperties = { color: "var(--text-3)", fontSize: 12 };
+const download: React.CSSProperties = { color: "var(--c-amber)", fontSize: 11, marginTop: 6, fontVariantNumeric: "tabular-nums" };
 const checkBadge: React.CSSProperties = {
   color: "var(--c-mint)", background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.2)",
   borderRadius: 99, padding: "3px 8px", fontSize: 11, fontWeight: 600,
