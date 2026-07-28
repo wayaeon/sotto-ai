@@ -13,7 +13,7 @@ if (Test-Path $vcvarsall) {
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "sotto-target"
 
-Write-Host "Building the local Sotto installer..."
+Write-Host "Building the local Verba installer..."
 # NSIS is the self-contained Windows installer and does not require WiX's MSI linker.
 & pnpm run build:app -- --bundles nsis
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

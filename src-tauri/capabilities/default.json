@@ -12,6 +12,9 @@
     "core:window:allow-set-size",
     "shell:allow-execute",
     "shell:allow-open",
-    "sql:default"
+    "sql:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

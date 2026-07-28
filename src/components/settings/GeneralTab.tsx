@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 interface Setting {
   key: string;
@@ -24,10 +25,22 @@ export default function GeneralTab() {
     Object.fromEntries(SETTINGS.map(s => [s.key, getStored(s.key, s.default)]))
   );
 
+  useEffect(() => {
+    if (!import.meta.env.PROD) return;
+    const desired = getStored("launch_at_login", true);
+    void isEnabled().then((enabled) => {
+      if (desired && !enabled) return enable();
+      if (!desired && enabled) return disable();
+    }).catch((error) => console.warn("[autostart]", error));
+  }, []);
+
   const toggle = (key: string) => {
     setValues(prev => {
       const next = { ...prev, [key]: !prev[key] };
       localStorage.setItem(`verba_setting_${key}`, String(next[key]));
+      if (key === "launch_at_login" && import.meta.env.PROD) {
+        void (next[key] ? enable() : disable()).catch((error) => console.warn("[autostart]", error));
+      }
       return next;
     });
   };
