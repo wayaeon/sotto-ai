@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { cloudFormat, onSidecarEvent, onFocusedApp, onExternalContext, injectText, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type ExternalContext, type FocusedApp, type RecordingState } from "../stores/appStore";
-import { insertTranscription, updateMetrics, updateTranscription } from "../lib/db";
+import { insertTranscription, updateMetrics } from "../lib/db";
 import { formatForContext, resolveContextProfile } from "../lib/contextFormatting";
 
 // Single source of truth for the default model.
@@ -127,9 +127,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             break;
           }
 
-          const entryId = finish(formatted);
-
-          void cloudFormat({
+          cloudFormat({
             text: formatted,
             profile,
             app: dictatedInto?.name,
@@ -137,13 +135,8 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             field: context?.field,
             activeFile: context?.activeFile,
           })
-            .then((cloudText) => {
-              const polished = cloudText.trim();
-              if (entryId !== null && polished && polished !== formatted) {
-                updateTranscription(entryId, polished);
-              }
-            })
-            .catch(() => {});
+            .catch(() => formatted)
+            .then((cloudText) => finish(cloudText.trim() || formatted));
           break;
         }
 
