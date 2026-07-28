@@ -8,8 +8,10 @@ from pathlib import Path
 from .models import WAKE_WORD_DIR, WAKE_WORD_KEYWORDS_FILE, wake_word_model_ready
 
 
-WAKE_PHRASE = "VERBA"
-WAKE_PHRASE_VARIANTS = ("verba dictate",)
+WAKE_PHRASE = "VERBA DICTATE"
+# This GigaSpeech keyword model has uppercase BPE tokens only for this phrase.
+# Lowercase `verba dictate` produces unknown tokens and cannot ever arm.
+WAKE_PHRASE_VARIANTS = ("VERBA DICTATE",)
 _KEYWORD_SCORE = 2.0
 _KEYWORD_THRESHOLD = 0.20
 _ENCODER = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
@@ -52,7 +54,7 @@ class WakeWordDetector:
         token_sets = [tokenizer.encode(phrase, out_type=str) for phrase in WAKE_PHRASE_VARIANTS]
         if not all(token_sets):
             raise RuntimeError("Wake phrase cannot be represented by the local model")
-        lines = [f"{' '.join(tokens)} :2.0 #0.20 @VERBA" for tokens in token_sets]
+        lines = [f"{' '.join(tokens)} :2.0 #0.20 @VERBA_DICTATE" for tokens in token_sets]
         WAKE_WORD_KEYWORDS_FILE.parent.mkdir(parents=True, exist_ok=True)
         WAKE_WORD_KEYWORDS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
