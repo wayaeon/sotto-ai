@@ -472,6 +472,26 @@ def _should_ignore_snapshot_file(filename: str, repo_id: str | None = None) -> b
     return any(fnmatch(filename, pattern) or fnmatch(Path(filename).name, pattern) for pattern in patterns)
 
 
+def prune_unused_model_files(model_name: str, local_dir: Path) -> int:
+    """Remove cached weight formats the selected runtime will never load."""
+    spec = MODEL_CATALOG.get(model_name)
+    if spec is None or spec.repo_id != "istupakov/parakeet-tdt-0.6b-v3-onnx" or not local_dir.exists():
+        return 0
+
+    import shutil
+
+    removed = 0
+    cache = local_dir / ".cache"
+    if cache.exists():
+        shutil.rmtree(cache)
+        removed += 1
+    for candidate in local_dir.rglob("*"):
+        if candidate.is_file() and _should_ignore_snapshot_file(str(candidate.relative_to(local_dir)), spec.repo_id):
+            candidate.unlink()
+            removed += 1
+    return removed
+
+
 def _snapshot_repo_files(repo_id: str, token: str | None = None) -> list[tuple[str, int | None]]:
     from huggingface_hub import HfApi
 
@@ -492,6 +512,7 @@ def _snapshot_repo_files(repo_id: str, token: str | None = None) -> list[tuple[s
 def _download_model(model_name: str, ipc: "IPC", token: str | None = None) -> None:
     from .ipc import Event
 
+    prune_unused_model_files(model_name, model_dir(model_name))
     if is_downloaded(model_name):
         ipc.send(Event.DOWNLOAD_PROGRESS, **download_status_payload(model_name))
         return

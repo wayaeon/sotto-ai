@@ -196,6 +196,23 @@ def test_optimized_parakeet_snapshot_download_uses_int8_onnx_only():
     assert models._should_ignore_snapshot_file("decoder_joint-model.int8.onnx", repo_id) is False
 
 
+def test_optimized_parakeet_prunes_unused_full_precision_weights(tmp_path):
+    model_path = tmp_path / "nvidia" / "parakeet-tdt-0.6b-v3"
+    model_path.mkdir(parents=True)
+    for name in ("encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "model.safetensors", "parakeet-tdt-0.6b-v3.nemo"):
+        (model_path / name).write_bytes(b"weights")
+    (model_path / ".cache").mkdir()
+
+    removed = models.prune_unused_model_files("nvidia/parakeet-tdt-0.6b-v3", model_path)
+
+    assert removed == 3
+    assert (model_path / "encoder-model.int8.onnx").exists()
+    assert (model_path / "decoder_joint-model.int8.onnx").exists()
+    assert not (model_path / "model.safetensors").exists()
+    assert not (model_path / "parakeet-tdt-0.6b-v3.nemo").exists()
+    assert not (model_path / ".cache").exists()
+
+
 def test_format_bytes_for_download_events():
     assert models.format_bytes(0) == "0 B"
     assert models.format_bytes(1536) == "1.5 KB"
