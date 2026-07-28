@@ -48,7 +48,6 @@ pub fn register_hotkeys(app: &AppHandle) {
 
         if let Err(error) = rdev::listen(move |event| {
             use rdev::EventType::*;
-            use rdev::Button;
             use rdev::Key::*;
 
             match event.event_type {
@@ -68,8 +67,6 @@ pub fn register_hotkeys(app: &AppHandle) {
                     alt1.store(false, Ordering::SeqCst);
                     stop_ptt(&app1, &ptt1);
                 }
-                ButtonPress(Button::Middle) => start_ptt(&app1, &ptt1),
-                ButtonRelease(Button::Middle) => stop_ptt(&app1, &ptt1),
                 _ => {}
             }
         }) {
