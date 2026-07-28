@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { cloudFormat, onSidecarEvent, onFocusedApp, onExternalContext, injectText, type SidecarMessage } from "../lib/tauri";
+import { onSidecarEvent, onFocusedApp, onExternalContext, injectText, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type ExternalContext, type FocusedApp, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 import { formatForContext, resolveContextProfile } from "../lib/contextFormatting";
@@ -95,7 +95,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           dictationTarget.current = null;
           dictationContext.current = null;
 
-          const finish = (finalText: string): number | null => {
+          const finish = (finalText: string) => {
             commitSegment(finalText);
             if (finalText.trim()) {
             setLastDictationApp(dictatedInto);
@@ -111,15 +111,13 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
 
               injectText(finalText).catch((e) => console.warn("[inject_text]", e));
 
-              const entry = insertTranscription(
+              insertTranscription(
                 finalText, currentModel, currentTier, durationMs,
                 destination?.name ?? null, destination?.iconDataUri ?? null,
                 rawTextBeforeFilter
               );
               updateMetrics(finalText.trim().split(/\s+/).length, durationMs);
-              return entry.id;
             }
-            return null;
           };
 
           if (!primary || !formatted.trim()) {
@@ -127,16 +125,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             break;
           }
 
-          cloudFormat({
-            text: formatted,
-            profile,
-            app: dictatedInto?.name,
-            site: context?.site,
-            field: context?.field,
-            activeFile: context?.activeFile,
-          })
-            .catch(() => formatted)
-            .then((cloudText) => finish(cloudText.trim() || formatted));
+          finish(formatted);
           break;
         }
 

@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
-mod cloud_formatter;
 mod context_bridge;
 mod focus;
 mod hotkeys;
@@ -30,7 +29,6 @@ fn main() {
             commands::set_dictionary,
             commands::set_filler_config,
             commands::inject_text,
-            commands::cloud_format,
             commands::open_url,
             commands::open_path,
         ])
