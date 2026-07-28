@@ -13,11 +13,23 @@ fn maybe_start_ptt(
 ) {
     if ctrl_down.load(Ordering::SeqCst)
         && alt_down.load(Ordering::SeqCst)
-        && !ptt_active.swap(true, Ordering::SeqCst)
     {
+        start_ptt(app, ptt_active);
+    }
+}
+
+fn start_ptt(app: &AppHandle, ptt_active: &AtomicBool) {
+    if !ptt_active.swap(true, Ordering::SeqCst) {
         app.emit("sidecar-event", r#"{"event":"status","msg":"recording_ptt"}"#).ok();
         send_command(app, json!({"cmd": "start_ptt"}));
         emit_focused_app_async(app.clone());
+    }
+}
+
+fn stop_ptt(app: &AppHandle, ptt_active: &AtomicBool) {
+    if ptt_active.swap(false, Ordering::SeqCst) {
+        app.emit("sidecar-event", r#"{"event":"status","msg":"processing"}"#).ok();
+        send_command(app, json!({"cmd": "stop_ptt"}));
     }
 }
 
@@ -36,6 +48,7 @@ pub fn register_hotkeys(app: &AppHandle) {
 
         if let Err(error) = rdev::listen(move |event| {
             use rdev::EventType::*;
+            use rdev::Button;
             use rdev::Key::*;
 
             match event.event_type {
@@ -45,10 +58,7 @@ pub fn register_hotkeys(app: &AppHandle) {
                 }
                 KeyRelease(ControlLeft) | KeyRelease(ControlRight) => {
                     ctrl1.store(false, Ordering::SeqCst);
-                    if ptt1.swap(false, Ordering::SeqCst) {
-                        app1.emit("sidecar-event", r#"{"event":"status","msg":"processing"}"#).ok();
-                        send_command(&app1, json!({"cmd": "stop_ptt"}));
-                    }
+                    stop_ptt(&app1, &ptt1);
                 }
                 KeyPress(Alt) => {
                     alt1.store(true, Ordering::SeqCst);
@@ -56,11 +66,10 @@ pub fn register_hotkeys(app: &AppHandle) {
                 }
                 KeyRelease(Alt) => {
                     alt1.store(false, Ordering::SeqCst);
-                    if ptt1.swap(false, Ordering::SeqCst) {
-                        app1.emit("sidecar-event", r#"{"event":"status","msg":"processing"}"#).ok();
-                        send_command(&app1, json!({"cmd": "stop_ptt"}));
-                    }
+                    stop_ptt(&app1, &ptt1);
                 }
+                ButtonPress(Button::Middle) => start_ptt(&app1, &ptt1),
+                ButtonRelease(Button::Middle) => stop_ptt(&app1, &ptt1),
                 _ => {}
             }
         }) {

@@ -23,6 +23,14 @@ def test_ptt_starts_regardless_of_ctrl_and_alt_key_press_order():
     assert hotkeys.count("maybe_start_ptt") >= 3
 
 
+def test_middle_mouse_button_is_a_global_hold_to_dictate_trigger():
+    hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
+    assert "ButtonPress(Button::Middle)" in hotkeys
+    assert "ButtonRelease(Button::Middle)" in hotkeys
+    assert 'json!({"cmd": "start_ptt"})' in hotkeys
+    assert 'json!({"cmd": "stop_ptt"})' in hotkeys
+
+
 def test_pill_uses_sidecar_audio_levels_without_opening_a_second_microphone_stream():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
     hook = (ROOT / "src" / "hooks" / "useSidecar.ts").read_text(encoding="utf-8")
