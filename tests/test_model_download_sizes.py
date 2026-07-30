@@ -61,7 +61,7 @@ def test_non_onnx_models_do_not_claim_npu_execution():
     assert resolve_device("onnx-asr", "npu") == "cpu"
 
 
-def test_recorder_model_switch_failure_does_not_restore_hardware_default(monkeypatch):
+def test_recorder_model_switch_does_not_eagerly_load_or_restore_hardware_default(monkeypatch):
     recorder = Recorder.__new__(Recorder)
     recorder._ipc = CapturingIPC()
     recorder._lock = threading.Lock()
@@ -74,19 +74,13 @@ def test_recorder_model_switch_failure_does_not_restore_hardware_default(monkeyp
 
     recorder._model_lock = threading.Lock()
     monkeypatch.setattr(recorder, "_stop_worker", lambda: None)
-    monkeypatch.setattr(
-        recorder,
-        "_start_worker",
-        lambda: (_ for _ in ()).throw(RuntimeError("runtime load failed")),
-    )
-
-    # set_model is now async (request accepted → True); run the load synchronously.
+    # Model selection is async, but must remain lightweight until dictation.
     recorder._requested_model = "mistralai/Voxtral-Mini-4B-Realtime-2602"
     recorder._load_requested_model()
 
     assert recorder._model_name == "mistralai/Voxtral-Mini-4B-Realtime-2602"
-    assert recorder._worker_error == "runtime load failed"
-    assert any(event["event"] == "error" and "Model switch failed" in event["msg"] for event in recorder._ipc.events)
+    assert recorder._worker_error is None
+    assert any(event["event"] == "status" and "model_selected" in event["msg"] for event in recorder._ipc.events)
     assert recorder._ipc.events[-1] == {"event": "status", "msg": "idle"}
 
 
@@ -114,6 +108,7 @@ def test_recording_proceeds_after_previous_model_load_failure(tmp_path, monkeypa
     recorder._current_wf = None
     recorder._last_wav_path = None
     recorder._model_name = "nvidia/parakeet-tdt-0.6b-v3"
+    monkeypatch.setattr(recorder, "preload_worker", lambda: None)
 
     recorder.start_ptt()
 

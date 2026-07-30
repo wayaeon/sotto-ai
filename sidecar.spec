@@ -1,5 +1,36 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
+
+
+# Windows ships one transcription engine: int8 ONNX Parakeet.  The source tree
+# still contains experimental adapters, but putting their ML stacks in every
+# installed app bloats the sidecar by hundreds of MB for no production benefit.
+WINDOWS_LEAN_EXCLUDES = [
+    "torch",
+    "torch_directml",
+    "torchaudio",
+    "torchvision",
+    "torchmetrics",
+    "lightning",
+    "pytorch_lightning",
+    "tensorflow",
+    "keras",
+    "tensorboard",
+    "nemo",
+    "transformers",
+    "accelerate",
+    "faster_whisper",
+    "ctranslate2",
+    "funasr",
+    "mistral_common",
+    "sentence_transformers",
+    "sidecar.runtimes.faster_whisper",
+    "sidecar.runtimes.nemo",
+    "sidecar.runtimes.transformers",
+    "sidecar.runtimes.onnx",
+] if sys.platform == "win32" else []
+
 
 a = Analysis(
     ['sidecar/main.py'],
@@ -10,7 +41,7 @@ a = Analysis(
     hookspath=['sidecar/hooks'],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=WINDOWS_LEAN_EXCLUDES,
     noarchive=False,
     optimize=0,
 )

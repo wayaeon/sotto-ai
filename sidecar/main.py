@@ -80,8 +80,6 @@ def main() -> None:
         recorder = Recorder(ipc=ipc, hw=hw)
 
     ipc.send(Event.READY)
-    if sys.platform == "win32":
-        threading.Thread(target=recorder.warmup, name="parakeet-warmup", daemon=True).start()
 
     for line in _iter_stdin_lines():
         line = line.strip()

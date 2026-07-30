@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
@@ -6,17 +7,22 @@ use crate::focus::emit_focused_app_async;
 
 pub struct SidecarState {
     pub child: Arc<Mutex<Option<CommandChild>>>,
+    pub shutting_down: Arc<AtomicBool>,
 }
 
 impl SidecarState {
     pub fn new() -> Self {
         Self {
             child: Arc::new(Mutex::new(None)),
+            shutting_down: Arc::new(AtomicBool::new(false)),
         }
     }
 }
 
 pub fn spawn_sidecar(app: &AppHandle) {
+    if app.state::<SidecarState>().shutting_down.load(Ordering::SeqCst) {
+        return;
+    }
     let shell = app.shell();
     let result = {
         #[cfg(debug_assertions)]
@@ -80,6 +86,9 @@ pub fn spawn_sidecar(app: &AppHandle) {
                         }
                         CommandEvent::Terminated(status) => {
                             eprintln!("[sidecar] terminated: {status:?}");
+                            if app_handle.state::<SidecarState>().shutting_down.load(Ordering::SeqCst) {
+                                break;
+                            }
                             app_handle
                                 .emit("sidecar-event", r#"{"event":"error","msg":"sidecar_crashed"}"#)
                                 .ok();
@@ -97,6 +106,26 @@ pub fn spawn_sidecar(app: &AppHandle) {
             eprintln!("[sidecar] failed to spawn: {e}");
         }
     }
+}
+
+pub fn shutdown_sidecar(app: &AppHandle) {
+    let state = app.state::<SidecarState>();
+    if state.shutting_down.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let Some(mut child) = state.child.lock().unwrap().take() else { return };
+    let _ = child.write(b"{\"cmd\":\"quit\"}\n");
+
+    #[cfg(windows)]
+    {
+        // The Python transcription worker is a child of this process. Kill the
+        // tree on host exit so interrupted dev sessions cannot strand a model.
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &child.pid().to_string(), "/T", "/F"])
+            .output();
+    }
+    #[cfg(not(windows))]
+    let _ = child.kill();
 }
 
 pub fn send_command(app: &AppHandle, cmd: serde_json::Value) {

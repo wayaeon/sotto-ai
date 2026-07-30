@@ -38,6 +38,7 @@ _SAMPLE_WIDTH    = 2       # 16-bit PCM
 _CHUNK_SIZE      = 1024
 _WORKER_TIMEOUT  = 1800    # allow slow CPU models to finish without unloading
 _WORKER_INIT_S   = 120     # seconds to wait for model load (GPU can take ~30 s)
+_WORKER_IDLE_UNLOAD_S = 45
 
 # ── hands-free VAD segmentation ──────────────────────────────────────────────
 _VAD_FRAME_MS           = 30
@@ -56,13 +57,6 @@ _HANDSFREE_ONSET_FRAMES      = _HANDSFREE_ONSET_MS // _VAD_FRAME_MS
 # overflow the queue and silently drop audio spoken while it's loading.
 _PUMP_CHUNK_S           = _CHUNK_SIZE / _SAMPLE_RATE
 _HANDSFREE_QUEUE_MAXLEN = int(_WORKER_INIT_S / _PUMP_CHUNK_S)
-
-try:
-    import torch
-    torch.hub._check_repo_is_trusted = lambda *args, **kwargs: None  # noqa
-except Exception:
-    pass
-
 
 def _pcm16_level(data: bytes) -> float:
     """Return RMS level for mono 16-bit PCM bytes, normalized to 0..1."""
@@ -154,6 +148,7 @@ class Recorder:
         self._worker_error:  str | None = None
         self._loaded_model_name: str | None = None
         self._transcription_active = False
+        self._worker_idle_timer: threading.Timer | None = None
 
         # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────
         self._handsfree       = False
@@ -169,10 +164,8 @@ class Recorder:
     def _preload(self) -> None:
         """Start the always-on audio pump.
 
-        Deliberately does NOT load a model. The frontend sends set_model
-        immediately after the READY event, and that is the single trigger
-        for the first model load. Loading here as well caused a race where
-        two threads fought over the worker queues and the load timed out.
+        Deliberately does not load Parakeet. The worker is loaded only after
+        the user begins a dictation, so idle Verba stays lightweight.
         """
         try:
             # Start always-on audio pump — keeps mic stream open permanently
@@ -341,9 +334,32 @@ class Recorder:
                 self._ipc.send(Event.ERROR, msg=f"Worker respawn failed: {e}")
                 return False
 
-    def warmup(self) -> None:
-        """Load the configured worker in the background after sidecar ready."""
-        self._ensure_worker()
+    def _cancel_worker_idle_unload(self) -> None:
+        timer = getattr(self, "_worker_idle_timer", None)
+        if timer is not None:
+            timer.cancel()
+            self._worker_idle_timer = None
+
+    def preload_worker(self) -> None:
+        """Overlap the first model load with the user's speech."""
+        self._cancel_worker_idle_unload()
+        threading.Thread(target=self._ensure_worker, name="verba-model-load", daemon=True).start()
+
+    def schedule_worker_idle_unload(self) -> None:
+        self._cancel_worker_idle_unload()
+        if self._worker_proc is None:
+            return
+        self._worker_idle_timer = threading.Timer(
+            _WORKER_IDLE_UNLOAD_S, self._unload_idle_worker
+        )
+        self._worker_idle_timer.daemon = True
+        self._worker_idle_timer.start()
+
+    def _unload_idle_worker(self) -> None:
+        with self._model_lock:
+            if self._recording_active or self._transcription_active:
+                return
+            self._stop_worker()
 
     # ── PTT ───────────────────────────────────────────────────────────────────
 
@@ -357,6 +373,7 @@ class Recorder:
         if self._transcription_active:
             self._ipc.send(Event.ERROR, msg=f"{self._model_name} is still transcribing the previous recording")
             return
+        self.preload_worker()
         with self._lock:
             if self._recording_active:
                 return  # already recording
@@ -473,6 +490,7 @@ class Recorder:
         finally:
             self._transcription_active = False
             self._ipc.send(Event.STATUS, msg="idle")
+            self.schedule_worker_idle_unload()
 
     # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────────
 
@@ -488,6 +506,7 @@ class Recorder:
             if self._handsfree:
                 self._handsfree_queue = queue.Queue(maxsize=_HANDSFREE_QUEUE_MAXLEN)
                 threading.Thread(target=self._handsfree_loop, daemon=True).start()
+                self.preload_worker()
                 self._ipc.send(Event.STATUS, msg="handsfree_on")
             else:
                 self._handsfree_queue = None
@@ -554,6 +573,7 @@ class Recorder:
         def begin_dictation() -> None:
             wake_phrase_buf.clear()
             dictation_buf.clear()
+            self.preload_worker()
             self._wake_mode = "dictating"
             self._ipc.send(Event.STATUS, msg="wake_detected")
             self._ipc.send(Event.STATUS, msg="wake_dictating")
@@ -730,6 +750,8 @@ class Recorder:
             if model_name is None:
                 return
 
+            self._cancel_worker_idle_unload()
+
             # Already loaded and alive — confirm and bail, don't kill/restart.
             if (
                 model_name == self._loaded_model_name
@@ -749,14 +771,6 @@ class Recorder:
             self._model_name = model_name
             self._stop_worker()
             self._worker_error = None
-            try:
-                self._ipc.send(Event.STATUS, msg="loading_model")
-                self._start_worker()
-            except Exception as e:
-                self._worker_error = str(e)
-                self._ipc.send(Event.ERROR, msg=f"Model switch failed for {model_name}: {e}")
-                self._ipc.send(Event.STATUS, msg="idle")
-                return
 
         # Hands-free shares this same worker process, so it automatically
         # picks up the new model on its next utterance — nothing to redo here.
@@ -790,6 +804,7 @@ class Recorder:
         self._loaded_model_name = None
 
     def shutdown(self) -> None:
+        self._cancel_worker_idle_unload()
         with self._lock:
             self._recording_active = False
             if self._current_wf is not None:

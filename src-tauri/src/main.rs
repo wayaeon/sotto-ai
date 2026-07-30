@@ -88,6 +88,11 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error running Tauri application");
+        .build(tauri::generate_context!())
+        .expect("error building Verba")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                sidecar::shutdown_sidecar(app);
+            }
+        });
 }
