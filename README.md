@@ -38,7 +38,7 @@ Recordings are saved to `~/.sotto/recordings/` as timestamped WAV files.
 
 ## Models
 
-Windows uses Parakeet TDT 0.6B v3 as the fixed transcription model. It is warmed by the sidecar after startup, so the app can show ready immediately instead of waiting for the first dictation.
+Windows uses Parakeet TDT 0.6B v3 as the fixed transcription model. The sidecar loads it when dictation starts, keeps it warm briefly for follow-up dictation, then unloads it while idle.
 
 Models are downloaded on first run to `~/.sotto/models/`.
 

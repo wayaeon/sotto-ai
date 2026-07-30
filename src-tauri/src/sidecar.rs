@@ -31,9 +31,10 @@ pub fn spawn_sidecar(app: &AppHandle) {
                 .parent()
                 .expect("src-tauri should have a repo parent")
                 .to_path_buf();
+            let dev_python = repo_root
+                .join("sidecar").join(".venv").join("Scripts").join("python.exe");
 
-            shell
-                .command("python")
+            shell.command(dev_python)
                 .args(["-m", "sidecar.main"])
                 .current_dir(repo_root)
                 .spawn()
