@@ -119,10 +119,25 @@ def test_recording_edge_actions_are_flush_with_the_capsule_surface():
 
 def test_recording_glyphs_share_an_optical_baseline():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
-    assert 'style={{ transform: "translateY(0.5px)" }}' in pill
+    assert 'transform: "translateX(-1px) translateY(0.5px)"' in pill
 
 
 def test_loading_and_processing_share_the_same_amber_capsule():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
     assert "amberPill:" in pill
     assert pill.count("s.amberPill") >= 2
+
+
+def test_recording_edge_glyphs_are_inset_and_themed_for_the_capsule():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert 'transform: "translateX(1px)"' in pill
+    assert 'transform: "translateX(-1px) translateY(0.5px)"' in pill
+    assert 'stroke="rgba(167,139,250,0.92)"' in pill
+    assert 'stroke="rgba(110,231,183,0.96)"' in pill
+
+
+def test_waveform_keeps_inset_ends_and_more_room_in_compact_mode():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "const inset = 3" in pill
+    assert "const width = 52" in pill
+    assert "width={compact ? 50 : 58}" in pill

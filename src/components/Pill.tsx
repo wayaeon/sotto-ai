@@ -588,12 +588,13 @@ function useWavePhase(active: boolean) {
 }
 
 function buildWavePath(phase: number, amplitude: number) {
-  const width = 58;
+  const inset = 3;
+  const width = 52;
   const midline = 9;
   const points = 32;
   return Array.from({ length: points + 1 }, (_, index) => {
     const progress = index / points;
-    const x = progress * width;
+    const x = inset + progress * width;
     const envelope = Math.sin(Math.PI * progress);
     const shape = Math.sin(progress * Math.PI * 5 + phase) * 0.72
       + Math.sin(progress * Math.PI * 11 - phase * 0.65) * 0.28;
@@ -622,7 +623,7 @@ function WaveVisual({ state, level, compact = false }: { state: string; level: n
   const echoWavePath = buildWavePath(phase + 0.8, amplitude * 0.42);
 
   return (
-    <svg width={compact ? 42 : 58} height={compact ? 16 : 18} viewBox="0 0 58 18" fill="none" aria-label={isLoading ? "Starting transcription model" : "Audio level"}>
+    <svg width={compact ? 50 : 58} height={compact ? 16 : 18} viewBox="0 0 58 18" fill="none" aria-label={isLoading ? "Starting transcription model" : "Audio level"}>
       <path d={wavePath} stroke={color} strokeWidth="4" strokeLinecap="round" opacity="0.14" />
       <path d={echoWavePath} stroke={color} strokeWidth="0.9" strokeLinecap="round" opacity="0.34" />
       <path
@@ -680,7 +681,7 @@ function LangCheck() {
 
 function XIcon() {
   return (
-    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(248,113,113,0.92)" strokeWidth="2.2" strokeLinecap="round">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,0.92)" strokeWidth="2.2" strokeLinecap="round" style={{ transform: "translateX(1px)" }}>
       <line x1="18" y1="6" x2="6" y2="18"/>
       <line x1="6" y1="6" x2="18" y2="18"/>
     </svg>
@@ -689,7 +690,7 @@ function XIcon() {
 
 function CheckIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(110,231,183,0.96)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: "translateY(0.5px)" }}>
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(110,231,183,0.96)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: "translateX(-1px) translateY(0.5px)" }}>
       <polyline points="20 6 9 17 4 12"/>
     </svg>
   );
