@@ -39,6 +39,20 @@ def test_pill_uses_sidecar_audio_levels_without_opening_a_second_microphone_stre
 def test_pill_waveform_amplifies_real_speech_and_wake_capture_emits_levels():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
     recorder = (ROOT / "sidecar" / "recorder.py").read_text(encoding="utf-8")
-    assert "Math.sqrt(level * 18)" in pill
+    assert "Math.sqrt(smoothLevel * 18)" in pill
     assert "const isActive = isRecording || level > 0.001;" in pill
     assert "if wf is not None or hf_queue is not None:" in recorder
+
+
+def test_pill_smooths_audio_levels_locally_before_rendering_bars():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "function useSmoothedAudioLevel" in pill
+    assert "requestAnimationFrame" in pill
+    assert "const smoothLevel = useSmoothedAudioLevel" in pill
+
+
+def test_pill_loading_state_is_an_amber_squiggle_with_hover_help_not_a_banner():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "Loading transcription model" not in pill
+    assert 'state="loading"' in pill
+    assert "Starting Parakeet" in pill

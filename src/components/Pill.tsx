@@ -27,7 +27,7 @@ const ANIM_OUT_MS = 50;
 // The key invariant: handle is ONLY visible in "collapsed".
 // This prevents the handle from re-appearing inside the old expanded window.
 type PillPhase = "collapsed" | "expanding" | "expanded" | "collapsing";
-type Hovered   = null | "lang" | "dictate" | "history";
+type Hovered   = null | "lang" | "dictate" | "history" | "loading";
 
 // Monitor cache — avoids a redundant IPC call on every resize.
 let monitorCache: Awaited<ReturnType<typeof currentMonitor>> | undefined;
@@ -307,6 +307,9 @@ export default function Pill() {
           0%, 100% { opacity: 0.6; transform: scale(1); }
           50%       { opacity: 1; transform: scale(1.15); }
         }
+        @keyframes squiggleFlow {
+          to { stroke-dashoffset: -18; }
+        }
 
         .pbtn { outline: none; border: none; }
         .pbtn:active { transform: scale(0.9); }
@@ -372,20 +375,21 @@ export default function Pill() {
           >
 
             {isLoading ? (
-              <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={s.dictatingBubble}>
-                  <span style={{ ...s.dictatingDot, background: "rgba(251,191,36,0.9)", animation: "dotPulse 1s ease-in-out infinite" }} />
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    <span style={s.dictatingText}>
-                      Loading transcription model…
-                    </span>
-                  </div>
-                </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
                   <XIcon />
                 </button>
-                <div style={{ ...s.wavePill, border: "1px solid rgba(251,191,36,0.4)", minWidth: 100 }}>
-                  <WaveVisual state="processing" level={audioLevel} />
+                <div
+                  style={{ position: "relative" }}
+                  onMouseEnter={() => setHoveredEl("loading")}
+                  onMouseLeave={() => setHoveredEl(null)}
+                >
+                  {hoveredEl === "loading" && (
+                    <div style={s.tooltip}><span style={s.tooltipText}>Starting Parakeet — first dictation only</span></div>
+                  )}
+                  <div style={{ ...s.wavePill, border: "1px solid rgba(251,191,36,0.52)", minWidth: 100 }}>
+                    <WaveVisual state="loading" level={0} />
+                  </div>
                 </div>
               </div>
 
@@ -520,13 +524,51 @@ export default function Pill() {
 
 const BAR_COUNT = 10;
 
+function useSmoothedAudioLevel(level: number, active: boolean) {
+  const target = useRef(0);
+  const current = useRef(0);
+  const [smoothLevel, setSmoothLevel] = useState(0);
+
+  useEffect(() => {
+    target.current = active ? level : 0;
+  }, [active, level]);
+
+  useEffect(() => {
+    if (!active) {
+      current.current = 0;
+      setSmoothLevel(0);
+      return;
+    }
+
+    let frame = 0;
+    const animate = () => {
+      const next = current.current + (target.current - current.current) * 0.2;
+      current.current = Math.abs(next - target.current) < 0.001 ? target.current : next;
+      setSmoothLevel(current.current);
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
+
+  return smoothLevel;
+}
+
 function WaveVisual({ state, level }: { state: string; level: number }) {
   const isRecording  = state === "recording";
   const isProcessing = state === "processing";
+  const isLoading = state === "loading";
   const isActive = isRecording || level > 0.001;
+  const smoothLevel = useSmoothedAudioLevel(level, isActive);
   // Microphone RMS is normally a small fraction; square-root gain makes
   // ordinary speech visibly move without pinning loud speech at full height.
-  const visualLevel = Math.min(1, Math.max(0.12, Math.sqrt(level * 18)));
+  const visualLevel = Math.min(1, Math.max(0.12, Math.sqrt(smoothLevel * 18)));
+
+  if (isLoading) return (
+    <svg width="46" height="14" viewBox="0 0 46 14" fill="none" aria-label="Starting transcription model">
+      <path d="M1 8C5 1 9 13 13 6s8-5 12 1 8 6 12-1 5-5 8 1" stroke="rgba(251,191,36,0.95)" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="3 3" style={{ animation: "squiggleFlow 0.8s linear infinite" }} />
+    </svg>
+  );
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2, height: 14 }}>
@@ -539,7 +581,7 @@ function WaveVisual({ state, level }: { state: string; level: number }) {
               background: "rgba(167,139,250,0.9)",
               transformOrigin: "center",
               transform: `scaleY(${h})`,
-              transition: "transform 0.05s ease-out",
+              transition: "transform 110ms cubic-bezier(0.2,0,0,1)",
             }} />
           );
         }
