@@ -115,3 +115,14 @@ def test_recording_edge_actions_are_flush_with_the_capsule_surface():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
     assert "width: 18, height: 32" in pill
     assert 'height: 32, padding: 0, gap: 4' in pill
+
+
+def test_recording_glyphs_share_an_optical_baseline():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert 'style={{ transform: "translateY(0.5px)" }}' in pill
+
+
+def test_loading_and_processing_share_the_same_amber_capsule():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "amberPill:" in pill
+    assert pill.count("s.amberPill") >= 2

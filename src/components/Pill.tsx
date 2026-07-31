@@ -383,7 +383,7 @@ export default function Pill() {
                 {hoveredEl === "loading" && (
                   <div style={s.tooltip}><span style={s.tooltipText}>Starting Parakeet — first dictation only</span></div>
                 )}
-                <div style={{ ...s.statusPill, border: "1px solid rgba(251,191,36,0.42)" }}>
+                <div style={{ ...s.amberPill, border: "1px solid rgba(251,191,36,0.42)" }}>
                   <WaveVisual state="loading" level={0} compact={true} />
                 </div>
               </div>
@@ -391,7 +391,7 @@ export default function Pill() {
             ) : isRecording || isProcessing ? (
               <div style={{ position: "relative" }}>
                 <div style={{
-                  ...s.recordWavePill,
+                  ...(isRecording ? s.recordWavePill : s.amberPill),
                   border: isRecording ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(251,191,36,0.4)",
                   boxShadow: isRecording
                     ? "0 6px 20px rgba(167,139,250,0.14), inset 0 1px 0 rgba(255,255,255,0.06)"
@@ -689,7 +689,7 @@ function XIcon() {
 
 function CheckIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(110,231,183,0.96)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(110,231,183,0.96)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: "translateY(0.5px)" }}>
       <polyline points="20 6 9 17 4 12"/>
     </svg>
   );
@@ -791,11 +791,11 @@ const s: Record<string, React.CSSProperties> = {
     background: "linear-gradient(180deg, rgba(22,20,34,0.96), rgba(8,8,16,0.96))",
     flexShrink: 0,
   },
-  statusPill: {
+  amberPill: {
     display: "flex", alignItems: "center", justifyContent: "center",
-    height: 30, minWidth: 58, padding: "0 8px", borderRadius: 999,
+    height: 32, minWidth: 58, padding: 0, gap: 4, borderRadius: 999,
     background: "linear-gradient(180deg, rgba(31,27,13,0.96), rgba(8,8,16,0.96))",
-    boxShadow: "0 6px 18px rgba(251,191,36,0.08), inset 0 1px 0 rgba(255,255,255,0.05)",
+    boxShadow: "0 6px 20px rgba(251,191,36,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
     flexShrink: 0,
   },
   wavePill: {
