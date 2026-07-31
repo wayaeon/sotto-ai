@@ -27,7 +27,7 @@ const ANIM_OUT_MS = 50;
 // The key invariant: handle is ONLY visible in "collapsed".
 // This prevents the handle from re-appearing inside the old expanded window.
 type PillPhase = "collapsed" | "expanding" | "expanded" | "collapsing";
-type Hovered   = null | "lang" | "dictate" | "history" | "loading";
+type Hovered   = null | "lang" | "dictate" | "history" | "loading" | "cancel" | "finish";
 
 // Monitor cache — avoids a redundant IPC call on every resize.
 let monitorCache: Awaited<ReturnType<typeof currentMonitor>> | undefined;
@@ -375,21 +375,16 @@ export default function Pill() {
           >
 
             {isLoading ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
-                  <XIcon />
-                </button>
-                <div
-                  style={{ position: "relative" }}
-                  onMouseEnter={() => setHoveredEl("loading")}
-                  onMouseLeave={() => setHoveredEl(null)}
-                >
-                  {hoveredEl === "loading" && (
-                    <div style={s.tooltip}><span style={s.tooltipText}>Starting Parakeet — first dictation only</span></div>
-                  )}
-                  <div style={{ ...s.wavePill, border: "1px solid rgba(251,191,36,0.52)", minWidth: 100 }}>
-                    <WaveVisual state="loading" level={0} />
-                  </div>
+              <div
+                style={{ position: "relative" }}
+                onMouseEnter={() => setHoveredEl("loading")}
+                onMouseLeave={() => setHoveredEl(null)}
+              >
+                {hoveredEl === "loading" && (
+                  <div style={s.tooltip}><span style={s.tooltipText}>Starting Parakeet — first dictation only</span></div>
+                )}
+                <div style={{ ...s.statusPill, border: "1px solid rgba(251,191,36,0.42)" }}>
+                  <WaveVisual state="loading" level={0} compact={true} />
                 </div>
               </div>
 
@@ -398,12 +393,21 @@ export default function Pill() {
                 <div style={{
                   ...s.recordWavePill,
                   border: isRecording ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(251,191,36,0.4)",
-                  animation: isRecording ? "pulseGlow 1.8s ease-in-out infinite" : "none",
+                  boxShadow: isRecording
+                    ? "0 6px 20px rgba(167,139,250,0.14), inset 0 1px 0 rgba(255,255,255,0.06)"
+                    : "0 6px 20px rgba(251,191,36,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
                 }}>
-                  <button className="pbtn" aria-label="Cancel dictation" style={{ ...s.recordAction, ...s.cancelAction }} onClick={cancelRecording}>
-                    <XIcon />
-                  </button>
-                  {isRecording && focusedApp?.iconDataUri && (
+                  {isRecording && (
+                    <button
+                      className="pbtn"
+                      aria-label="Cancel dictation"
+                      style={{ ...s.edgeAction, ...s.cancelEdge, ...(hoveredEl === "cancel" ? s.edgeActionOpen : {}) }}
+                      onMouseEnter={() => setHoveredEl("cancel")}
+                      onMouseLeave={() => setHoveredEl(null)}
+                      onClick={cancelRecording}
+                    ><XIcon /></button>
+                  )}
+                  {(isRecording || isProcessing) && focusedApp?.iconDataUri && (
                     <img src={focusedApp.iconDataUri} alt="" title={focusedApp.name} style={s.appIcon} />
                   )}
                   {isRecording && (
@@ -412,9 +416,16 @@ export default function Pill() {
                     </span>
                   )}
                   <WaveVisual state={recordingState} level={audioLevel} compact={true} />
-                  <button className="pbtn" aria-label="Finish dictation" style={{ ...s.recordAction, ...s.commitAction }} onClick={() => invoke("stop_ptt").catch(() => {})}>
-                    <CheckIcon />
-                  </button>
+                  {isRecording && (
+                    <button
+                      className="pbtn"
+                      aria-label="Finish dictation"
+                      style={{ ...s.edgeAction, ...s.finishEdge, ...(hoveredEl === "finish" ? s.edgeActionOpen : {}) }}
+                      onMouseEnter={() => setHoveredEl("finish")}
+                      onMouseLeave={() => setHoveredEl(null)}
+                      onClick={() => invoke("stop_ptt").catch(() => {})}
+                    ><CheckIcon /></button>
+                  )}
                 </div>
               </div>
 
@@ -669,7 +680,7 @@ function LangCheck() {
 
 function XIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(239,68,68,0.9)" strokeWidth="2.5" strokeLinecap="round">
+    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(248,113,113,0.92)" strokeWidth="2.2" strokeLinecap="round">
       <line x1="18" y1="6" x2="6" y2="18"/>
       <line x1="6" y1="6" x2="18" y2="18"/>
     </svg>
@@ -678,7 +689,7 @@ function XIcon() {
 
 function CheckIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(34,197,94,0.9)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(110,231,183,0.96)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12"/>
     </svg>
   );
@@ -752,25 +763,37 @@ const s: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(255,255,255,0.13)",
     flexShrink: 0,
   },
-  recordAction: {
+  edgeAction: {
     display: "flex", alignItems: "center", justifyContent: "center",
-    width: 24, height: 24, borderRadius: 8,
+    width: 18, height: 26, borderRadius: 8,
+    padding: 0,
     flexShrink: 0,
-    transition: "background 160ms cubic-bezier(0.2,0,0,1), border-color 160ms cubic-bezier(0.2,0,0,1), transform 100ms cubic-bezier(0.2,0,0,1)",
+    opacity: 0.72,
+    transition: "width 160ms cubic-bezier(0.2,0,0,1), opacity 160ms cubic-bezier(0.2,0,0,1), background 160ms cubic-bezier(0.2,0,0,1), border-color 160ms cubic-bezier(0.2,0,0,1)",
   },
-  cancelAction: {
-    background: "rgba(78,20,32,0.72)",
-    border: "1px solid rgba(248,113,113,0.3)",
+  edgeActionOpen: {
+    width: 28,
+    opacity: 1,
   },
-  commitAction: {
-    background: "rgba(12,69,54,0.72)",
-    border: "1px solid rgba(74,222,128,0.34)",
-    boxShadow: "0 3px 12px rgba(34,197,94,0.1)",
+  cancelEdge: {
+    background: "rgba(127,29,52,0.2)",
+    border: "1px solid rgba(248,113,113,0.22)",
+  },
+  finishEdge: {
+    background: "rgba(6,95,70,0.2)",
+    border: "1px solid rgba(110,231,183,0.25)",
   },
   recordWavePill: {
     display: "flex", alignItems: "center", justifyContent: "center",
     height: 32, padding: "0 4px", gap: 4, borderRadius: 999,
-    background: "rgba(8,8,16,0.94)",
+    background: "linear-gradient(180deg, rgba(22,20,34,0.96), rgba(8,8,16,0.96))",
+    flexShrink: 0,
+  },
+  statusPill: {
+    display: "flex", alignItems: "center", justifyContent: "center",
+    height: 30, minWidth: 58, padding: "0 8px", borderRadius: 999,
+    background: "linear-gradient(180deg, rgba(31,27,13,0.96), rgba(8,8,16,0.96))",
+    boxShadow: "0 6px 18px rgba(251,191,36,0.08), inset 0 1px 0 rgba(255,255,255,0.05)",
     flexShrink: 0,
   },
   wavePill: {

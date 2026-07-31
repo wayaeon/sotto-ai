@@ -79,7 +79,7 @@ def test_model_loading_status_cannot_demote_an_active_recording_visual():
 
 def test_recording_controls_use_the_compact_action_style():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
-    assert "recordAction" in pill
+    assert "edgeAction" in pill
     assert "recordWavePill" in pill
 
 
@@ -95,3 +95,11 @@ def test_waveform_has_a_subtle_secondary_signal_layer():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
     assert "const echoWavePath" in pill
     assert "d={echoWavePath}" in pill
+
+
+def test_recording_actions_expand_from_the_capsule_edges():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "edgeAction" in pill
+    assert "edgeActionOpen" in pill
+    assert 'hoveredEl === "cancel"' in pill
+    assert 'hoveredEl === "finish"' in pill
