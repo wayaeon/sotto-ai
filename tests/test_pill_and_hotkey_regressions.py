@@ -132,7 +132,7 @@ def test_recording_edge_glyphs_are_inset_and_themed_for_the_capsule():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
     assert 'transform: "translateX(1px)"' in pill
     assert 'transform: "translateX(-1px) translateY(0.5px)"' in pill
-    assert 'stroke="rgba(167,139,250,0.92)"' in pill
+    assert 'stroke="rgba(248,113,113,0.92)"' in pill
     assert 'stroke="rgba(110,231,183,0.96)"' in pill
 
 

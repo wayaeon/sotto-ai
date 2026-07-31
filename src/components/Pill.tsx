@@ -524,7 +524,7 @@ function WaveVisual({ state, level, compact = false }: { state: string; level: n
 
 function XIcon() {
   return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,0.92)" strokeWidth="2.2" strokeLinecap="round" style={{ transform: "translateX(1px)" }}>
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(248,113,113,0.92)" strokeWidth="2.2" strokeLinecap="round" style={{ transform: "translateX(1px)" }}>
       <line x1="18" y1="6" x2="6" y2="18"/>
       <line x1="6" y1="6" x2="18" y2="18"/>
     </svg>
