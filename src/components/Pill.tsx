@@ -5,20 +5,11 @@ import { useAppStore } from "../stores/appStore";
 import { useSidecar } from "../hooks/useSidecar";
 import { setWakePhraseEnabled, toggleHandsfree } from "../lib/tauri";
 
-const LANGUAGES = [
-  { code: "EN", label: "English",            flag: "🇺🇸" },
-  { code: "ES", label: "Spanish (Español)",  flag: "🇪🇸" },
-  { code: "FR", label: "French (Français)",  flag: "🇫🇷" },
-];
-
-// Right side = notes(32). Left side must match so wavepill lands at exact center.
-const SIDE_W = 32;
 const PILL_WINDOW_W           = 300;
 const PILL_WINDOW_COLLAPSED_W = 60;
 const PILL_WINDOW_COLLAPSED_H = 56;
 const PILL_WINDOW_BAR_H       = 96;
 const PILL_WINDOW_ACTIVE_H    = 106;
-const PILL_WINDOW_PANEL_H     = 380;
 
 const ANIM_IN_MS  = 100;
 const ANIM_OUT_MS = 50;
@@ -27,7 +18,7 @@ const ANIM_OUT_MS = 50;
 // The key invariant: handle is ONLY visible in "collapsed".
 // This prevents the handle from re-appearing inside the old expanded window.
 type PillPhase = "collapsed" | "expanding" | "expanded" | "collapsing";
-type Hovered   = null | "lang" | "dictate" | "history" | "loading" | "cancel" | "finish";
+type Hovered   = null | "dictate" | "loading" | "cancel" | "finish";
 
 // Monitor cache — avoids a redundant IPC call on every resize.
 let monitorCache: Awaited<ReturnType<typeof currentMonitor>> | undefined;
@@ -66,9 +57,6 @@ export default function Pill() {
   const [barIn,         setBarIn]         = useState(false);
   const [hoveredEl,     setHoveredEl]     = useState<Hovered>(null);
   const [expanded,      setExpanded]      = useState(false);
-  const [langIdx,       setLangIdx]       = useState(-1);
-  const [showLangPanel, setShowLangPanel] = useState(false);
-  const [activeLangs,   setActiveLangs]   = useState<Set<string>>(new Set(["EN", "ES"]));
 
   // Refs so async callbacks never read stale closure values.
   const phaseRef     = useRef<PillPhase>("collapsed");
@@ -116,11 +104,9 @@ export default function Pill() {
   // This guarantees the handle is NEVER visible inside the expanded window.
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const targetHeight = showLangPanel
-      ? PILL_WINDOW_PANEL_H
-      : isRecording || isProcessing || isLoading || isListening
-        ? PILL_WINDOW_ACTIVE_H
-        : PILL_WINDOW_BAR_H;
+    const targetHeight = isRecording || isProcessing || isLoading || isListening
+      ? PILL_WINDOW_ACTIVE_H
+      : PILL_WINDOW_BAR_H;
 
     if (shouldShowBar) {
       // Already expanded/expanding — just resize for height change (no gen bump).
@@ -182,7 +168,7 @@ export default function Pill() {
       return () => clearTimeout(t);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldShowBar, isRecording, isProcessing, isLoading, isListening, showLangPanel, touchControl]);
+  }, [shouldShowBar, isRecording, isProcessing, isLoading, isListening, touchControl]);
 
   // Recording timer
   const [recSecs, setRecSecs] = useState(0);
@@ -200,13 +186,10 @@ export default function Pill() {
     }
   }, [isRecording]);
 
-  const allActive = langIdx === -1;
-
   const scheduleHide = () => {
     leaveTimer.current = setTimeout(() => {
       setExpanded(false);
       setHoveredEl(null);
-      setShowLangPanel(false);
     }, 150);
   };
   const cancelHide = () => clearTimeout(leaveTimer.current);
@@ -225,39 +208,9 @@ export default function Pill() {
     setRecordingState("idle");
     if (sidecarReady) await invoke("stop_ptt").catch(() => {});
   };
-  const copyRecent = async () => {
-    const text = localStorage.getItem("verba_last_transcription") ?? "";
-    if (text) navigator.clipboard.writeText(text).catch(() => {});
-  };
   const startTouchDictation = () => {
     if (!sidecarReady || !modelReady || isProcessing || isLoading) return;
     toggleHandsfree().catch(() => {});
-  };
-
-  const cycleLang = () => {
-    const active = LANGUAGES.filter(l => activeLangs.has(l.code));
-    if (active.length === 0) return;
-    if (langIdx === -1) {
-      setLangIdx(LANGUAGES.findIndex(l => l.code === active[0].code));
-    } else {
-      const cur = LANGUAGES[langIdx].code;
-      const idx = active.findIndex(l => l.code === cur);
-      if (idx === active.length - 1) {
-        setLangIdx(-1);
-      } else {
-        const next = active[idx + 1];
-        setLangIdx(LANGUAGES.findIndex(l => l.code === next.code));
-      }
-    }
-  };
-
-  const toggleLang = (code: string) => {
-    setActiveLangs(prev => {
-      const next = new Set(prev);
-      if (next.has(code) && next.size > 1) next.delete(code);
-      else next.add(code);
-      return next;
-    });
   };
 
   const isCollapsed = phase === "collapsed";
@@ -281,19 +234,6 @@ export default function Pill() {
         @keyframes fadeUp {
           from { opacity: 0; transform: translateX(-50%) translateY(4px); }
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-        }
-        @keyframes panelIn {
-          from { opacity: 0; transform: translateX(-50%) translateY(5px) scale(0.97); }
-          to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-        }
-        @keyframes drawerWipe {
-          from { clip-path: inset(0 0 0 100%); }
-          to   { clip-path: inset(0 0 0 0%); }
-        }
-        @keyframes langPop {
-          0%   { opacity: 0; transform: scale(0.65); }
-          60%  { transform: scale(1.08); }
-          100% { opacity: 1; transform: scale(1); }
         }
         @keyframes pulseGlow {
           0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,0); }
@@ -445,83 +385,21 @@ export default function Pill() {
               </div>
 
             ) : (
-              <>
-                {/* LEFT — globe / lang */}
-                <div style={{ width: SIDE_W, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-                  <div
-                    style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
-                    onMouseEnter={() => setHoveredEl("lang")}
-                    onMouseLeave={() => setHoveredEl(null)}
-                  >
-                    {hoveredEl === "lang" && !showLangPanel && (
-                      <div style={s.tooltip}><span style={s.tooltipText}>Change language</span></div>
-                    )}
-                    {hoveredEl === "lang" && (
-                      <button className="pbtn" style={s.arrowDrawer} onClick={() => setShowLangPanel(p => !p)}>
-                        <ChevronIcon />
-                      </button>
-                    )}
-                    <button
-                      className="pbtn"
-                      style={{ ...s.iconBtn, position: "relative", zIndex: 1 }}
-                      onClick={cycleLang}
-                    >
-                      {allActive
-                        ? <GlobeIcon key="all" />
-                        : <span key={langIdx} style={s.langCode}>{LANGUAGES[langIdx].code}</span>
-                      }
-                    </button>
-                    {showLangPanel && (
-                      <div style={s.langPanel} onMouseEnter={cancelHide}>
-                        {LANGUAGES.map(lang => (
-                          <button key={lang.code} className="pbtn" style={s.langRow} onClick={() => toggleLang(lang.code)}>
-                            <span style={s.langRowFlag}>{lang.flag}</span>
-                            <span style={s.langRowLabel}>{lang.label}</span>
-                            {activeLangs.has(lang.code) && <LangCheck />}
-                          </button>
-                        ))}
-                        <div style={s.langDivider} />
-                        <button className="pbtn" style={s.langAction}
-                          onClick={() => setActiveLangs(new Set(LANGUAGES.map(l => l.code)))}>
-                          Enable all
-                        </button>
-                        <button className="pbtn" style={s.langAction}>Add more</button>
-                      </div>
-                    )}
+              <div
+                style={{ position: "relative" }}
+                onMouseEnter={() => setHoveredEl("dictate")}
+                onMouseLeave={() => setHoveredEl(null)}
+              >
+                {hoveredEl === "dictate" && (
+                  <div style={s.tooltip}>
+                    <span style={s.tooltipText}>Start dictation</span>
+                    <span style={s.shortcutKey}>Ctrl + Alt</span>
                   </div>
-                </div>
-
-                {/* CENTER — dictate */}
-                <div
-                  style={{ position: "relative" }}
-                  onMouseEnter={() => setHoveredEl("dictate")}
-                  onMouseLeave={() => setHoveredEl(null)}
-                >
-                  {hoveredEl === "dictate" && (
-                    <div style={s.tooltip}>
-                      <span style={s.tooltipText}>Dictate</span>
-                      <span style={{ ...s.tooltipText, color: "#a78bfa", fontWeight: 600 }}>Ctrl+Alt</span>
-                    </div>
-                  )}
-                  <button className="pbtn" style={s.wavePill} onClick={onDictateClick}>
-                    <WaveVisual state={recordingState} level={audioLevel} />
-                  </button>
-                </div>
-
-                {/* RIGHT — notes */}
-                <div style={{ width: SIDE_W, display: "flex", alignItems: "center" }}>
-                  <div
-                    style={{ position: "relative" }}
-                    onMouseEnter={() => setHoveredEl("history")}
-                    onMouseLeave={() => setHoveredEl(null)}
-                  >
-                    {hoveredEl === "history" && (
-                      <div style={s.tooltip}><span style={s.tooltipText}>Copy recent</span></div>
-                    )}
-                    <button className="pbtn" style={s.iconBtn} onClick={copyRecent}><NotesIcon /></button>
-                  </div>
-                </div>
-              </>
+                )}
+                <button className="pbtn" style={s.wavePill} onClick={onDictateClick}>
+                  <WaveVisual state={recordingState} level={audioLevel} />
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -641,44 +519,6 @@ function WaveVisual({ state, level, compact = false }: { state: string; level: n
 
 /* ── Icons ── */
 
-function GlobeIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M2 12h20"/>
-      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/>
-    </svg>
-  );
-}
-
-function NotesIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-      <polyline points="14 2 14 8 20 8"/>
-      <line x1="16" y1="13" x2="8" y2="13"/>
-      <line x1="16" y1="17" x2="8" y2="17"/>
-      <line x1="10" y1="9"  x2="8" y2="9"/>
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="18 15 12 9 6 15"/>
-    </svg>
-  );
-}
-
-function LangCheck() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,0.9)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "auto", flexShrink: 0 }}>
-      <polyline points="20 6 9 17 4 12"/>
-    </svg>
-  );
-}
-
 function XIcon() {
   return (
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,0.92)" strokeWidth="2.2" strokeLinecap="round" style={{ transform: "translateX(1px)" }}>
@@ -757,13 +597,6 @@ const s: Record<string, React.CSSProperties> = {
     transformOrigin: "center bottom",
     // Horizontal centering via translateX(-50%) baked into inline transform.
   },
-  iconBtn: {
-    display: "flex", alignItems: "center", justifyContent: "center",
-    width: 32, height: 32, borderRadius: "50%",
-    background: "rgba(8,8,16,0.92)",
-    border: "1px solid rgba(255,255,255,0.13)",
-    flexShrink: 0,
-  },
   edgeAction: {
     display: "flex", alignItems: "center", justifyContent: "center",
     width: 18, height: 32, borderRadius: 8,
@@ -806,25 +639,6 @@ const s: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(255,255,255,0.13)",
     flexShrink: 0,
   },
-  arrowDrawer: {
-    display: "flex", alignItems: "center",
-    justifyContent: "flex-start",
-    paddingLeft: 7,
-    width: 56, height: 32, borderRadius: 999,
-    background: "rgba(70,70,82,0.94)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    position: "absolute",
-    right: 0,
-    top: "50%",
-    marginTop: -16,
-    zIndex: 0,
-    animation: "drawerWipe 0.2s cubic-bezier(.22,1,.36,1)",
-  },
-  langCode: {
-    color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
-    animation: "langPop 0.22s cubic-bezier(.34,1.56,.64,1)",
-    display: "inline-block",
-  },
   tooltip: {
     position: "absolute",
     bottom: "calc(100% + 8px)",
@@ -845,38 +659,15 @@ const s: Record<string, React.CSSProperties> = {
   tooltipText: {
     color: "rgba(255,255,255,0.82)", fontSize: 12, fontWeight: 500,
   },
-  langPanel: {
-    position: "absolute",
-    bottom: "calc(100% + 10px)",
-    left: "50%",
-    transform: "translateX(-50%)",
-    background: "rgba(12,12,22,0.97)",
-    backdropFilter: "blur(28px)",
-    WebkitBackdropFilter: "blur(28px)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 14,
-    paddingTop: 6, paddingBottom: 6,
-    width: 230,
-    boxShadow: "0 12px 40px rgba(0,0,0,0.7)",
-    zIndex: 20,
-    animation: "panelIn 0.18s cubic-bezier(.22,1,.36,1)",
-    display: "flex", flexDirection: "column",
-  },
-  langRow: {
-    display: "flex", alignItems: "center", gap: 10,
-    padding: "7px 14px",
-    background: "transparent",
-    width: "100%", textAlign: "left" as const,
-  },
-  langRowFlag:  { fontSize: 14, lineHeight: 1, flexShrink: 0 },
-  langRowLabel: { color: "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: 500, flex: 1 },
-  langDivider:  { height: 1, background: "rgba(255,255,255,0.07)", margin: "4px 0" },
-  langAction: {
-    display: "flex", alignItems: "center",
-    padding: "7px 14px",
-    background: "transparent",
-    color: "rgba(255,255,255,0.38)", fontSize: 12, fontWeight: 500,
-    width: "100%", textAlign: "left" as const,
+  shortcutKey: {
+    color: "rgba(167,139,250,0.96)",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 0.35,
+    background: "rgba(167,139,250,0.12)",
+    border: "1px solid rgba(167,139,250,0.22)",
+    borderRadius: 6,
+    padding: "2px 6px",
   },
   dictatingBubble: {
     position: "absolute" as const,

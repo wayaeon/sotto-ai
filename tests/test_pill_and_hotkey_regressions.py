@@ -141,3 +141,13 @@ def test_waveform_keeps_inset_ends_and_more_room_in_compact_mode():
     assert "const inset = 3" in pill
     assert "const width = 52" in pill
     assert "width={compact ? 50 : 58}" in pill
+
+
+def test_idle_pill_drops_the_redundant_language_and_copy_controls():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "Change language" not in pill
+    assert "Copy recent" not in pill
+    assert "GlobeIcon" not in pill
+    assert "NotesIcon" not in pill
+    assert "Start dictation" in pill
+    assert "shortcutKey" in pill
