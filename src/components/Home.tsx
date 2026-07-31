@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
-import { deleteTranscription, getTranscriptions, type Transcription } from "../lib/db";
+import { applyCorrectionRules, applyCorrectionToTranscriptions, deleteTranscription, getTranscriptions, type Transcription } from "../lib/db";
+import { getVocabulary, saveVocabulary, type VocabularyEntry, getCorrectionRules, saveCorrectionRules, type CorrectionRule } from "../lib/localData";
 import { getTranscriptAnalyses } from "../lib/transcriptAnalysis";
 import { derivePracticeFocus, synonymsForWord } from "../lib/insights";
 import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
-import { setWakePhraseEnabled } from "../lib/tauri";
+import { setDictionary, setWakePhraseEnabled } from "../lib/tauri";
 
 // ─── Types ────────────────────────────────────────────────
 
-type View = "home" | "history" | "insights" | "commands" | "settings" | "account" | "debug";
+type View = "home" | "history" | "insights" | "features" | "commands" | "settings" | "account" | "debug";
 
 interface Metrics {
   totalWords: number;
@@ -29,12 +30,6 @@ interface Command {
   enabled: boolean;
   runs: number;
   accent: string;
-}
-
-interface DictEntry {
-  id: string;
-  term: string;
-  phonetic: string;
 }
 
 // ─── Constants ────────────────────────────────────────────
@@ -151,18 +146,6 @@ function getCommands(): Command[] {
 
 function saveCommands(cmds: Command[]): void {
   localStorage.setItem("verba_commands", JSON.stringify(cmds));
-}
-
-function getDictionary(): DictEntry[] {
-  try {
-    const raw = localStorage.getItem("verba_dictionary");
-    if (raw) return JSON.parse(raw) as DictEntry[];
-  } catch { /* ignore */ }
-  return [];
-}
-
-function saveDictionary(entries: DictEntry[]): void {
-  localStorage.setItem("verba_dictionary", JSON.stringify(entries));
 }
 
 const DEFAULT_FILLER_WORDS = [
@@ -457,12 +440,16 @@ interface HistoryScreenProps {
   searchRef: React.RefObject<HTMLInputElement | null>;
 }
 
+interface TextSelectionState { text: string; x: number; y: number; }
+
 function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSearchConsumed, searchRef }: HistoryScreenProps) {
   const [selected, setSelected] = useState<Transcription | null>(null);
   const [search, setSearch] = useState(initialSearch ?? "");
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [textSelection, setTextSelection] = useState<TextSelectionState | null>(null);
+  const [correctionDraft, setCorrectionDraft] = useState<{ from: string; to: string } | null>(null);
 
   const filtered = useMemo(() => {
     return transcriptions.filter((t) => {
@@ -523,6 +510,51 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
       setConfirmDelete(false);
     }
   }, [filtered, selected]);
+
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() ?? "";
+      const anchor = selection?.anchorNode?.parentElement?.closest(".history-transcript-text");
+      if (!text || !anchor || !selection?.rangeCount) {
+        setTextSelection(null);
+        return;
+      }
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      setTextSelection({ text, x: rect.left + rect.width / 2, y: rect.bottom + 8 });
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, []);
+
+  function addSelectedVocabulary() {
+    if (!textSelection) return;
+    const existing = getVocabulary();
+    if (!existing.some((entry) => entry.term.toLowerCase() === textSelection.text.toLowerCase())) {
+      const next = [...existing, { id: `dict_${Date.now()}`, term: textSelection.text, category: "term" as const, proficiency: "learning" as const }];
+      saveVocabulary(next);
+      setDictionary(next.map((entry) => entry.phonetic ? `${entry.term} (${entry.phonetic})` : entry.term)).catch(() => {});
+    }
+    setTextSelection(null);
+  }
+
+  function applyCorrection() {
+    if (!correctionDraft?.from.trim() || !correctionDraft.to.trim()) return;
+    const rule: CorrectionRule = {
+      id: `rule_${Date.now()}`,
+      from: correctionDraft.from.trim(),
+      to: correctionDraft.to.trim(),
+      scope: "all",
+      appName: null,
+      created_at: new Date().toISOString(),
+    };
+    saveCorrectionRules([...getCorrectionRules(), rule]);
+    applyCorrectionToTranscriptions(rule);
+    setSelected((current) => current ? { ...current, text: applyCorrectionRules(current.text, [rule]) } : current);
+    setCorrectionDraft(null);
+    setTextSelection(null);
+    onChanged();
+  }
 
   return (
     <div className="main history-screen">
@@ -686,6 +718,21 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
           </aside>
         )}
       </div>
+      {textSelection && !correctionDraft && (
+        <div className="history-teach-toolbar" onMouseDown={(event) => event.preventDefault()} style={{ left: textSelection.x, top: textSelection.y }} role="toolbar" aria-label="Teach Verba">
+          <span>Teach Verba</span>
+          <button className="btn btn-sm" onClick={addSelectedVocabulary}><Icons.Plus size={12} /> Vocabulary</button>
+          <button className="btn btn-sm btn-primary" onClick={() => setCorrectionDraft({ from: textSelection.text, to: "" })}><Icons.Check size={12} /> Correct</button>
+        </div>
+      )}
+      {correctionDraft && (
+        <div className="history-correction-popover" onMouseDown={(event) => event.stopPropagation()} style={{ left: textSelection?.x ?? "50%", top: textSelection?.y ?? "50%" }} role="dialog" aria-label="Create correction rule">
+          <div className="history-card-label">Correct this phrase</div>
+          <div className="history-correction-from">{correctionDraft.from}</div>
+          <div className="input"><input autoFocus value={correctionDraft.to} onChange={(event) => setCorrectionDraft({ ...correctionDraft, to: event.target.value })} placeholder="Replacement" onKeyDown={(event) => event.key === "Enter" && applyCorrection()} /></div>
+          <div className="history-correction-actions"><button className="btn btn-sm btn-primary" onClick={applyCorrection}>Apply to library</button><button className="btn btn-sm btn-ghost" onClick={() => setCorrectionDraft(null)}>Cancel</button></div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2240,21 +2287,21 @@ function FillerSection() {
 }
 
 function DictPanel() {
-  const [entries, setEntries] = useState<DictEntry[]>(getDictionary);
+  const [entries, setEntries] = useState<VocabularyEntry[]>(getVocabulary);
   const [term, setTerm] = useState("");
   const [phonetic, setPhonetic] = useState("");
 
-  function syncToSidecar(updated: DictEntry[]) {
+  function syncToSidecar(updated: VocabularyEntry[]) {
     const words = updated.map((e) => e.phonetic ? `${e.term} (${e.phonetic})` : e.term);
     import("../lib/tauri").then(({ setDictionary }) => setDictionary(words).catch(() => {}));
   }
 
   function addEntry() {
     if (!term.trim()) return;
-    const entry: DictEntry = { id: `dict_${Date.now()}`, term: term.trim(), phonetic: phonetic.trim() };
+    const entry: VocabularyEntry = { id: `dict_${Date.now()}`, term: term.trim(), phonetic: phonetic.trim(), category: "general", proficiency: "familiar" };
     const updated = [...entries, entry];
     setEntries(updated);
-    saveDictionary(updated);
+    saveVocabulary(updated);
     syncToSidecar(updated);
     setTerm("");
     setPhonetic("");
@@ -2263,7 +2310,7 @@ function DictPanel() {
   function removeEntry(id: string) {
     const updated = entries.filter((e) => e.id !== id);
     setEntries(updated);
-    saveDictionary(updated);
+    saveVocabulary(updated);
     syncToSidecar(updated);
   }
 
@@ -2522,7 +2569,7 @@ function AccountScreen({ userName, userEmail, tier }: AccountScreenProps) {
 
   const words   = parseInt(localStorage.getItem("verba_total_words") ?? "0");
   const sessions = parseInt(localStorage.getItem("verba_sessions") ?? "0");
-  const dictLen  = getDictionary().length;
+  const dictLen  = getVocabulary().length;
   const cmdLen   = getCommands().length;
 
   const usageItems = [
@@ -2727,6 +2774,107 @@ function AccountScreen({ userName, userEmail, tier }: AccountScreenProps) {
   );
 }
 
+// ─── Features ────────────────────────────────────────────
+
+type FeatureSection = "overview" | "vocabulary" | "corrections";
+
+function FeaturesScreen() {
+  const [section, setSection] = useState<FeatureSection>("overview");
+  const [entries, setEntries] = useState(getVocabulary);
+  const [rules, setRules] = useState(getCorrectionRules);
+  const [term, setTerm] = useState("");
+  const [context, setContext] = useState("");
+  const [category, setCategory] = useState<VocabularyEntry["category"]>("general");
+  const [proficiency, setProficiency] = useState<VocabularyEntry["proficiency"]>("learning");
+
+  function addVocabulary() {
+    if (!term.trim()) return;
+    const next = [...entries, { id: `dict_${Date.now()}`, term: term.trim(), context: context.trim(), category, proficiency }];
+    setEntries(next);
+    saveVocabulary(next);
+    setDictionary(next.map((entry) => entry.phonetic ? `${entry.term} (${entry.phonetic})` : entry.term)).catch(() => {});
+    setTerm(""); setContext("");
+  }
+
+  function removeVocabulary(id: string) {
+    const next = entries.filter((entry) => entry.id !== id);
+    setEntries(next);
+    saveVocabulary(next);
+    setDictionary(next.map((entry) => entry.phonetic ? `${entry.term} (${entry.phonetic})` : entry.term)).catch(() => {});
+  }
+
+  function removeRule(id: string) {
+    const next = rules.filter((rule) => rule.id !== id);
+    setRules(next);
+    saveCorrectionRules(next);
+  }
+
+  return (
+    <div className="main features-screen">
+      <header className="features-header">
+        <div className="eyebrow">Workspace intelligence</div>
+        <h1 className="page-title"><em>Features</em></h1>
+        <p className="page-sub">Small, local tools that make Verba more accurate every time you use it.</p>
+      </header>
+
+      <div className="features-body">
+        <div className="features-grid">
+          <button className={`feature-card feature-card-live${section === "vocabulary" ? " active" : ""}`} onClick={() => setSection("vocabulary")}>
+            <span className="feature-card-icon"><Icons.FileText size={17} /></span>
+            <span><strong>Vocabulary</strong><small>{entries.length} terms · names · concepts</small></span>
+            <Icons.ChevronRight size={14} />
+          </button>
+          <button className={`feature-card feature-card-live${section === "corrections" ? " active" : ""}`} onClick={() => setSection("corrections")}>
+            <span className="feature-card-icon"><Icons.Edit size={17} /></span>
+            <span><strong>Corrections</strong><small>{rules.length} rules applied across your library</small></span>
+            <Icons.ChevronRight size={14} />
+          </button>
+          <div className="feature-card feature-card-live">
+            <span className="feature-card-icon"><Icons.Shield size={17} /></span>
+            <span><strong>Local data</strong><small>History and language profile stay on this device</small></span>
+            <span className="feature-status">LIVE</span>
+          </div>
+        </div>
+
+        {section === "overview" && (
+          <section className="features-overview card">
+            <div className="eyebrow">Built next</div>
+            <h2>Teach Verba once. Keep the benefit.</h2>
+            <p>Select a phrase in any transcript to add it to Vocabulary or create a correction rule. Rules update existing local history and future dictation.</p>
+            <div className="features-roadmap">
+              <div><Icons.Sparkles size={15} /><span><strong>Dialogue assistant</strong><small>Planned · local chat over your own context</small></span></div>
+              <div><Icons.Globe size={15} /><span><strong>Visual intelligence</strong><small>Planned · understand the active screen when requested</small></span></div>
+              <div><Icons.Bolt size={15} /><span><strong>Computer control</strong><small>Planned · explicit, user-approved actions only</small></span></div>
+            </div>
+          </section>
+        )}
+
+        {section === "vocabulary" && (
+          <section className="features-panel card">
+            <div className="features-panel-head"><div><div className="eyebrow">Personal vernacular</div><h2>Vocabulary library</h2></div><button className="btn btn-sm btn-ghost" onClick={() => setSection("overview")}>Overview</button></div>
+            <div className="features-form">
+              <div className="input"><input value={term} onChange={(event) => setTerm(event.target.value)} placeholder="Name, concept, or jargon" onKeyDown={(event) => event.key === "Enter" && addVocabulary()} /></div>
+              <div className="input"><input value={context} onChange={(event) => setContext(event.target.value)} placeholder="Context (optional)" /></div>
+              <select value={category} onChange={(event) => setCategory(event.target.value as VocabularyEntry["category"])}><option value="general">General</option><option value="name">Name</option><option value="concept">Concept</option><option value="term">Term</option></select>
+              <select value={proficiency} onChange={(event) => setProficiency(event.target.value as VocabularyEntry["proficiency"])}><option value="learning">Learning</option><option value="familiar">Familiar</option><option value="fluent">Fluent</option></select>
+              <button className="btn btn-primary" onClick={addVocabulary}><Icons.Plus size={13} /> Add</button>
+            </div>
+            <div className="feature-list">{entries.length === 0 ? <div className="empty"><h4>No terms yet</h4><p>Add the names and concepts Verba should never miss.</p></div> : entries.map((entry) => <div className="feature-list-row" key={entry.id}><div><strong>{entry.term}</strong><small>{entry.category ?? "general"} · {entry.proficiency ?? "familiar"}{entry.context ? ` · ${entry.context}` : ""}</small></div><button className="btn btn-ghost btn-sm" onClick={() => removeVocabulary(entry.id)} aria-label={`Remove ${entry.term}`}><Icons.Trash size={12} /></button></div>)}</div>
+          </section>
+        )}
+
+        {section === "corrections" && (
+          <section className="features-panel card">
+            <div className="features-panel-head"><div><div className="eyebrow">Library-wide rules</div><h2>Corrections</h2></div><button className="btn btn-sm btn-ghost" onClick={() => setSection("overview")}>Overview</button></div>
+            <p className="page-sub">Rules created from transcript selections are applied to existing history and to future dictation before it is pasted.</p>
+            <div className="feature-list">{rules.length === 0 ? <div className="empty"><h4>No correction rules yet</h4><p>Highlight a phrase in a transcript and choose Correct.</p></div> : rules.map((rule) => <div className="feature-list-row" key={rule.id}><div><strong>{rule.from} <span className="feature-arrow">→</span> {rule.to}</strong><small>All transcripts · {new Date(rule.created_at).toLocaleDateString()}</small></div><button className="btn btn-ghost btn-sm" onClick={() => removeRule(rule.id)} aria-label={`Remove correction ${rule.from}`}><Icons.Trash size={12} /></button></div>)}</div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Sidebar ──────────────────────────────────────────────
 
 interface SidebarProps {
@@ -2746,6 +2894,11 @@ function Sidebar({ view, onViewChange, userName, tier }: SidebarProps) {
     { key: "history",  label: "History",  icon: <Icons.Clock size={16} /> },
     { key: "insights", label: "Insights", icon: <Icons.BarChart size={16} /> },
     { key: "settings", label: "Settings", icon: <Icons.Settings size={16} /> },
+  ];
+  const featureItems: Array<{ label: string; icon: React.ReactNode }> = [
+    { label: "Features", icon: <Icons.Sparkles size={16} /> },
+    { label: "Vocabulary", icon: <Icons.FileText size={16} /> },
+    { label: "Corrections", icon: <Icons.Edit size={16} /> },
   ];
 
   return (
@@ -2767,6 +2920,15 @@ function Sidebar({ view, onViewChange, userName, tier }: SidebarProps) {
           <span className="nav-label">{item.label}</span>
         </button>
       ))}
+
+      <div className="sidebar-feature-shelf">
+        <div className="sidebar-section-label">Built for you</div>
+        {featureItems.map((item) => (
+          <button key={item.label} className={`nav-item feature-nav-item${view === "features" ? " active" : ""}`} onClick={() => onViewChange("features")} title={item.label}>
+            <span className="nav-icon">{item.icon}</span><span className="nav-label">{item.label}</span>
+          </button>
+        ))}
+      </div>
 
       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
         <div className="sidebar-footer" onClick={() => onViewChange("account")}>
@@ -2894,6 +3056,7 @@ export default function Home() {
       {view === "insights" && (
         <InsightsScreen transcriptions={transcriptions} onViewChange={setView} onWordSelect={(word) => setHistorySearch(word)} />
       )}
+      {view === "features" && <FeaturesScreen />}
       {view === "commands" && (
         <CommandsScreen
           commands={commands}

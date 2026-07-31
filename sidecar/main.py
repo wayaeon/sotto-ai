@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 import threading
 from sidecar.ipc import IPC, Command, Event
-from sidecar.hardware import DEFAULT_MODEL, detect as detect_hardware
+from sidecar.hardware import DEFAULT_MODEL, detect as detect_hardware, detect_fast_device
 from sidecar.recorder import Recorder
 from sidecar.models import benchmark_model_async, MODEL_CATALOG
 
@@ -69,11 +69,10 @@ def _iter_stdin_lines():
 def main() -> None:
     ipc = IPC()
 
-    # Windows uses the fixed Parakeet path; probing remains available on demand
-    # for diagnostics and macOS keeps the existing hardware-driven path.
+    # Windows keeps the fixed Parakeet model. Only inspect ONNX providers here;
+    # the full WMI/PowerShell inventory remains an explicit diagnostics action.
     if sys.platform == "win32":
-        hw = None
-        recorder = Recorder(ipc=ipc, hw=None, model_name=DEFAULT_MODEL, device="cpu")
+        recorder = Recorder(ipc=ipc, hw=None, model_name=DEFAULT_MODEL, device=detect_fast_device())
     else:
         hw = detect_hardware()
         ipc.send(Event.HARDWARE, **hw.to_dict())

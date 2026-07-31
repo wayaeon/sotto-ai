@@ -4,11 +4,11 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
-def test_windows_startup_avoids_hardware_probe() -> None:
+def test_windows_startup_uses_a_fast_provider_probe_without_switching_models() -> None:
     source = (ROOT / "sidecar" / "main.py").read_text(encoding="utf-8")
     assert 'if sys.platform == "win32":' in source
-    assert "detect_hardware()" in source
-    assert 'Recorder(ipc=ipc, hw=None, model_name=DEFAULT_MODEL, device="cpu")' in source
+    assert "detect_fast_device()" in source
+    assert 'Recorder(ipc=ipc, hw=None, model_name=DEFAULT_MODEL, device=detect_fast_device())' in source
 
 
 def test_windows_recorder_defaults_to_parakeet() -> None:

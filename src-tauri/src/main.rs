@@ -33,6 +33,8 @@ fn main() {
             commands::benchmark_model,
             commands::set_dictionary,
             commands::set_filler_config,
+            commands::load_local_data,
+            commands::save_local_data,
             commands::inject_text,
             commands::open_url,
             commands::open_path,

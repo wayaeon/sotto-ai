@@ -72,6 +72,20 @@ def detect_device(
     return (DeviceTier.CPU, "cpu")
 
 
+def detect_fast_device() -> str:
+    """Return the ONNX provider without the expensive full hardware inventory."""
+    try:
+        import onnxruntime
+        providers = onnxruntime.get_available_providers()
+        if "CUDAExecutionProvider" in providers:
+            return "cuda"
+        if "DmlExecutionProvider" in providers:
+            return "directml"
+    except Exception:
+        pass
+    return "cpu"
+
+
 @dataclass
 class HardwareInfo:
     ram_gb: float

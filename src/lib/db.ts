@@ -1,3 +1,5 @@
+import { persistLocalData, getCorrectionRules, type CorrectionRule } from "./localData";
+
 export interface Transcription {
   id: number;
   text: string;
@@ -11,7 +13,6 @@ export interface Transcription {
 }
 
 const TRANSCRIPTIONS_KEY = "verba_transcriptions";
-const MAX_STORED = 200;
 
 function load(): Transcription[] {
   try {
@@ -45,7 +46,8 @@ export function insertTranscription(
     raw_text: rawText,
   };
   items.push(item);
-  localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(items.slice(-MAX_STORED)));
+  localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(items));
+  void persistLocalData();
   return item;
 }
 
@@ -58,7 +60,35 @@ export function deleteTranscription(id: number): boolean {
   const next = items.filter((item) => item.id !== id);
   if (next.length === items.length) return false;
   localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(next));
+  void persistLocalData();
   return true;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function applyCorrectionRules(text: string, rules: CorrectionRule[] = getCorrectionRules()): string {
+  return rules
+    .filter((rule) => rule.from.trim() && rule.to.trim())
+    .sort((a, b) => b.from.length - a.from.length)
+    .reduce((current, rule) => current.replace(new RegExp(escapeRegExp(rule.from), "gi"), rule.to), text);
+}
+
+export function applyCorrectionToTranscriptions(rule: CorrectionRule): number {
+  const items = load();
+  let changed = 0;
+  const next = items.map((item) => {
+    const text = item.text.replace(new RegExp(escapeRegExp(rule.from), "gi"), rule.to);
+    if (text === item.text) return item;
+    changed += 1;
+    return { ...item, text };
+  });
+  if (changed) {
+    localStorage.setItem(TRANSCRIPTIONS_KEY, JSON.stringify(next));
+    void persistLocalData();
+  }
+  return changed;
 }
 
 export function updateMetrics(wordCount: number, durationMs: number): void {
@@ -84,4 +114,5 @@ export function updateMetrics(wordCount: number, durationMs: number): void {
   localStorage.setItem("verba_total_ms", String(totalMs));
   const wpm = totalMs > 0 ? Math.round((totalWords / totalMs) * 60_000) : 0;
   localStorage.setItem("verba_avg_wpm", String(wpm));
+  void persistLocalData();
 }

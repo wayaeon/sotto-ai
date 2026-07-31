@@ -14,6 +14,8 @@ export const setFillerConfig = (enabled: boolean, words: string[]) => invoke("se
 export const injectText = (text: string) => invoke("inject_text", { text });
 export const openUrl = (url: string) => invoke("open_url", { url });
 export const openPath = (path: string) => invoke("open_path", { path });
+export const loadLocalData = () => invoke<string>("load_local_data");
+export const saveLocalData = (data: string) => invoke("save_local_data", { data });
 
 export interface StageTiming {
   capture_start_ms?: number;

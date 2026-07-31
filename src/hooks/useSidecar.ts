@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { onSidecarEvent, onFocusedApp, onExternalContext, injectText, setFillerConfig, type SidecarMessage } from "../lib/tauri";
+import { onSidecarEvent, onFocusedApp, onExternalContext, injectText, setDictionary, setFillerConfig, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type ExternalContext, type FocusedApp, type RecordingState } from "../stores/appStore";
-import { insertTranscription, updateMetrics } from "../lib/db";
+import { applyCorrectionRules, insertTranscription, updateMetrics } from "../lib/db";
+import { getVocabulary } from "../lib/localData";
 import { scheduleTranscriptAnalysis } from "../lib/transcriptAnalysis";
 import { formatForContext, resolveContextProfile } from "../lib/contextFormatting";
 
@@ -90,6 +91,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             if (primary) {
               const filler = readFillerConfig();
               setFillerConfig(filler.enabled, filler.words).catch(() => {});
+              setDictionary(getVocabulary().map((entry) => entry.phonetic ? `${entry.term} (${entry.phonetic})` : entry.term)).catch(() => {});
             }
           }
           break;
@@ -103,7 +105,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           break;
 
         case "segment_done": {
-          const raw = msg.text;
+          const raw = applyCorrectionRules(msg.text);
           const rawTextBeforeFilter = msg.raw_text ?? null;
           const dictatedInto = dictationTarget.current ?? useAppStore.getState().focusedApp;
           const context = dictationContext.current;
