@@ -83,6 +83,14 @@ def test_recording_controls_use_the_compact_action_style():
     assert "recordWavePill" in pill
 
 
+def test_compact_recording_pill_keeps_the_target_app_and_actions_inside_it():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "focusedApp?.iconDataUri" in pill
+    assert "compact={true}" in pill
+    assert "aria-label=\"Cancel dictation\"" in pill
+    assert "aria-label=\"Finish dictation\"" in pill
+
+
 def test_waveform_has_a_subtle_secondary_signal_layer():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
     assert "const echoWavePath" in pill

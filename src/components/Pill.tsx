@@ -56,7 +56,7 @@ async function resizePillWindow(width: number, height: number) {
 
 export default function Pill() {
   useSidecar({ primary: true });
-  const { recordingState, audioLevel, sidecarReady, modelReady, setRecordingState, handsFreeActive, wakePhraseActive, tabletPosture } = useAppStore();
+  const { recordingState, audioLevel, sidecarReady, modelReady, setRecordingState, handsFreeActive, wakePhraseActive, focusedApp, tabletPosture } = useAppStore();
 
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -394,25 +394,28 @@ export default function Pill() {
               </div>
 
             ) : isRecording || isProcessing ? (
-              <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 5 }}>
-                <button className="pbtn" aria-label="Cancel dictation" style={{ ...s.recordAction, ...s.cancelAction }} onClick={cancelRecording}>
-                  <XIcon />
-                </button>
+              <div style={{ position: "relative" }}>
                 <div style={{
                   ...s.recordWavePill,
                   border: isRecording ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(251,191,36,0.4)",
                   animation: isRecording ? "pulseGlow 1.8s ease-in-out infinite" : "none",
                 }}>
+                  <button className="pbtn" aria-label="Cancel dictation" style={{ ...s.recordAction, ...s.cancelAction }} onClick={cancelRecording}>
+                    <XIcon />
+                  </button>
+                  {isRecording && focusedApp?.iconDataUri && (
+                    <img src={focusedApp.iconDataUri} alt="" title={focusedApp.name} style={s.appIcon} />
+                  )}
                   {isRecording && (
                     <span style={s.recTimer}>
                       {`${Math.floor(recSecs / 60)}:${String(recSecs % 60).padStart(2, "0")}`}
                     </span>
                   )}
-                  <WaveVisual state={recordingState} level={audioLevel} />
+                  <WaveVisual state={recordingState} level={audioLevel} compact={true} />
+                  <button className="pbtn" aria-label="Finish dictation" style={{ ...s.recordAction, ...s.commitAction }} onClick={() => invoke("stop_ptt").catch(() => {})}>
+                    <CheckIcon />
+                  </button>
                 </div>
-                <button className="pbtn" aria-label="Finish dictation" style={{ ...s.recordAction, ...s.commitAction }} onClick={() => invoke("stop_ptt").catch(() => {})}>
-                  <CheckIcon />
-                </button>
               </div>
 
             ) : isListening ? (
@@ -588,7 +591,7 @@ function buildWavePath(phase: number, amplitude: number) {
   }).join(" ");
 }
 
-function WaveVisual({ state, level }: { state: string; level: number }) {
+function WaveVisual({ state, level, compact = false }: { state: string; level: number; compact?: boolean }) {
   const isRecording  = state === "recording";
   const isProcessing = state === "processing";
   const isLoading = state === "loading";
@@ -608,7 +611,7 @@ function WaveVisual({ state, level }: { state: string; level: number }) {
   const echoWavePath = buildWavePath(phase + 0.8, amplitude * 0.42);
 
   return (
-    <svg width="58" height="18" viewBox="0 0 58 18" fill="none" aria-label={isLoading ? "Starting transcription model" : "Audio level"}>
+    <svg width={compact ? 42 : 58} height={compact ? 16 : 18} viewBox="0 0 58 18" fill="none" aria-label={isLoading ? "Starting transcription model" : "Audio level"}>
       <path d={wavePath} stroke={color} strokeWidth="4" strokeLinecap="round" opacity="0.14" />
       <path d={echoWavePath} stroke={color} strokeWidth="0.9" strokeLinecap="round" opacity="0.34" />
       <path
@@ -751,7 +754,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   recordAction: {
     display: "flex", alignItems: "center", justifyContent: "center",
-    width: 28, height: 28, borderRadius: 9,
+    width: 24, height: 24, borderRadius: 8,
     flexShrink: 0,
     transition: "background 160ms cubic-bezier(0.2,0,0,1), border-color 160ms cubic-bezier(0.2,0,0,1), transform 100ms cubic-bezier(0.2,0,0,1)",
   },
@@ -766,7 +769,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   recordWavePill: {
     display: "flex", alignItems: "center", justifyContent: "center",
-    height: 30, padding: "0 8px", gap: 5, borderRadius: 999,
+    height: 32, padding: "0 4px", gap: 4, borderRadius: 999,
     background: "rgba(8,8,16,0.94)",
     flexShrink: 0,
   },
@@ -882,7 +885,7 @@ const s: Record<string, React.CSSProperties> = {
     fontVariantNumeric: "tabular-nums", letterSpacing: 0.5, flexShrink: 0,
   },
   appIcon: {
-    width: 14, height: 14, borderRadius: 3, flexShrink: 0, objectFit: "contain",
+    width: 14, height: 14, borderRadius: 4, flexShrink: 0, objectFit: "contain",
   },
   progressTrack: {
     width: 180, height: 3, borderRadius: 99,
