@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
 import { deleteTranscription, getTranscriptions, type Transcription } from "../lib/db";
 import { getTranscriptAnalyses } from "../lib/transcriptAnalysis";
+import { derivePracticeFocus, synonymsForWord } from "../lib/insights";
 import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
 import { setWakePhraseEnabled } from "../lib/tauri";
@@ -451,11 +452,13 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
 interface HistoryScreenProps {
   transcriptions: Transcription[];
   onChanged: () => void;
+  initialSearch?: string;
+  onInitialSearchConsumed?: () => void;
 }
 
-function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
+function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSearchConsumed }: HistoryScreenProps) {
   const [selected, setSelected] = useState<Transcription | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch ?? "");
   const [filter, setFilter] = useState("all");
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -503,6 +506,12 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
       setFilter("all");
     }
   }, [filter, contextFilters]);
+
+  useEffect(() => {
+    if (initialSearch === undefined) return;
+    setSearch(initialSearch);
+    onInitialSearchConsumed?.();
+  }, [initialSearch, onInitialSearchConsumed]);
 
   useEffect(() => {
     if (selected && !filtered.some((item) => item.id === selected.id)) {
@@ -680,6 +689,19 @@ function heatCell(t: number, hue: number): string {
 
 function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }) {
   const mode: HeatmapMode = "24h";
+  const [selectedCell, setSelectedCell] = useState<string | null>(null);
+  const selectCell = (label: string) => setSelectedCell((current) => current === label ? null : label);
+  const cellInteraction = (label: string) => ({
+    tabIndex: 0,
+    role: "button" as const,
+    onClick: () => selectCell(label),
+    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectCell(label);
+      }
+    },
+  });
 
   // ── 24h: day-of-week × hour ──────────────────────────────
   const grid24h = useMemo(() => {
@@ -769,7 +791,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
   return (
     <>
       <SectionHead label="When You Dictate" action={<span className="chip"><span className="chip-dot" style={{ background: "var(--c-violet)" }} />{modeLabel}</span>} />
-      <div className="card" style={{ overflowX: "auto" }}>
+      <div className="card insights-heatmap-card">
         {transcriptions.length === 0 ? (
           <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-4)", fontSize: 13 }}>
             No data yet — start dictating to see when you're most productive.
@@ -797,6 +819,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                     <div
                       key={hourIdx}
                       className="heatmap-cell"
+                      {...cellInteraction(`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 · ${count} session${count !== 1 ? "s" : ""}`)}
                       data-tooltip={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 · ${count} session${count !== 1 ? "s" : ""}`}
                       aria-label={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 — ${count} session${count !== 1 ? "s" : ""}`}
                       style={{ flex: 1, minWidth: 0, aspectRatio: "1", borderRadius: 4, background: heatCell(t, hue), border: "1px solid rgba(255,255,255,0.02)", transition: "background 0.15s" }}
@@ -834,6 +857,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                   <div
                     key={i}
                     className="heatmap-cell"
+                    {...cellInteraction(`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`)}
                     data-tooltip={`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
                     aria-label={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
                     style={{
@@ -863,7 +887,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
           </div>
         ) : (
           /* ── 365d GitHub-style ── */
-          <div>
+          <div className="insights-heatmap-scroll">
             {/* month labels row */}
             <div style={{ display: "flex", marginBottom: 4, paddingLeft: 28 }}>
               {weeks365d.map((_, wi) => {
@@ -897,6 +921,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                         <div
                           key={di}
                           className="heatmap-cell"
+                          {...cellInteraction(`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`)}
                           data-tooltip={`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
                           aria-label={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
                           style={{
@@ -922,6 +947,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
             </div>
           </div>
         )}
+        {selectedCell && <div className="insights-selection">Selected: {selectedCell}</div>}
       </div>
     </>
   );
@@ -931,6 +957,8 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
 
 interface InsightsScreenProps {
   transcriptions: Transcription[];
+  onViewChange: (view: View) => void;
+  onWordSelect: (word: string) => void;
 }
 
 const INSIGHTS_STOP_WORDS = new Set([
@@ -986,8 +1014,11 @@ function vocabularyRichness(transcriptions: Transcription[]): number {
   return new Set(words).size / words.length;
 }
 
-function InsightsScreen({ transcriptions }: InsightsScreenProps) {
+function InsightsScreen({ transcriptions, onViewChange, onWordSelect }: InsightsScreenProps) {
   const [range, setRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
+  const [selectedContext, setSelectedContext] = useState<string | null>(null);
+  const [selectedWord, setSelectedWord] = useState<string | null>(null);
+  const [focusCopied, setFocusCopied] = useState(false);
 
   const ranges: Array<"7d" | "30d" | "90d" | "all"> = ["7d", "30d", "90d", "all"];
 
@@ -1089,26 +1120,40 @@ function InsightsScreen({ transcriptions }: InsightsScreenProps) {
     const ids = new Set(inRange.map((item) => item.id));
     const analyses = getTranscriptAnalyses().filter((item) => ids.has(item.transcription_id));
     const reviewFlags = analyses.reduce((sum, item) => sum + item.quality_flags.filter((flag) => flag !== "postprocessed").length, 0);
+    const rawWords = analyses.reduce((sum, item) => sum + item.raw_word_count, 0);
+    const fillerWords = analyses.reduce((sum, item) => sum + item.filler_word_count, 0);
+    const repeatedWords = analyses.reduce((sum, item) => sum + item.repeated_word_count, 0);
     return {
       analyzed: analyses.length,
       postprocessed: analyses.filter((item) => item.quality_flags.includes("postprocessed")).length,
       reviewFlags,
+      fillerRate: rawWords > 0 ? fillerWords / rawWords : 0,
+      repeatedWords,
     };
   }, [inRange]);
+  const practiceFocus = useMemo(
+    () => derivePracticeFocus({
+      fillerRate: analysisMetrics.fillerRate,
+      repeatedWords: analysisMetrics.repeatedWords,
+      wpm: periodMetrics.wpm,
+      vocabularyRichness: richnessCurrent,
+    }),
+    [analysisMetrics, periodMetrics.wpm, richnessCurrent]
+  );
 
   return (
-    <div className="main fade-in">
-      <div className="main-header">
+    <div className="main fade-in insights-page">
+      <div className="main-header insights-header">
         <div>
           <div className="eyebrow">Analytics</div>
           <h1 className="page-title"><em>Insights</em></h1>
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div className="insights-range" aria-label="Insights range">
           {ranges.map((r) => (
             <button
               key={r}
               className={`btn btn-sm${range === r ? "" : " btn-ghost"}`}
-              style={range === r ? { background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.25)", color: "var(--c-violet)" } : {}}
+              aria-pressed={range === r}
               onClick={() => setRange(r)}
             >
               {r}
@@ -1117,104 +1162,117 @@ function InsightsScreen({ transcriptions }: InsightsScreenProps) {
         </div>
       </div>
 
-      <div className="main-body stagger">
-        {/* Big stats */}
-        <div className="stat-grid">
+      <div className="main-body stagger insights-body">
+        <div className="stat-grid insights-metrics">
           <Stat value={periodMetrics.words > 0 ? periodMetrics.words.toLocaleString() : "—"} label="Words" sub="dictated" accent="violet" italic />
           <Stat value={periodMetrics.wpm > 0 ? periodMetrics.wpm : "—"} unit={periodMetrics.wpm > 0 ? "wpm" : undefined} label="Speaking pace" accent="blue" />
           <Stat value={periodMetrics.duration > 0 ? fmtMinutes(Math.round(periodMetrics.duration * 0.4)) : "—"} label="Time saved" sub="estimate" accent="amber" />
           <Stat value={periodMetrics.sessions > 0 ? `${periodMetrics.sessions}` : "—"} label="Sessions" sub="this period" accent="mint" />
         </div>
 
-        {/* Heatmap */}
-        <ActivityHeatmap transcriptions={inRange} />
-
-        {/* Context breakdown — which apps you actually dictated into, from real app_name data */}
-        <SectionHead label="Context Breakdown" />
-        <div className="card" style={{ display: "flex", alignItems: "center", gap: 24 }}>
-          {contextBreakdown.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "8px 0", color: "var(--text-4)", fontSize: 13, width: "100%" }}>
-              No data yet — start dictating to see which apps you use most.
-            </div>
-          ) : (
-            <div style={{ flex: 1 }}>
-                {contextBreakdown.map(([name, count], i) => (
-                  <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-                    <Chip dot tone={CONTEXT_CHIP_TONES[i]}>{name}</Chip>
-                    <div style={{ flex: 1, height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 2, overflow: "hidden" }}>
-                      <div style={{ width: `${(count / contextTotal) * 100}%`, height: "100%", background: CONTEXT_COLORS[i % CONTEXT_COLORS.length], borderRadius: 2 }} />
-                    </div>
-                    <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{count}</span>
-                  </div>
-                ))}
-              </div>
-          )}
-        </div>
-
-        {/* Communication style */}
-        <SectionHead label="Communication Style" />
-        <div className="stat-grid">
-          <Stat
-            value={Math.round(richnessCurrent * 100)}
-            unit="%"
-            label="Vocabulary richness"
-            hint="Unique words ÷ total words in this period — higher means more varied language."
-            delta={richnessDelta}
-            deltaDown={richnessDelta?.startsWith("↓")}
-            accent="violet"
-          />
-        </div>
-
-        <SectionHead label="Accuracy signals" />
-        <div className="stat-grid">
-          <Stat value={analysisMetrics.analyzed} label="Analyzed" sub="local transcript signals" accent="mint" />
-          <Stat value={analysisMetrics.postprocessed} label="Postprocessed" sub="raw text differed" accent="amber" />
-          <Stat value={analysisMetrics.reviewFlags} label="Review flags" sub="repeated or short segments" accent="rose" />
-        </div>
-
-        <SectionHead label="Most-Used Words" />
-        <div className="card">
-          {topWords.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-4)", fontSize: 13 }}>
-              No data yet — start dictating to see your most-used words.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {topWords.map(({ word, count }, i) => (
-                <div key={word} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ width: 18, fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{i + 1}</span>
-                  <span style={{ flex: 1, fontSize: 13, color: "var(--text-2)" }}>{word}</span>
-                  <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{count}</span>
+        <div className="insights-grid insights-grid-wide">
+          <section className="insights-panel"><ActivityHeatmap transcriptions={inRange} /></section>
+          <section className="insights-panel">
+            <SectionHead label="Context Breakdown" />
+            <div className="card insights-context-card">
+              {contextBreakdown.length === 0 ? (
+                <div className="insights-empty">No data yet — start dictating to see which apps you use most.</div>
+              ) : (
+                <div className="insights-context-list">
+                  {contextBreakdown.map(([name, count], i) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={`insights-context-button${selectedContext === name ? " active" : ""}`}
+                      aria-pressed={selectedContext === name}
+                      onClick={() => setSelectedContext((current) => current === name ? null : name)}
+                    >
+                      <Chip dot tone={CONTEXT_CHIP_TONES[i]}>{name}</Chip>
+                      <span className="insights-context-track"><span style={{ width: `${(count / contextTotal) * 100}%`, background: CONTEXT_COLORS[i % CONTEXT_COLORS.length] }} /></span>
+                      <span className="insights-context-count">{count}</span>
+                    </button>
+                  ))}
                 </div>
-              ))}
+              )}
+              {selectedContext && <div className="insights-selection">Selected context: {selectedContext}</div>}
             </div>
-          )}
+          </section>
         </div>
 
-        <SectionHead label="Filler Word Trend" />
-        <div className="card">
-          <svg width="100%" height="60" viewBox={`0 0 ${fillerTrendData.length * 12} 60`} preserveAspectRatio="none">
-            {fillerTrendData.map((v, i) => {
-              const h = (v / maxFiller) * 44;
-              return <rect key={i} x={i * 12} y={54 - h} width={10} height={h + 2} rx={2} fill="rgba(251,191,36,0.4)" />;
-            })}
-          </svg>
-          <div style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", marginTop: 6 }}>
-            Last 30 days — {fillerTrendData.reduce((a, b) => a + b, 0)} filler word{fillerTrendData.reduce((a, b) => a + b, 0) === 1 ? "" : "s"} caught
-          </div>
+        <div className="insights-grid">
+          <section className="insights-panel">
+            <SectionHead label="Communication Style" />
+            <div className="stat-grid insights-single-stat">
+              <Stat value={Math.round(richnessCurrent * 100)} unit="%" label="Vocabulary richness" hint="Unique words ÷ total words in this period — higher means more varied language." delta={richnessDelta} deltaDown={richnessDelta?.startsWith("↓")} accent="violet" />
+            </div>
+          </section>
+          <section className="insights-panel">
+            <SectionHead label="Accuracy signals" />
+            <div className="stat-grid insights-triple-stat">
+              <Stat value={analysisMetrics.analyzed} label="Analyzed" sub="local" accent="mint" />
+              <Stat value={analysisMetrics.postprocessed} label="Postprocessed" sub="raw differed" accent="amber" />
+              <Stat value={analysisMetrics.reviewFlags} label="Review flags" sub="review" accent="rose" />
+            </div>
+          </section>
         </div>
 
-        <SectionHead label="Speaking Pace Trend" />
-        <div className="card">
-          <svg width="100%" height="60" viewBox={`0 0 ${wpmTrendData.length * 12} 60`} preserveAspectRatio="none">
-            {wpmTrendData.map((v, i) => {
-              const h = (v / maxWpm) * 44;
-              return <rect key={i} x={i * 12} y={54 - h} width={10} height={h + 2} rx={2} fill="rgba(125,211,252,0.4)" />;
-            })}
-          </svg>
-          <div style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", marginTop: 6 }}>
-            Last 30 days — average words per minute per day
-          </div>
+        <div className="insights-grid">
+          <section className="insights-panel">
+            <SectionHead label="Most-Used Words" action={<span className="section-link">Select a word to search history</span>} />
+            <div className="card insights-words-card">
+              {topWords.length === 0 ? (
+                <div className="insights-empty">No data yet — start dictating to see your most-used words.</div>
+              ) : (
+                <div className="insights-word-list">
+                  {topWords.map(({ word, count }, i) => {
+                    const alternatives = synonymsForWord(word);
+                    return (
+                      <div key={word} className={`insights-word-row${selectedWord === word ? " active" : ""}`}>
+                        <button type="button" className="insights-word-button" aria-pressed={selectedWord === word} onClick={() => { setSelectedWord(word); onWordSelect(word); onViewChange("history"); }}>
+                          <span className="insights-word-rank">{i + 1}</span>
+                          <span className="insights-word-label">{word}</span>
+                          <span className="insights-word-count">{count}</span>
+                        </button>
+                        {alternatives.length > 0 && <div className="insights-word-synonyms">Try: {alternatives.join(" · ")}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+          <section className="insights-panel">
+            <SectionHead label="Practice focus" />
+            <div className="card insights-focus-card">
+              <div className="insights-focus-title">{practiceFocus.title}</div>
+              <p>{practiceFocus.detail}</p>
+              <div className="insights-focus-prompt">{practiceFocus.prompt}</div>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard.writeText(practiceFocus.prompt).then(() => { setFocusCopied(true); setTimeout(() => setFocusCopied(false), 1200); }).catch(() => {}); }}>
+                {focusCopied ? "Copied" : "Copy practice prompt"}
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <div className="insights-grid">
+          <section className="insights-panel">
+            <SectionHead label="Filler Word Trend" />
+            <div className="card insights-trend-card">
+              <svg width="100%" height="60" viewBox={`0 0 ${fillerTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Filler word trend">
+                {fillerTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxFiller) * 44} width={10} height={(v / maxFiller) * 44 + 2} rx={2} fill="rgba(251,191,36,0.4)" />)}
+              </svg>
+              <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — {fillerTrendData.reduce((a, b) => a + b, 0)} filler word{fillerTrendData.reduce((a, b) => a + b, 0) === 1 ? "" : "s"} caught</div>
+            </div>
+          </section>
+          <section className="insights-panel">
+            <SectionHead label="Speaking Pace Trend" />
+            <div className="card insights-trend-card">
+              <svg width="100%" height="60" viewBox={`0 0 ${wpmTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Speaking pace trend">
+                {wpmTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxWpm) * 44} width={10} height={(v / maxWpm) * 44 + 2} rx={2} fill="rgba(125,211,252,0.4)" />)}
+              </svg>
+              <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — average words per minute per day</div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -2714,6 +2772,7 @@ export default function Home() {
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [transcriptions, setTranscriptions] = useState<Transcription[]>([]);
+  const [historySearch, setHistorySearch] = useState<string | undefined>();
   const [metrics, setMetrics] = useState<Metrics>(getMetrics());
   const [commands, setCommands] = useState<Command[]>(getCommands);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -2807,10 +2866,10 @@ export default function Home() {
         />
       )}
       {view === "history" && (
-        <HistoryScreen transcriptions={transcriptions} onChanged={refreshTranscriptData} />
+        <HistoryScreen transcriptions={transcriptions} onChanged={refreshTranscriptData} initialSearch={historySearch} onInitialSearchConsumed={() => setHistorySearch(undefined)} />
       )}
       {view === "insights" && (
-        <InsightsScreen transcriptions={transcriptions} />
+        <InsightsScreen transcriptions={transcriptions} onViewChange={setView} onWordSelect={(word) => setHistorySearch(word)} />
       )}
       {view === "commands" && (
         <CommandsScreen
