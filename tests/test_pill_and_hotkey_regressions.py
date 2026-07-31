@@ -103,3 +103,9 @@ def test_recording_actions_expand_from_the_capsule_edges():
     assert "edgeActionOpen" in pill
     assert 'hoveredEl === "cancel"' in pill
     assert 'hoveredEl === "finish"' in pill
+
+
+def test_recording_edge_actions_follow_the_pill_contours():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert 'borderRadius: "999px 8px 8px 999px"' in pill
+    assert 'borderRadius: "8px 999px 999px 8px"' in pill

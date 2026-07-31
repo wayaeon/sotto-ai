@@ -778,10 +778,12 @@ const s: Record<string, React.CSSProperties> = {
   cancelEdge: {
     background: "rgba(127,29,52,0.2)",
     border: "1px solid rgba(248,113,113,0.22)",
+    borderRadius: "999px 8px 8px 999px",
   },
   finishEdge: {
     background: "rgba(6,95,70,0.2)",
     border: "1px solid rgba(110,231,183,0.25)",
+    borderRadius: "8px 999px 999px 8px",
   },
   recordWavePill: {
     display: "flex", alignItems: "center", justifyContent: "center",
