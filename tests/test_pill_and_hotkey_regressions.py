@@ -122,10 +122,10 @@ def test_recording_glyphs_share_an_optical_baseline():
     assert 'transform: "translateX(-1px) translateY(0.5px)"' in pill
 
 
-def test_loading_and_processing_share_the_same_amber_capsule():
+def test_loading_and_processing_share_the_same_cool_capsule():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
-    assert "amberPill:" in pill
-    assert pill.count("s.amberPill") >= 2
+    assert "loadingPill:" in pill
+    assert pill.count("s.loadingPill") >= 2
 
 
 def test_recording_edge_glyphs_are_inset_and_themed_for_the_capsule():
@@ -151,3 +151,11 @@ def test_idle_pill_drops_the_redundant_language_and_copy_controls():
     assert "NotesIcon" not in pill
     assert "Start dictation" in pill
     assert "shortcutKey" in pill
+
+
+def test_loading_pill_keeps_the_target_app_icon_and_verba_palette():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "focusedApp?.iconDataUri" in pill
+    assert "loadingPill" in pill
+    assert 'rgba(129,140,248,0.96)' in pill
+    assert 'rgba(251,191,36,0.42)' not in pill

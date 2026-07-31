@@ -323,7 +323,10 @@ export default function Pill() {
                 {hoveredEl === "loading" && (
                   <div style={s.tooltip}><span style={s.tooltipText}>Starting Parakeet — first dictation only</span></div>
                 )}
-                <div style={{ ...s.amberPill, border: "1px solid rgba(251,191,36,0.42)" }}>
+                <div style={{ ...s.loadingPill, border: "1px solid rgba(129,140,248,0.42)" }}>
+                  {focusedApp?.iconDataUri && (
+                    <img src={focusedApp.iconDataUri} alt="" title={focusedApp.name} style={s.appIcon} />
+                  )}
                   <WaveVisual state="loading" level={0} compact={true} />
                 </div>
               </div>
@@ -331,11 +334,11 @@ export default function Pill() {
             ) : isRecording || isProcessing ? (
               <div style={{ position: "relative" }}>
                 <div style={{
-                  ...(isRecording ? s.recordWavePill : s.amberPill),
-                  border: isRecording ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(251,191,36,0.4)",
+                  ...(isRecording ? s.recordWavePill : s.loadingPill),
+                  border: isRecording ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(129,140,248,0.42)",
                   boxShadow: isRecording
                     ? "0 6px 20px rgba(167,139,250,0.14), inset 0 1px 0 rgba(255,255,255,0.06)"
-                    : "0 6px 20px rgba(251,191,36,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
+                    : "0 6px 20px rgba(129,140,248,0.12), inset 0 1px 0 rgba(255,255,255,0.05)",
                 }}>
                   {isRecording && (
                     <button
@@ -492,7 +495,7 @@ function WaveVisual({ state, level, compact = false }: { state: string; level: n
   // ordinary speech visibly move without pinning loud speech at full height.
   const visualLevel = Math.min(1, Math.max(0.12, Math.sqrt(smoothLevel * 18)));
   const color = isLoading || isProcessing
-    ? "rgba(251,191,36,0.95)"
+    ? "rgba(129,140,248,0.96)"
     : isActive
       ? "rgba(167,139,250,0.96)"
       : "rgba(255,255,255,0.32)";
@@ -625,11 +628,13 @@ const s: Record<string, React.CSSProperties> = {
     background: "linear-gradient(180deg, rgba(22,20,34,0.96), rgba(8,8,16,0.96))",
     flexShrink: 0,
   },
-  amberPill: {
+  loadingPill: {
     display: "flex", alignItems: "center", justifyContent: "center",
-    height: 32, minWidth: 58, padding: 0, gap: 4, borderRadius: 999,
-    background: "linear-gradient(180deg, rgba(31,27,13,0.96), rgba(8,8,16,0.96))",
-    boxShadow: "0 6px 20px rgba(251,191,36,0.1), inset 0 1px 0 rgba(255,255,255,0.05)",
+    height: 32, minWidth: 74, padding: "0 9px", gap: 6, borderRadius: 999,
+    background: "linear-gradient(180deg, rgba(29,29,58,0.98), rgba(8,8,16,0.98))",
+    boxShadow: "0 6px 20px rgba(129,140,248,0.12), inset 0 1px 0 rgba(255,255,255,0.05)",
+    boxSizing: "border-box",
+    overflow: "visible",
     flexShrink: 0,
   },
   wavePill: {
