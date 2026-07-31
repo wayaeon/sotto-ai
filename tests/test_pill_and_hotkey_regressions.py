@@ -109,3 +109,9 @@ def test_recording_edge_actions_follow_the_pill_contours():
     pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
     assert 'borderRadius: "999px 8px 8px 999px"' in pill
     assert 'borderRadius: "8px 999px 999px 8px"' in pill
+
+
+def test_recording_edge_actions_are_flush_with_the_capsule_surface():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "width: 18, height: 32" in pill
+    assert 'height: 32, padding: 0, gap: 4' in pill

@@ -765,7 +765,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   edgeAction: {
     display: "flex", alignItems: "center", justifyContent: "center",
-    width: 18, height: 26, borderRadius: 8,
+    width: 18, height: 32, borderRadius: 8,
     padding: 0,
     flexShrink: 0,
     opacity: 0.72,
@@ -787,7 +787,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   recordWavePill: {
     display: "flex", alignItems: "center", justifyContent: "center",
-    height: 32, padding: "0 4px", gap: 4, borderRadius: 999,
+    height: 32, padding: 0, gap: 4, borderRadius: 999,
     background: "linear-gradient(180deg, rgba(22,20,34,0.96), rgba(8,8,16,0.96))",
     flexShrink: 0,
   },
