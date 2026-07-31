@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { onSidecarEvent, onFocusedApp, onExternalContext, injectText, type SidecarMessage } from "../lib/tauri";
+import { onSidecarEvent, onFocusedApp, onExternalContext, injectText, setFillerConfig, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type ExternalContext, type FocusedApp, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
 import { scheduleTranscriptAnalysis } from "../lib/transcriptAnalysis";
@@ -8,6 +8,20 @@ import { formatForContext, resolveContextProfile } from "../lib/contextFormattin
 // Single source of truth for the default model.
 // Always parakeet TDT v3 — ONNX runtime, works on any hardware.
 const DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3";
+const DEFAULT_FILLER_WORDS = [
+  "um", "umm", "uh", "uhh", "like", "you know", "i mean",
+  "sort of", "kind of", "actually", "basically", "literally", "so yeah",
+];
+
+function readFillerConfig(): { enabled: boolean; words: string[] } {
+  const enabled = localStorage.getItem("verba_setting_filler_enabled") !== "false";
+  try {
+    const raw = localStorage.getItem("verba_filler_words");
+    const words = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(words)) return { enabled, words: words.filter((word): word is string => typeof word === "string" && Boolean(word.trim())) };
+  } catch { /* use the built-in list */ }
+  return { enabled, words: DEFAULT_FILLER_WORDS };
+}
 
 /**
  * primary: true  → Pill window only. Handles injection, history, metrics.
@@ -73,6 +87,10 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             // stale, worse model forever with no UI to fix it.)
             localStorage.setItem("verba_model", DEFAULT_MODEL);
             setModel(DEFAULT_MODEL);
+            if (primary) {
+              const filler = readFillerConfig();
+              setFillerConfig(filler.enabled, filler.words).catch(() => {});
+            }
           }
           break;
 

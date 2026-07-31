@@ -454,9 +454,10 @@ interface HistoryScreenProps {
   onChanged: () => void;
   initialSearch?: string;
   onInitialSearchConsumed?: () => void;
+  searchRef: React.RefObject<HTMLInputElement | null>;
 }
 
-function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSearchConsumed }: HistoryScreenProps) {
+function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSearchConsumed, searchRef }: HistoryScreenProps) {
   const [selected, setSelected] = useState<Transcription | null>(null);
   const [search, setSearch] = useState(initialSearch ?? "");
   const [filter, setFilter] = useState("all");
@@ -487,17 +488,21 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
   }
 
   const contextFilters = useMemo(() => {
-    const apps = new Map<string, string | null>();
+    const apps = new Map<string, { icon: string | null; count: number }>();
     transcriptions.forEach((transcription) => {
-      if (transcription.app_name && !apps.has(transcription.app_name)) {
-        apps.set(transcription.app_name, transcription.app_icon);
+      if (transcription.app_name) {
+        const existing = apps.get(transcription.app_name);
+        apps.set(transcription.app_name, {
+          icon: existing?.icon ?? transcription.app_icon,
+          count: (existing?.count ?? 0) + 1,
+        });
       }
     });
     return [
       { name: "all", icon: null },
       ...[...apps.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([name, icon]) => ({ name, icon })),
+        .sort(([left, a], [right, b]) => b.count - a.count || left.localeCompare(right))
+        .map(([name, { icon }]) => ({ name, icon })),
     ];
   }, [transcriptions]);
 
@@ -528,32 +533,42 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
           <h1 className="page-title"><em>Library</em></h1>
           <p className="history-subtitle">{transcriptions.length} transcription{transcriptions.length !== 1 ? "s" : ""} · ready when you are</p>
         </div>
-        <div className="history-header-mark" aria-hidden="true"><Icons.Waves size={22} /></div>
       </header>
 
       <div className="history-toolbar">
         <div className="input history-search">
           <Icons.Search size={14} style={{ color: "var(--text-4)", flexShrink: 0 }} />
           <input
+            ref={searchRef}
+            id="history-search"
             placeholder="Search transcriptions…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="history-filters" aria-label="Filter by app">
-          {contextFilters.map(({ name, icon }) => (
+        <div className="history-filter-anchor">
+          <button
+            className={`history-filter${filter === "all" ? " active" : " has-filter"}`}
+            onClick={() => setFilter("all")}
+            title={filter === "all" ? "All apps" : `Clear filter: ${filter}`}
+            aria-label={filter === "all" ? "All apps" : `Clear filter: ${filter}`}
+          >
+            <Icons.Filter size={14} />
+          </button>
+        </div>
+        <div className="history-filters history-app-rail" aria-label="Filter by app">
+          {contextFilters.slice(1).map(({ name, icon }) => (
             <button
               key={name}
               className={`history-filter${filter === name ? " active" : ""}`}
               onClick={() => setFilter(name)}
-              title={name === "all" ? "All apps" : name}
-              aria-label={name === "all" ? "All apps" : name}
+              title={name}
+              aria-label={name}
             >
-              {icon ? <img src={icon} alt="" /> : <Icons.Filter size={14} />}
+              {icon ? <img src={icon} alt="" /> : <Icons.FileText size={14} />}
             </button>
           ))}
         </div>
-        {filter !== "all" && <button className="history-clear-filter" onClick={() => setFilter("all")}>Clear filter</button>}
       </div>
 
       <div className={`history-layout${selected ? " has-detail" : ""}`}>
@@ -571,8 +586,10 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
             </div>
           ) : (
             filtered.map((t) => {
-              const title = t.text.slice(0, 60) || "Untitled";
-              const preview = t.text.slice(0, 80);
+              const normalized = t.text.trim();
+              const sentence = normalized.match(/^[\s\S]*?[.!?](?:\s|$)/)?.[0].trim();
+              const title = sentence || normalized || "Untitled";
+              const preview = sentence ? normalized.slice(sentence.length).trim() : normalized;
               const when = relativeTime(t.created_at);
               const dur = fmtDuration(t.duration_ms);
               const isSelected = selected?.id === t.id;
@@ -590,7 +607,7 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
                     </div>
                     <div className="history-row-copy">
                       <div className="history-row-title">{title}</div>
-                      <div className="history-row-preview">{preview}</div>
+                      {preview && <div className="history-row-preview">{preview}</div>}
                     </div>
                   </div>
                   <div className="history-row-footer">
@@ -620,7 +637,7 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
                 <button className="history-close" onClick={() => setSelected(null)} aria-label="Close transcript" title="Close transcript"><Icons.X size={15} /></button>
               </div>
               <h2 className="history-detail-title">
-                {selected.text.slice(0, 60) || "Untitled"}
+                {selected.text.trim() || "Untitled"}
               </h2>
               <div className="history-detail-meta">
                   <span>{new Date(selected.created_at).toLocaleString()}</span>
@@ -2777,6 +2794,7 @@ export default function Home() {
   const [commands, setCommands] = useState<Command[]>(getCommands);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const historySearchRef = useRef<HTMLInputElement>(null);
 
   // Local mode — no auth
   useEffect(() => {
@@ -2798,12 +2816,17 @@ export default function Home() {
     }
   }, [view]);
 
-  // Ctrl+K → command palette
+  // Ctrl+K → Library search, command palette elsewhere
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setPaletteOpen((o) => !o);
+        if (view === "history") {
+          historySearchRef.current?.focus();
+          historySearchRef.current?.select();
+        } else {
+          setPaletteOpen((o) => !o);
+        }
       }
       // Debug is dev-only: hidden from nav, opened via Ctrl+Shift+D (DESIGN.md §2)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "d" || e.key === "D")) {
@@ -2817,7 +2840,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
-  }, []);
+  }, [view]);
 
   const handleSetCommands = (cmds: Command[]) => {
     setCommands(cmds);
@@ -2866,7 +2889,7 @@ export default function Home() {
         />
       )}
       {view === "history" && (
-        <HistoryScreen transcriptions={transcriptions} onChanged={refreshTranscriptData} initialSearch={historySearch} onInitialSearchConsumed={() => setHistorySearch(undefined)} />
+        <HistoryScreen transcriptions={transcriptions} onChanged={refreshTranscriptData} initialSearch={historySearch} onInitialSearchConsumed={() => setHistorySearch(undefined)} searchRef={historySearchRef} />
       )}
       {view === "insights" && (
         <InsightsScreen transcriptions={transcriptions} onViewChange={setView} onWordSelect={(word) => setHistorySearch(word)} />

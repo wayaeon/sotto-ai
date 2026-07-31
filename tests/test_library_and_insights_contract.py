@@ -30,8 +30,9 @@ def test_library_uses_icon_app_filters_and_opens_details_only_on_selection():
     source = (ROOT / "src/components/Home.tsx").read_text(encoding="utf-8")
     assert "const [selected, setSelected] = useState<Transcription | null>(null);" in source
     assert "const contextFilters = useMemo(() => {" in source
-    assert "apps.set(transcription.app_name, transcription.app_icon);" in source
+    assert "apps.set(transcription.app_name, {" in source
+    assert "count: (existing?.count ?? 0) + 1" in source
     assert "overflowX: \"auto\"" in source
-    assert 'className="history-filters"' in source
+    assert "history-app-rail" in source
     assert 'className={`history-layout${selected ? " has-detail" : ""}`}' in source
     assert "{selected && (" in source

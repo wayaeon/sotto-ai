@@ -39,3 +39,31 @@ def test_transcript_analysis_is_scheduled_after_persistence():
     hook = (ROOT / "src/hooks/useSidecar.ts").read_text(encoding="utf-8")
     assert "scheduleTranscriptAnalysis" in hook
     assert "insertTranscription(" in hook
+
+
+def test_library_toolbar_keeps_search_and_filter_geometry_stable():
+    source = (ROOT / "src/components/Home.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "src/index.css").read_text(encoding="utf-8")
+    assert 'className="history-filter-anchor"' in source
+    assert "history-app-rail" in source
+    assert 'className="history-header-mark"' not in source
+    assert 'className="history-clear-filter"' not in source
+    assert "historySearchRef" in source
+    assert ".history-filter-anchor" in css
+    assert ".history-app-rail" in css
+
+
+def test_library_rows_use_semantic_text_and_readable_clamping():
+    source = (ROOT / "src/components/Home.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "src/index.css").read_text(encoding="utf-8")
+    history = source[source.index("function HistoryScreen"):source.index("// ─── Activity Heatmap")]
+    assert "t.text.slice(0, 60)" not in history
+    assert "t.text.slice(0, 80)" not in history
+    assert "-webkit-line-clamp: 2" in css
+
+
+def test_sidecar_syncs_saved_filler_preferences_when_ready():
+    hook = (ROOT / "src/hooks/useSidecar.ts").read_text(encoding="utf-8")
+    assert "verba_setting_filler_enabled" in hook
+    assert "verba_filler_words" in hook
+    assert "setFillerConfig" in hook
