@@ -63,3 +63,9 @@ def test_pill_uses_a_continuous_waveform_instead_of_equalizer_bars():
     assert "function buildWavePath" in pill
     assert "<path d={wavePath}" in pill
     assert "BAR_COUNT" not in pill
+
+
+def test_sidecar_metadata_status_does_not_reset_the_live_audio_visual():
+    hook = (ROOT / "src" / "hooks" / "useSidecar.ts").read_text(encoding="utf-8")
+    assert 'const state = statusMap[msg.msg];' in hook
+    assert 'statusMap[msg.msg] ?? "idle"' not in hook

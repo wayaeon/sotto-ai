@@ -155,14 +155,16 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             loading_model:  "loading",
             idle:           "idle",
           };
-          const state = statusMap[msg.msg] ?? "idle";
-          if (state === "recording" && dictationStartMs.current === null) {
-            dictationStartMs.current = Date.now();
-            dictationTarget.current = useAppStore.getState().focusedApp;
-            dictationContext.current = useAppStore.getState().externalContext;
+          const state = statusMap[msg.msg];
+          if (state) {
+            if (state === "recording" && dictationStartMs.current === null) {
+              dictationStartMs.current = Date.now();
+              dictationTarget.current = useAppStore.getState().focusedApp;
+              dictationContext.current = useAppStore.getState().externalContext;
+            }
+            setRecordingState(state);
+            if (state === "idle") setAudioLevel(0);
           }
-          setRecordingState(state);
-          if (state === "idle") setAudioLevel(0);
           // A successful state transition clears any prior error
           if (msg.msg === "recording_ptt" || msg.msg.startsWith("worker_ready")) {
             useAppStore.getState().setLastError(null);
