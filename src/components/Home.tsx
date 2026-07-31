@@ -10,7 +10,7 @@ import { setDictionary, setWakePhraseEnabled } from "../lib/tauri";
 
 // ─── Types ────────────────────────────────────────────────
 
-type View = "home" | "history" | "insights" | "features" | "commands" | "settings" | "account" | "debug";
+type View = "home" | "history" | "insights" | "features" | "vocabulary" | "corrections" | "commands" | "settings" | "account" | "debug";
 
 interface Metrics {
   totalWords: number;
@@ -681,10 +681,23 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
 
               {/* Text */}
               <div className="history-detail-actions">
-                <button className="btn btn-sm" onClick={handleCopy}>
+                <div className="history-detail-actions-left">
+                  <button className="btn btn-sm" onClick={handleCopy}>
                       {copied ? <Icons.Check size={12} /> : <Icons.Copy size={12} />}
                       {copied ? "Copied" : "Copy"}
-                </button>
+                  </button>
+                </div>
+                <div className="history-detail-actions-right">
+                  {confirmDelete ? (
+                    <>
+                      <span className="history-delete-warning">Delete this transcript?</span>
+                      <button className="btn btn-sm" onClick={removeSelected}>Delete</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                    </>
+                  ) : (
+                    <button className="btn btn-ghost btn-sm history-delete-action" onClick={() => setConfirmDelete(true)}><Icons.Trash size={12} /> Delete</button>
+                  )}
+                </div>
               </div>
               <div className="history-card history-transcript-card">
                 <div className="history-card-label">Transcript</div>
@@ -701,17 +714,6 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
                   <div>Tier <strong>{selected.tier || "Local"}</strong></div>
                   <div>Words <strong>{wordCount(selected.text)}</strong></div>
                   <div>Duration <strong>{fmtDuration(selected.duration_ms)}</strong></div>
-                </div>
-                <div className="history-delete-row">
-                  {confirmDelete ? (
-                    <>
-                      <span className="history-delete-warning">Delete this transcript?</span>
-                      <button className="btn btn-sm" onClick={removeSelected}>Delete</button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
-                    </>
-                  ) : (
-                    <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(true)}><Icons.Trash size={12} /> Delete</button>
-                  )}
                 </div>
               </div>
             </div>
@@ -2778,8 +2780,8 @@ function AccountScreen({ userName, userEmail, tier }: AccountScreenProps) {
 
 type FeatureSection = "overview" | "vocabulary" | "corrections";
 
-function FeaturesScreen() {
-  const [section, setSection] = useState<FeatureSection>("overview");
+function FeaturesScreen({ initialSection = "overview" }: { initialSection?: FeatureSection }) {
+  const [section, setSection] = useState<FeatureSection>(initialSection);
   const [entries, setEntries] = useState(getVocabulary);
   const [rules, setRules] = useState(getCorrectionRules);
   const [term, setTerm] = useState("");
@@ -2895,10 +2897,10 @@ function Sidebar({ view, onViewChange, userName, tier }: SidebarProps) {
     { key: "insights", label: "Insights", icon: <Icons.BarChart size={16} /> },
     { key: "settings", label: "Settings", icon: <Icons.Settings size={16} /> },
   ];
-  const featureItems: Array<{ label: string; icon: React.ReactNode }> = [
-    { label: "Features", icon: <Icons.Sparkles size={16} /> },
-    { label: "Vocabulary", icon: <Icons.FileText size={16} /> },
-    { label: "Corrections", icon: <Icons.Edit size={16} /> },
+  const featureItems: Array<{ key: View; label: string; icon: React.ReactNode }> = [
+    { key: "features", label: "Features", icon: <Icons.Sparkles size={16} /> },
+    { key: "vocabulary", label: "Vocabulary", icon: <Icons.FileText size={16} /> },
+    { key: "corrections", label: "Corrections", icon: <Icons.Edit size={16} /> },
   ];
 
   return (
@@ -2922,11 +2924,13 @@ function Sidebar({ view, onViewChange, userName, tier }: SidebarProps) {
       ))}
 
       <div className="sidebar-feature-shelf">
-        <div className="sidebar-section-label">Built for you</div>
         {featureItems.map((item) => (
-          <button key={item.label} className={`nav-item feature-nav-item${view === "features" ? " active" : ""}`} onClick={() => onViewChange("features")} title={item.label}>
+          <React.Fragment key={item.key}>
+            {item.key === "vocabulary" && <div className="sidebar-feature-divider" aria-hidden="true" />}
+            <button className="nav-item feature-nav-item" onClick={() => onViewChange(item.key)} title={item.label}>
             <span className="nav-icon">{item.icon}</span><span className="nav-label">{item.label}</span>
-          </button>
+            </button>
+          </React.Fragment>
         ))}
       </div>
 
@@ -3056,7 +3060,9 @@ export default function Home() {
       {view === "insights" && (
         <InsightsScreen transcriptions={transcriptions} onViewChange={setView} onWordSelect={(word) => setHistorySearch(word)} />
       )}
-      {view === "features" && <FeaturesScreen />}
+      {view === "features" && <FeaturesScreen initialSection="overview" />}
+      {view === "vocabulary" && <FeaturesScreen initialSection="vocabulary" />}
+      {view === "corrections" && <FeaturesScreen initialSection="corrections" />}
       {view === "commands" && (
         <CommandsScreen
           commands={commands}
