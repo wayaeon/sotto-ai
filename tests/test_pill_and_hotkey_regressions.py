@@ -159,3 +159,11 @@ def test_loading_pill_keeps_the_target_app_icon_and_verba_palette():
     assert "loadingPill" in pill
     assert 'rgba(129,140,248,0.96)' in pill
     assert 'rgba(251,191,36,0.42)' not in pill
+
+
+def test_pill_states_share_a_settle_transition_instead_of_hard_swapping():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "@keyframes pillStateSettle" in pill
+    assert "stateSurface" in pill
+    assert "key={`pill-${recordingState}`}" in pill
+    assert "background 220ms" in pill

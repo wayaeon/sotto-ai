@@ -235,6 +235,10 @@ export default function Pill() {
           from { opacity: 0; transform: translateX(-50%) translateY(4px); }
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
+        @keyframes pillStateSettle {
+          from { opacity: 0.18; transform: translateY(2px) scale(0.95); filter: blur(1px); }
+          to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
         @keyframes pulseGlow {
           0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,0); }
           50%       { box-shadow: 0 0 0 6px rgba(167,139,250,0.18); }
@@ -323,7 +327,7 @@ export default function Pill() {
                 {hoveredEl === "loading" && (
                   <div style={s.tooltip}><span style={s.tooltipText}>Starting Parakeet — first dictation only</span></div>
                 )}
-                <div style={{ ...s.loadingPill, border: "1px solid rgba(129,140,248,0.42)" }}>
+                <div key={`pill-${recordingState}`} style={{ ...s.loadingPill, ...s.stateSurface, border: "1px solid rgba(129,140,248,0.42)" }}>
                   {focusedApp?.iconDataUri && (
                     <img src={focusedApp.iconDataUri} alt="" title={focusedApp.name} style={s.appIcon} />
                   )}
@@ -333,8 +337,9 @@ export default function Pill() {
 
             ) : isRecording || isProcessing ? (
               <div style={{ position: "relative" }}>
-                <div style={{
+                <div key={`pill-${recordingState}`} style={{
                   ...(isRecording ? s.recordWavePill : s.loadingPill),
+                  ...s.stateSurface,
                   border: isRecording ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(129,140,248,0.42)",
                   boxShadow: isRecording
                     ? "0 6px 20px rgba(167,139,250,0.14), inset 0 1px 0 rgba(255,255,255,0.06)"
@@ -379,8 +384,9 @@ export default function Pill() {
                   <span style={s.dictatingText}>{wakePhraseActive ? "Wake phrase armed" : "Listening…"}</span>
                 </div>
                 <button
+                  key={`pill-${wakePhraseActive ? "wake" : "listening"}`}
                   className="pbtn"
-                  style={{ ...s.wavePill, border: "1px solid rgba(52,211,153,0.5)", animation: "pulseGlowMint 2.2s ease-in-out infinite", minWidth: 100 }}
+                  style={{ ...s.wavePill, ...s.stateSurface, border: "1px solid rgba(52,211,153,0.5)", animation: "pulseGlowMint 2.2s ease-in-out infinite, pillStateSettle 220ms cubic-bezier(0.22,1,0.36,1)", minWidth: 100 }}
                   onClick={onDictateClick}
                 >
                   <WaveVisual state="idle" level={audioLevel} />
@@ -399,7 +405,7 @@ export default function Pill() {
                     <span style={s.shortcutKey}>Ctrl + Alt</span>
                   </div>
                 )}
-                <button className="pbtn" style={s.wavePill} onClick={onDictateClick}>
+                <button key="pill-idle" className="pbtn" style={{ ...s.wavePill, ...s.stateSurface }} onClick={onDictateClick}>
                   <WaveVisual state={recordingState} level={audioLevel} />
                 </button>
               </div>
@@ -643,6 +649,11 @@ const s: Record<string, React.CSSProperties> = {
     background: "rgba(8,8,16,0.92)",
     border: "1px solid rgba(255,255,255,0.13)",
     flexShrink: 0,
+  },
+  stateSurface: {
+    transition: "background 220ms cubic-bezier(0.22,1,0.36,1), border-color 220ms cubic-bezier(0.22,1,0.36,1), box-shadow 220ms cubic-bezier(0.22,1,0.36,1), transform 220ms cubic-bezier(0.22,1,0.36,1), opacity 220ms cubic-bezier(0.22,1,0.36,1)",
+    animation: "pillStateSettle 220ms cubic-bezier(0.22,1,0.36,1)",
+    willChange: "transform, opacity",
   },
   tooltip: {
     position: "absolute",
