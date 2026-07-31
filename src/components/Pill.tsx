@@ -522,8 +522,6 @@ export default function Pill() {
 
 /* ── Wave visual ── */
 
-const BAR_COUNT = 10;
-
 function useSmoothedAudioLevel(level: number, active: boolean) {
   const target = useRef(0);
   const current = useRef(0);
@@ -554,53 +552,77 @@ function useSmoothedAudioLevel(level: number, active: boolean) {
   return smoothLevel;
 }
 
+function useWavePhase(active: boolean) {
+  const [phase, setPhase] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setPhase(0);
+      return;
+    }
+
+    let frame = 0;
+    let last = 0;
+    const animate = (time: number) => {
+      if (time - last >= 33) {
+        setPhase(time / 210);
+        last = time;
+      }
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
+
+  return phase;
+}
+
+function buildWavePath(phase: number, amplitude: number) {
+  const width = 58;
+  const midline = 9;
+  const points = 32;
+  return Array.from({ length: points + 1 }, (_, index) => {
+    const progress = index / points;
+    const x = progress * width;
+    const envelope = Math.sin(Math.PI * progress);
+    const shape = Math.sin(progress * Math.PI * 5 + phase) * 0.72
+      + Math.sin(progress * Math.PI * 11 - phase * 0.65) * 0.28;
+    const y = midline - shape * amplitude * envelope;
+    return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(" ");
+}
+
 function WaveVisual({ state, level }: { state: string; level: number }) {
   const isRecording  = state === "recording";
   const isProcessing = state === "processing";
   const isLoading = state === "loading";
   const isActive = isRecording || level > 0.001;
   const smoothLevel = useSmoothedAudioLevel(level, isActive);
+  const phase = useWavePhase(isActive || isProcessing || isLoading);
   // Microphone RMS is normally a small fraction; square-root gain makes
   // ordinary speech visibly move without pinning loud speech at full height.
   const visualLevel = Math.min(1, Math.max(0.12, Math.sqrt(smoothLevel * 18)));
-
-  if (isLoading) return (
-    <svg width="46" height="14" viewBox="0 0 46 14" fill="none" aria-label="Starting transcription model">
-      <path d="M1 8C5 1 9 13 13 6s8-5 12 1 8 6 12-1 5-5 8 1" stroke="rgba(251,191,36,0.95)" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="3 3" style={{ animation: "squiggleFlow 0.8s linear infinite" }} />
-    </svg>
-  );
+  const color = isLoading || isProcessing
+    ? "rgba(251,191,36,0.95)"
+    : isActive
+      ? "rgba(167,139,250,0.96)"
+      : "rgba(255,255,255,0.32)";
+  const amplitude = isLoading || isProcessing ? 2.6 : isActive ? 1.6 + visualLevel * 5.4 : 0.7;
+  const wavePath = buildWavePath(phase, amplitude);
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 2, height: 14 }}>
-      {Array.from({ length: BAR_COUNT }).map((_, i) => {
-        if (isActive) {
-          const h = Math.min(1, 0.1 + visualLevel * [0.48, 0.7, 0.9, 0.62, 0.82][i % 5]);
-          return (
-            <div key={i} style={{
-              width: 1.5, height: "100%", borderRadius: 2,
-              background: "rgba(167,139,250,0.9)",
-              transformOrigin: "center",
-              transform: `scaleY(${h})`,
-              transition: "transform 110ms cubic-bezier(0.2,0,0,1)",
-            }} />
-          );
-        }
-        if (isProcessing) return (
-          <div key={i} style={{
-            width: 2, height: 2, borderRadius: "50%",
-            background: "rgba(251,191,36,0.85)",
-            animation: "dotPulse 0.85s ease-in-out infinite",
-            animationDelay: `${i * 0.07}s`,
-          }} />
-        );
-        return (
-          <div key={i} style={{
-            width: 2, height: 2, borderRadius: "50%",
-            background: "rgba(255,255,255,0.28)",
-          }} />
-        );
-      })}
-    </div>
+    <svg width="58" height="18" viewBox="0 0 58 18" fill="none" aria-label={isLoading ? "Starting transcription model" : "Audio level"}>
+      <path d={wavePath} stroke={color} strokeWidth="4" strokeLinecap="round" opacity="0.14" />
+      <path
+        d={wavePath}
+        stroke={color}
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray={isLoading ? "3 3" : undefined}
+        style={{ transition: "stroke 180ms cubic-bezier(0.2,0,0,1)" }}
+      />
+    </svg>
   );
 }
 

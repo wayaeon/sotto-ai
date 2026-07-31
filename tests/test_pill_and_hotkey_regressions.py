@@ -56,3 +56,10 @@ def test_pill_loading_state_is_an_amber_squiggle_with_hover_help_not_a_banner():
     assert "Loading transcription model" not in pill
     assert 'state="loading"' in pill
     assert "Starting Parakeet" in pill
+
+
+def test_pill_uses_a_continuous_waveform_instead_of_equalizer_bars():
+    pill = (ROOT / "src" / "components" / "Pill.tsx").read_text(encoding="utf-8")
+    assert "function buildWavePath" in pill
+    assert "<path d={wavePath}" in pill
+    assert "BAR_COUNT" not in pill
