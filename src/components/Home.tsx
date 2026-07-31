@@ -2930,7 +2930,7 @@ function Sidebar({ view, onViewChange, userName, tier }: SidebarProps) {
         ))}
       </div>
 
-      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className="sidebar-account">
         <div className="sidebar-footer" onClick={() => onViewChange("account")}>
           <div className="avatar">{initial}</div>
           <div className="sidebar-footer-text">
