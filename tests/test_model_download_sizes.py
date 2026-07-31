@@ -61,7 +61,7 @@ def test_non_onnx_models_do_not_claim_npu_execution():
     assert resolve_device("onnx-asr", "npu") == "cpu"
 
 
-def test_recorder_model_switch_failure_does_not_restore_hardware_default(monkeypatch):
+def test_recorder_model_switch_does_not_eagerly_load_or_restore_hardware_default(monkeypatch):
     recorder = Recorder.__new__(Recorder)
     recorder._ipc = CapturingIPC()
     recorder._lock = threading.Lock()
@@ -74,19 +74,13 @@ def test_recorder_model_switch_failure_does_not_restore_hardware_default(monkeyp
 
     recorder._model_lock = threading.Lock()
     monkeypatch.setattr(recorder, "_stop_worker", lambda: None)
-    monkeypatch.setattr(
-        recorder,
-        "_start_worker",
-        lambda: (_ for _ in ()).throw(RuntimeError("runtime load failed")),
-    )
-
-    # set_model is now async (request accepted → True); run the load synchronously.
+    # Model selection is async, but must remain lightweight until dictation.
     recorder._requested_model = "mistralai/Voxtral-Mini-4B-Realtime-2602"
     recorder._load_requested_model()
 
     assert recorder._model_name == "mistralai/Voxtral-Mini-4B-Realtime-2602"
-    assert recorder._worker_error == "runtime load failed"
-    assert any(event["event"] == "error" and "Model switch failed" in event["msg"] for event in recorder._ipc.events)
+    assert recorder._worker_error is None
+    assert any(event["event"] == "status" and "model_selected" in event["msg"] for event in recorder._ipc.events)
     assert recorder._ipc.events[-1] == {"event": "status", "msg": "idle"}
 
 
@@ -114,6 +108,7 @@ def test_recording_proceeds_after_previous_model_load_failure(tmp_path, monkeypa
     recorder._current_wf = None
     recorder._last_wav_path = None
     recorder._model_name = "nvidia/parakeet-tdt-0.6b-v3"
+    monkeypatch.setattr(recorder, "preload_worker", lambda: None)
 
     recorder.start_ptt()
 
@@ -194,6 +189,23 @@ def test_optimized_parakeet_snapshot_download_uses_int8_onnx_only():
     assert models._should_ignore_snapshot_file("decoder_joint-model.onnx", repo_id) is True
     assert models._should_ignore_snapshot_file("encoder-model.int8.onnx", repo_id) is False
     assert models._should_ignore_snapshot_file("decoder_joint-model.int8.onnx", repo_id) is False
+
+
+def test_optimized_parakeet_prunes_unused_full_precision_weights(tmp_path):
+    model_path = tmp_path / "nvidia" / "parakeet-tdt-0.6b-v3"
+    model_path.mkdir(parents=True)
+    for name in ("encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "model.safetensors", "parakeet-tdt-0.6b-v3.nemo"):
+        (model_path / name).write_bytes(b"weights")
+    (model_path / ".cache").mkdir()
+
+    removed = models.prune_unused_model_files("nvidia/parakeet-tdt-0.6b-v3", model_path)
+
+    assert removed == 3
+    assert (model_path / "encoder-model.int8.onnx").exists()
+    assert (model_path / "decoder_joint-model.int8.onnx").exists()
+    assert not (model_path / "model.safetensors").exists()
+    assert not (model_path / "parakeet-tdt-0.6b-v3.nemo").exists()
+    assert not (model_path / ".cache").exists()
 
 
 def test_format_bytes_for_download_events():

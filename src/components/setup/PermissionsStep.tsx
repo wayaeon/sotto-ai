@@ -110,15 +110,6 @@ export default function PermissionsStep({ onNext }: Props) {
         >
           Continue
         </button>
-        <button
-          onClick={onNext}
-          style={{
-            background: "transparent", border: "none",
-            color: "var(--text-3)", fontSize: 13, cursor: "pointer",
-          }}
-        >
-          Skip for now
-        </button>
       </div>
     </div>
   );

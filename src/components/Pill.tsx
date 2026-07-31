@@ -3,22 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { useAppStore } from "../stores/appStore";
 import { useSidecar } from "../hooks/useSidecar";
-import { toggleHandsfree } from "../lib/tauri";
+import { setWakePhraseEnabled, toggleHandsfree } from "../lib/tauri";
 
-const LANGUAGES = [
-  { code: "EN", label: "English",            flag: "🇺🇸" },
-  { code: "ES", label: "Spanish (Español)",  flag: "🇪🇸" },
-  { code: "FR", label: "French (Français)",  flag: "🇫🇷" },
-];
-
-// Right side = notes(32). Left side must match so wavepill lands at exact center.
-const SIDE_W = 32;
-const PILL_WINDOW_W           = 380;
+const PILL_WINDOW_W           = 300;
 const PILL_WINDOW_COLLAPSED_W = 60;
 const PILL_WINDOW_COLLAPSED_H = 56;
-const PILL_WINDOW_BAR_H       = 124;
-const PILL_WINDOW_ACTIVE_H    = 136;
-const PILL_WINDOW_PANEL_H     = 380;
+const PILL_WINDOW_BAR_H       = 96;
+const PILL_WINDOW_ACTIVE_H    = 106;
 
 const ANIM_IN_MS  = 100;
 const ANIM_OUT_MS = 50;
@@ -27,7 +18,7 @@ const ANIM_OUT_MS = 50;
 // The key invariant: handle is ONLY visible in "collapsed".
 // This prevents the handle from re-appearing inside the old expanded window.
 type PillPhase = "collapsed" | "expanding" | "expanded" | "collapsing";
-type Hovered   = null | "lang" | "dictate" | "history";
+type Hovered   = null | "dictate" | "loading" | "cancel" | "finish";
 
 // Monitor cache — avoids a redundant IPC call on every resize.
 let monitorCache: Awaited<ReturnType<typeof currentMonitor>> | undefined;
@@ -48,16 +39,15 @@ async function resizePillWindow(width: number, height: number) {
     ? monitor.workArea.position.y + monitor.workArea.size.height - heightPx
     : 0;
 
-  // Parallel IPC — setSize + setPosition in one overlapped round-trip.
-  await Promise.all([
-    win.setSize(new PhysicalSize(widthPx, heightPx)),
-    monitor ? win.setPosition(new PhysicalPosition(x, y)) : Promise.resolve(),
-  ]);
+  // Resize first, then recenter. Windows can apply these operations in either
+  // order when fired together, which makes the collapsed handle visibly jump.
+  await win.setSize(new PhysicalSize(widthPx, heightPx));
+  if (monitor) await win.setPosition(new PhysicalPosition(x, y));
 }
 
 export default function Pill() {
   useSidecar({ primary: true });
-  const { recordingState, sidecarReady, modelReady, setRecordingState, handsFreeActive, focusedApp } = useAppStore();
+  const { recordingState, audioLevel, sidecarReady, modelReady, setRecordingState, handsFreeActive, wakePhraseActive, focusedApp, tabletPosture } = useAppStore();
 
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -67,9 +57,6 @@ export default function Pill() {
   const [barIn,         setBarIn]         = useState(false);
   const [hoveredEl,     setHoveredEl]     = useState<Hovered>(null);
   const [expanded,      setExpanded]      = useState(false);
-  const [langIdx,       setLangIdx]       = useState(-1);
-  const [showLangPanel, setShowLangPanel] = useState(false);
-  const [activeLangs,   setActiveLangs]   = useState<Set<string>>(new Set(["EN", "ES"]));
 
   // Refs so async callbacks never read stale closure values.
   const phaseRef     = useRef<PillPhase>("collapsed");
@@ -89,8 +76,15 @@ export default function Pill() {
   // Hands-free keeps the bar up the whole time it's armed, not just mid-utterance —
   // this is the pill's half of staying in sync with the Orb's persistent "listening"
   // state instead of going silent between utterances.
-  const isListening   = handsFreeActive && !isRecording && !isProcessing;
-  const shouldShowBar = expanded || isRecording || isProcessing || isLoading || handsFreeActive;
+  const isListening   = (handsFreeActive || wakePhraseActive) && !isRecording && !isProcessing;
+  const shouldShowBar = expanded || isRecording || isProcessing || isLoading || handsFreeActive || wakePhraseActive;
+  const touchControl = tabletPosture === "tablet" || localStorage.getItem("verba_setting_always_show_touch_control") === "true";
+
+  useEffect(() => {
+    if (phase === "collapsed" && !shouldShowBar) {
+      resizePillWindow(touchControl ? 76 : PILL_WINDOW_COLLAPSED_W, touchControl ? 76 : PILL_WINDOW_COLLAPSED_H).catch(() => {});
+    }
+  }, [phase, shouldShowBar, touchControl]);
 
   // ─── Phase state machine ──────────────────────────────────────────────────
   //
@@ -110,16 +104,14 @@ export default function Pill() {
   // This guarantees the handle is NEVER visible inside the expanded window.
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const targetHeight = showLangPanel
-      ? PILL_WINDOW_PANEL_H
-      : isRecording || isProcessing || isLoading || isListening
-        ? PILL_WINDOW_ACTIVE_H
-        : PILL_WINDOW_BAR_H;
+    const targetHeight = isRecording || isProcessing || isLoading || isListening
+      ? PILL_WINDOW_ACTIVE_H
+      : PILL_WINDOW_BAR_H;
 
     if (shouldShowBar) {
       // Already expanded/expanding — just resize for height change (no gen bump).
       if (phaseRef.current === "expanded" || phaseRef.current === "expanding") {
-        resizePillWindow(PILL_WINDOW_W, targetHeight).catch(() => {});
+        resizePillWindow(PILL_WINDOW_W, targetHeight).catch((error) => console.error("[pill] resize failed", error));
         return;
       }
 
@@ -141,7 +133,8 @@ export default function Pill() {
             setPhase("expanded");
           });
         })
-        .catch(() => {
+        .catch((error) => {
+          console.error("[pill] resize failed", error);
           if (expandGenRef.current !== gen) return;
           requestAnimationFrame(() => {
             if (expandGenRef.current !== gen) return;
@@ -165,7 +158,7 @@ export default function Pill() {
         if (expandGenRef.current !== gen) return;
         setBarMounted(false);
         // Resize while handle is still hidden (phase = "collapsing").
-        await resizePillWindow(PILL_WINDOW_COLLAPSED_W, PILL_WINDOW_COLLAPSED_H).catch(() => {});
+        await resizePillWindow(touchControl ? 76 : PILL_WINDOW_COLLAPSED_W, touchControl ? 76 : PILL_WINDOW_COLLAPSED_H).catch((error) => console.error("[pill] resize failed", error));
         // Only after window is at collapsed size does the handle appear.
         if (expandGenRef.current !== gen) return;
         phaseRef.current = "collapsed";
@@ -175,7 +168,7 @@ export default function Pill() {
       return () => clearTimeout(t);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldShowBar, isRecording, isProcessing, isLoading, isListening, showLangPanel]);
+  }, [shouldShowBar, isRecording, isProcessing, isLoading, isListening, touchControl]);
 
   // Recording timer
   const [recSecs, setRecSecs] = useState(0);
@@ -193,56 +186,31 @@ export default function Pill() {
     }
   }, [isRecording]);
 
-  const allActive = langIdx === -1;
-
   const scheduleHide = () => {
     leaveTimer.current = setTimeout(() => {
       setExpanded(false);
       setHoveredEl(null);
-      setShowLangPanel(false);
     }, 150);
   };
   const cancelHide = () => clearTimeout(leaveTimer.current);
 
-  // Click toggles hands-free, same as the Orb — Ctrl+Win stays the instant
+  // Click toggles hands-free, same as the Orb — Ctrl+Alt stays the instant
   // one-shot PTT path (wired directly in Rust, doesn't go through here).
   const onDictateClick = () => {
     if (!sidecarReady || !modelReady) return;
+    if (wakePhraseActive) {
+      setWakePhraseEnabled(false).catch(() => {});
+      return;
+    }
     toggleHandsfree().catch(() => {});
   };
   const cancelRecording = async () => {
     setRecordingState("idle");
     if (sidecarReady) await invoke("stop_ptt").catch(() => {});
   };
-  const copyRecent = async () => {
-    const text = localStorage.getItem("verba_last_transcription") ?? "";
-    if (text) navigator.clipboard.writeText(text).catch(() => {});
-  };
-
-  const cycleLang = () => {
-    const active = LANGUAGES.filter(l => activeLangs.has(l.code));
-    if (active.length === 0) return;
-    if (langIdx === -1) {
-      setLangIdx(LANGUAGES.findIndex(l => l.code === active[0].code));
-    } else {
-      const cur = LANGUAGES[langIdx].code;
-      const idx = active.findIndex(l => l.code === cur);
-      if (idx === active.length - 1) {
-        setLangIdx(-1);
-      } else {
-        const next = active[idx + 1];
-        setLangIdx(LANGUAGES.findIndex(l => l.code === next.code));
-      }
-    }
-  };
-
-  const toggleLang = (code: string) => {
-    setActiveLangs(prev => {
-      const next = new Set(prev);
-      if (next.has(code) && next.size > 1) next.delete(code);
-      else next.add(code);
-      return next;
-    });
+  const startTouchDictation = () => {
+    if (!sidecarReady || !modelReady || isProcessing || isLoading) return;
+    toggleHandsfree().catch(() => {});
   };
 
   const isCollapsed = phase === "collapsed";
@@ -267,18 +235,9 @@ export default function Pill() {
           from { opacity: 0; transform: translateX(-50%) translateY(4px); }
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
-        @keyframes panelIn {
-          from { opacity: 0; transform: translateX(-50%) translateY(5px) scale(0.97); }
-          to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-        }
-        @keyframes drawerWipe {
-          from { clip-path: inset(0 0 0 100%); }
-          to   { clip-path: inset(0 0 0 0%); }
-        }
-        @keyframes langPop {
-          0%   { opacity: 0; transform: scale(0.65); }
-          60%  { transform: scale(1.08); }
-          100% { opacity: 1; transform: scale(1); }
+        @keyframes pillStateSettle {
+          from { opacity: 0.18; transform: translateY(2px) scale(0.95); filter: blur(1px); }
+          to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
         }
         @keyframes pulseGlow {
           0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,0); }
@@ -291,6 +250,9 @@ export default function Pill() {
         @keyframes micPulse {
           0%, 100% { opacity: 0.6; transform: scale(1); }
           50%       { opacity: 1; transform: scale(1.15); }
+        }
+        @keyframes squiggleFlow {
+          to { stroke-dashoffset: -18; }
         }
 
         .pbtn { outline: none; border: none; }
@@ -310,7 +272,20 @@ export default function Pill() {
             including during "collapsing", so it cannot jump above the
             exiting bar while the window is still expanded.
         ─────────────────────────────────────────────────────────────────── */}
-        <div
+        {touchControl ? (
+          <button
+            className="pbtn"
+            aria-label="Start hands-free dictation"
+            style={{
+              ...s.touchControl,
+              opacity: isCollapsed ? 1 : 0,
+              transform: isCollapsed ? "translateX(-50%) scale(1)" : "translateX(-50%) scale(0.78)",
+              transition: isCollapsed ? handleTx : "none",
+              pointerEvents: isCollapsed ? "auto" : "none",
+            }}
+            onClick={startTouchDictation}
+          ><MicIcon /></button>
+        ) : <div
           style={{
             ...s.handle,
             opacity:       isCollapsed ? 1 : 0,
@@ -325,7 +300,7 @@ export default function Pill() {
           }}
           onMouseEnter={() => { cancelHide(); setExpanded(true); }}
           onMouseLeave={scheduleHide}
-        />
+        />}
 
         {/* ── Expanded bar ─────────────────────────────────────────────── */}
         {barMounted && (
@@ -344,35 +319,43 @@ export default function Pill() {
           >
 
             {isLoading ? (
-              <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={s.dictatingBubble}>
-                  <span style={{ ...s.dictatingDot, background: "rgba(251,191,36,0.9)", animation: "dotPulse 1s ease-in-out infinite" }} />
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    <span style={s.dictatingText}>
-                      Loading transcription model…
-                    </span>
-                  </div>
-                </div>
-                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
-                  <XIcon />
-                </button>
-                <div style={{ ...s.wavePill, border: "1px solid rgba(251,191,36,0.4)", minWidth: 100 }}>
-                  <WaveVisual state="processing" />
+              <div
+                style={{ position: "relative" }}
+                onMouseEnter={() => setHoveredEl("loading")}
+                onMouseLeave={() => setHoveredEl(null)}
+              >
+                {hoveredEl === "loading" && (
+                  <div style={s.tooltip}><span style={s.tooltipText}>Starting Parakeet — first dictation only</span></div>
+                )}
+                <div key={`pill-${recordingState}`} style={{ ...s.loadingPill, ...s.stateSurface, border: "1px solid rgba(129,140,248,0.42)" }}>
+                  {focusedApp?.iconDataUri && (
+                    <img src={focusedApp.iconDataUri} alt="" title={focusedApp.name} style={s.appIcon} />
+                  )}
+                  <WaveVisual state="loading" level={0} compact={true} />
                 </div>
               </div>
 
             ) : isRecording || isProcessing ? (
-              <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
-                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(239,68,68,0.35)" }} onClick={cancelRecording}>
-                  <XIcon />
-                </button>
-                <div style={{
-                  ...s.wavePill,
-                  border: isRecording ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(251,191,36,0.4)",
-                  animation: isRecording ? "pulseGlow 1.8s ease-in-out infinite" : "none",
-                  minWidth: 100, gap: 8,
+              <div style={{ position: "relative" }}>
+                <div key={`pill-${recordingState}`} style={{
+                  ...(isRecording ? s.recordWavePill : s.loadingPill),
+                  ...s.stateSurface,
+                  border: isRecording ? "1px solid rgba(167,139,250,0.6)" : "1px solid rgba(129,140,248,0.42)",
+                  boxShadow: isRecording
+                    ? "0 6px 20px rgba(167,139,250,0.14), inset 0 1px 0 rgba(255,255,255,0.06)"
+                    : "0 6px 20px rgba(129,140,248,0.12), inset 0 1px 0 rgba(255,255,255,0.05)",
                 }}>
-                  {isRecording && focusedApp?.iconDataUri && (
+                  {isRecording && (
+                    <button
+                      className="pbtn"
+                      aria-label="Cancel dictation"
+                      style={{ ...s.edgeAction, ...s.cancelEdge, ...(hoveredEl === "cancel" ? s.edgeActionOpen : {}) }}
+                      onMouseEnter={() => setHoveredEl("cancel")}
+                      onMouseLeave={() => setHoveredEl(null)}
+                      onClick={cancelRecording}
+                    ><XIcon /></button>
+                  )}
+                  {(isRecording || isProcessing) && focusedApp?.iconDataUri && (
                     <img src={focusedApp.iconDataUri} alt="" title={focusedApp.name} style={s.appIcon} />
                   )}
                   {isRecording && (
@@ -380,106 +363,52 @@ export default function Pill() {
                       {`${Math.floor(recSecs / 60)}:${String(recSecs % 60).padStart(2, "0")}`}
                     </span>
                   )}
-                  <WaveVisual state={recordingState} />
+                  <WaveVisual state={recordingState} level={audioLevel} compact={true} />
+                  {isRecording && (
+                    <button
+                      className="pbtn"
+                      aria-label="Finish dictation"
+                      style={{ ...s.edgeAction, ...s.finishEdge, ...(hoveredEl === "finish" ? s.edgeActionOpen : {}) }}
+                      onMouseEnter={() => setHoveredEl("finish")}
+                      onMouseLeave={() => setHoveredEl(null)}
+                      onClick={() => invoke("stop_ptt").catch(() => {})}
+                    ><CheckIcon /></button>
+                  )}
                 </div>
-                <button className="pbtn" style={{ ...s.iconBtn, border: "1px solid rgba(34,197,94,0.35)" }} onClick={() => invoke("stop_ptt").catch(() => {})}>
-                  <CheckIcon />
-                </button>
               </div>
 
             ) : isListening ? (
               <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{ ...s.dictatingBubble, border: "1px solid rgba(52,211,153,0.25)" }}>
                   <span style={{ ...s.dictatingDot, background: "rgba(52,211,153,0.9)", animation: "micPulse 1.6s ease-in-out infinite" }} />
-                  <span style={s.dictatingText}>Listening…</span>
+                  <span style={s.dictatingText}>{wakePhraseActive ? "Wake phrase armed" : "Listening…"}</span>
                 </div>
                 <button
+                  key={`pill-${wakePhraseActive ? "wake" : "listening"}`}
                   className="pbtn"
-                  style={{ ...s.wavePill, border: "1px solid rgba(52,211,153,0.5)", animation: "pulseGlowMint 2.2s ease-in-out infinite", minWidth: 100 }}
+                  style={{ ...s.wavePill, ...s.stateSurface, border: "1px solid rgba(52,211,153,0.5)", animation: "pulseGlowMint 2.2s ease-in-out infinite, pillStateSettle 220ms cubic-bezier(0.22,1,0.36,1)", minWidth: 100 }}
                   onClick={onDictateClick}
                 >
-                  <WaveVisual state="idle" />
+                  <WaveVisual state="idle" level={audioLevel} />
                 </button>
               </div>
 
             ) : (
-              <>
-                {/* LEFT — globe / lang */}
-                <div style={{ width: SIDE_W, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-                  <div
-                    style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
-                    onMouseEnter={() => setHoveredEl("lang")}
-                    onMouseLeave={() => setHoveredEl(null)}
-                  >
-                    {hoveredEl === "lang" && !showLangPanel && (
-                      <div style={s.tooltip}><span style={s.tooltipText}>Change language</span></div>
-                    )}
-                    {hoveredEl === "lang" && (
-                      <button className="pbtn" style={s.arrowDrawer} onClick={() => setShowLangPanel(p => !p)}>
-                        <ChevronIcon />
-                      </button>
-                    )}
-                    <button
-                      className="pbtn"
-                      style={{ ...s.iconBtn, position: "relative", zIndex: 1 }}
-                      onClick={cycleLang}
-                    >
-                      {allActive
-                        ? <GlobeIcon key="all" />
-                        : <span key={langIdx} style={s.langCode}>{LANGUAGES[langIdx].code}</span>
-                      }
-                    </button>
-                    {showLangPanel && (
-                      <div style={s.langPanel} onMouseEnter={cancelHide}>
-                        {LANGUAGES.map(lang => (
-                          <button key={lang.code} className="pbtn" style={s.langRow} onClick={() => toggleLang(lang.code)}>
-                            <span style={s.langRowFlag}>{lang.flag}</span>
-                            <span style={s.langRowLabel}>{lang.label}</span>
-                            {activeLangs.has(lang.code) && <LangCheck />}
-                          </button>
-                        ))}
-                        <div style={s.langDivider} />
-                        <button className="pbtn" style={s.langAction}
-                          onClick={() => setActiveLangs(new Set(LANGUAGES.map(l => l.code)))}>
-                          Enable all
-                        </button>
-                        <button className="pbtn" style={s.langAction}>Add more</button>
-                      </div>
-                    )}
+              <div
+                style={{ position: "relative" }}
+                onMouseEnter={() => setHoveredEl("dictate")}
+                onMouseLeave={() => setHoveredEl(null)}
+              >
+                {hoveredEl === "dictate" && (
+                  <div style={s.tooltip}>
+                    <span style={s.tooltipText}>Start dictation</span>
+                    <span style={s.shortcutKey}>Ctrl + Alt</span>
                   </div>
-                </div>
-
-                {/* CENTER — dictate */}
-                <div
-                  style={{ position: "relative" }}
-                  onMouseEnter={() => setHoveredEl("dictate")}
-                  onMouseLeave={() => setHoveredEl(null)}
-                >
-                  {hoveredEl === "dictate" && (
-                    <div style={s.tooltip}>
-                      <span style={s.tooltipText}>Dictate</span>
-                      <span style={{ ...s.tooltipText, color: "#a78bfa", fontWeight: 600 }}>Ctrl+Win</span>
-                    </div>
-                  )}
-                  <button className="pbtn" style={s.wavePill} onClick={onDictateClick}>
-                    <WaveVisual state={recordingState} />
-                  </button>
-                </div>
-
-                {/* RIGHT — notes */}
-                <div style={{ width: SIDE_W, display: "flex", alignItems: "center" }}>
-                  <div
-                    style={{ position: "relative" }}
-                    onMouseEnter={() => setHoveredEl("history")}
-                    onMouseLeave={() => setHoveredEl(null)}
-                  >
-                    {hoveredEl === "history" && (
-                      <div style={s.tooltip}><span style={s.tooltipText}>Copy recent</span></div>
-                    )}
-                    <button className="pbtn" style={s.iconBtn} onClick={copyRecent}><NotesIcon /></button>
-                  </div>
-                </div>
-              </>
+                )}
+                <button key="pill-idle" className="pbtn" style={{ ...s.wavePill, ...s.stateSurface }} onClick={onDictateClick}>
+                  <WaveVisual state={recordingState} level={audioLevel} />
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -490,139 +419,118 @@ export default function Pill() {
 
 /* ── Wave visual ── */
 
-const BAR_COUNT = 10;
-
-function WaveVisual({ state }: { state: string }) {
-  const isRecording  = state === "recording";
-  const isProcessing = state === "processing";
-
-  const [levels, setLevels] = useState<number[]>(Array(BAR_COUNT).fill(0));
-  const ctxRef      = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const streamRef   = useRef<MediaStream | null>(null);
-  const rafRef      = useRef<number>(0);
+function useSmoothedAudioLevel(level: number, active: boolean) {
+  const target = useRef(0);
+  const current = useRef(0);
+  const [smoothLevel, setSmoothLevel] = useState(0);
 
   useEffect(() => {
-    if (!isRecording) {
-      cancelAnimationFrame(rafRef.current);
-      streamRef.current?.getTracks().forEach(t => t.stop());
-      ctxRef.current?.close();
-      ctxRef.current     = null;
-      analyserRef.current = null;
-      streamRef.current  = null;
-      setLevels(Array(BAR_COUNT).fill(0));
+    target.current = active ? level : 0;
+  }, [active, level]);
+
+  useEffect(() => {
+    if (!active) {
+      current.current = 0;
+      setSmoothLevel(0);
       return;
     }
 
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      .then(stream => {
-        streamRef.current = stream;
-        const ctx         = new AudioContext();
-        ctxRef.current    = ctx;
-        const analyser    = ctx.createAnalyser();
-        analyser.fftSize  = 256;
-        analyser.smoothingTimeConstant = 0.75;
-        analyserRef.current = analyser;
-        ctx.createMediaStreamSource(stream).connect(analyser);
-
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        const tick = () => {
-          analyser.getByteFrequencyData(data);
-          const newLevels = Array.from({ length: BAR_COUNT }, (_, i) => {
-            const bin = Math.floor((i / BAR_COUNT) * (data.length / 2));
-            return data[bin] / 255;
-          });
-          setLevels(newLevels);
-          rafRef.current = requestAnimationFrame(tick);
-        };
-        rafRef.current = requestAnimationFrame(tick);
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      streamRef.current?.getTracks().forEach(t => t.stop());
-      ctxRef.current?.close();
+    let frame = 0;
+    const animate = () => {
+      const next = current.current + (target.current - current.current) * 0.2;
+      current.current = Math.abs(next - target.current) < 0.001 ? target.current : next;
+      setSmoothLevel(current.current);
+      frame = requestAnimationFrame(animate);
     };
-  }, [isRecording]);
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
+
+  return smoothLevel;
+}
+
+function useWavePhase(active: boolean) {
+  const [phase, setPhase] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setPhase(0);
+      return;
+    }
+
+    let frame = 0;
+    let last = 0;
+    const animate = (time: number) => {
+      if (time - last >= 33) {
+        setPhase(time / 210);
+        last = time;
+      }
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
+
+  return phase;
+}
+
+function buildWavePath(phase: number, amplitude: number) {
+  const inset = 3;
+  const width = 52;
+  const midline = 9;
+  const points = 32;
+  return Array.from({ length: points + 1 }, (_, index) => {
+    const progress = index / points;
+    const x = inset + progress * width;
+    const envelope = Math.sin(Math.PI * progress);
+    const shape = Math.sin(progress * Math.PI * 5 + phase) * 0.72
+      + Math.sin(progress * Math.PI * 11 - phase * 0.65) * 0.28;
+    const y = midline - shape * amplitude * envelope;
+    return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(" ");
+}
+
+function WaveVisual({ state, level, compact = false }: { state: string; level: number; compact?: boolean }) {
+  const isRecording  = state === "recording";
+  const isProcessing = state === "processing";
+  const isLoading = state === "loading";
+  const isActive = isRecording || level > 0.001;
+  const smoothLevel = useSmoothedAudioLevel(level, isActive);
+  const phase = useWavePhase(isActive || isProcessing || isLoading);
+  // Microphone RMS is normally a small fraction; square-root gain makes
+  // ordinary speech visibly move without pinning loud speech at full height.
+  const visualLevel = Math.min(1, Math.max(0.12, Math.sqrt(smoothLevel * 18)));
+  const color = isLoading || isProcessing
+    ? "rgba(129,140,248,0.96)"
+    : isActive
+      ? "rgba(167,139,250,0.96)"
+      : "rgba(255,255,255,0.32)";
+  const amplitude = isLoading || isProcessing ? 2.6 : isActive ? 1.6 + visualLevel * 5.4 : 0.7;
+  const wavePath = buildWavePath(phase, amplitude);
+  const echoWavePath = buildWavePath(phase + 0.8, amplitude * 0.42);
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 2, height: 14 }}>
-      {Array.from({ length: BAR_COUNT }).map((_, i) => {
-        if (isRecording) {
-          const h = Math.max(0.15, levels[i]);
-          return (
-            <div key={i} style={{
-              width: 1.5, height: "100%", borderRadius: 2,
-              background: "rgba(167,139,250,0.9)",
-              transformOrigin: "center",
-              transform: `scaleY(${h})`,
-              transition: "transform 0.05s ease-out",
-            }} />
-          );
-        }
-        if (isProcessing) return (
-          <div key={i} style={{
-            width: 2, height: 2, borderRadius: "50%",
-            background: "rgba(251,191,36,0.85)",
-            animation: "dotPulse 0.85s ease-in-out infinite",
-            animationDelay: `${i * 0.07}s`,
-          }} />
-        );
-        return (
-          <div key={i} style={{
-            width: 2, height: 2, borderRadius: "50%",
-            background: "rgba(255,255,255,0.28)",
-          }} />
-        );
-      })}
-    </div>
+    <svg width={compact ? 50 : 58} height={compact ? 16 : 18} viewBox="0 0 58 18" fill="none" aria-label={isLoading ? "Starting transcription model" : "Audio level"}>
+      <path d={wavePath} stroke={color} strokeWidth="4" strokeLinecap="round" opacity="0.14" />
+      <path d={echoWavePath} stroke={color} strokeWidth="0.9" strokeLinecap="round" opacity="0.34" />
+      <path
+        d={wavePath}
+        stroke={color}
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray={isLoading ? "3 3" : undefined}
+        style={{ transition: "stroke 180ms cubic-bezier(0.2,0,0,1)" }}
+      />
+    </svg>
   );
 }
 
 /* ── Icons ── */
 
-function GlobeIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M2 12h20"/>
-      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/>
-    </svg>
-  );
-}
-
-function NotesIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-      <polyline points="14 2 14 8 20 8"/>
-      <line x1="16" y1="13" x2="8" y2="13"/>
-      <line x1="16" y1="17" x2="8" y2="17"/>
-      <line x1="10" y1="9"  x2="8" y2="9"/>
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="18 15 12 9 6 15"/>
-    </svg>
-  );
-}
-
-function LangCheck() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,0.9)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "auto", flexShrink: 0 }}>
-      <polyline points="20 6 9 17 4 12"/>
-    </svg>
-  );
-}
-
 function XIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(239,68,68,0.9)" strokeWidth="2.5" strokeLinecap="round">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(248,113,113,0.92)" strokeWidth="2.2" strokeLinecap="round" style={{ transform: "translateX(1px)" }}>
       <line x1="18" y1="6" x2="6" y2="18"/>
       <line x1="6" y1="6" x2="18" y2="18"/>
     </svg>
@@ -631,10 +539,14 @@ function XIcon() {
 
 function CheckIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(34,197,94,0.9)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(110,231,183,0.96)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: "translateX(-1px) translateY(0.5px)" }}>
       <polyline points="20 6 9 17 4 12"/>
     </svg>
   );
+}
+
+function MicIcon() {
+  return <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,1)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>;
 }
 
 /* ── Styles ── */
@@ -675,6 +587,12 @@ const s: Record<string, React.CSSProperties> = {
     transformOrigin: "center bottom",
     // Horizontal centering via translateX(-50%) baked into inline transform.
   },
+  touchControl: {
+    position: "absolute", left: 0, bottom: 0, width: 64, height: 64, borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    background: "rgba(8,8,16,0.96)", border: "1px solid rgba(167,139,250,0.62)",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.42), 0 0 0 6px rgba(167,139,250,0.1)",
+  },
   barRow: {
     // Absolutely positioned relative to anchor (bottom-center).
     position: "absolute",
@@ -688,11 +606,41 @@ const s: Record<string, React.CSSProperties> = {
     transformOrigin: "center bottom",
     // Horizontal centering via translateX(-50%) baked into inline transform.
   },
-  iconBtn: {
+  edgeAction: {
     display: "flex", alignItems: "center", justifyContent: "center",
-    width: 32, height: 32, borderRadius: "50%",
-    background: "rgba(8,8,16,0.92)",
-    border: "1px solid rgba(255,255,255,0.13)",
+    width: 18, height: 32, borderRadius: 8,
+    padding: 0,
+    flexShrink: 0,
+    opacity: 0.72,
+    transition: "width 160ms cubic-bezier(0.2,0,0,1), opacity 160ms cubic-bezier(0.2,0,0,1), background 160ms cubic-bezier(0.2,0,0,1), border-color 160ms cubic-bezier(0.2,0,0,1)",
+  },
+  edgeActionOpen: {
+    width: 28,
+    opacity: 1,
+  },
+  cancelEdge: {
+    background: "rgba(127,29,52,0.2)",
+    border: "1px solid rgba(248,113,113,0.22)",
+    borderRadius: "999px 8px 8px 999px",
+  },
+  finishEdge: {
+    background: "rgba(6,95,70,0.2)",
+    border: "1px solid rgba(110,231,183,0.25)",
+    borderRadius: "8px 999px 999px 8px",
+  },
+  recordWavePill: {
+    display: "flex", alignItems: "center", justifyContent: "center",
+    height: 32, padding: 0, gap: 4, borderRadius: 999,
+    background: "linear-gradient(180deg, rgba(22,20,34,0.96), rgba(8,8,16,0.96))",
+    flexShrink: 0,
+  },
+  loadingPill: {
+    display: "flex", alignItems: "center", justifyContent: "center",
+    height: 32, minWidth: 74, padding: "0 9px", gap: 6, borderRadius: 999,
+    background: "linear-gradient(180deg, rgba(29,29,58,0.98), rgba(8,8,16,0.98))",
+    boxShadow: "0 6px 20px rgba(129,140,248,0.12), inset 0 1px 0 rgba(255,255,255,0.05)",
+    boxSizing: "border-box",
+    overflow: "visible",
     flexShrink: 0,
   },
   wavePill: {
@@ -702,24 +650,10 @@ const s: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(255,255,255,0.13)",
     flexShrink: 0,
   },
-  arrowDrawer: {
-    display: "flex", alignItems: "center",
-    justifyContent: "flex-start",
-    paddingLeft: 7,
-    width: 56, height: 32, borderRadius: 999,
-    background: "rgba(70,70,82,0.94)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    position: "absolute",
-    right: 0,
-    top: "50%",
-    marginTop: -16,
-    zIndex: 0,
-    animation: "drawerWipe 0.2s cubic-bezier(.22,1,.36,1)",
-  },
-  langCode: {
-    color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
-    animation: "langPop 0.22s cubic-bezier(.34,1.56,.64,1)",
-    display: "inline-block",
+  stateSurface: {
+    transition: "background 220ms cubic-bezier(0.22,1,0.36,1), border-color 220ms cubic-bezier(0.22,1,0.36,1), box-shadow 220ms cubic-bezier(0.22,1,0.36,1), transform 220ms cubic-bezier(0.22,1,0.36,1), opacity 220ms cubic-bezier(0.22,1,0.36,1)",
+    animation: "pillStateSettle 220ms cubic-bezier(0.22,1,0.36,1)",
+    willChange: "transform, opacity",
   },
   tooltip: {
     position: "absolute",
@@ -741,38 +675,15 @@ const s: Record<string, React.CSSProperties> = {
   tooltipText: {
     color: "rgba(255,255,255,0.82)", fontSize: 12, fontWeight: 500,
   },
-  langPanel: {
-    position: "absolute",
-    bottom: "calc(100% + 10px)",
-    left: "50%",
-    transform: "translateX(-50%)",
-    background: "rgba(12,12,22,0.97)",
-    backdropFilter: "blur(28px)",
-    WebkitBackdropFilter: "blur(28px)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 14,
-    paddingTop: 6, paddingBottom: 6,
-    width: 230,
-    boxShadow: "0 12px 40px rgba(0,0,0,0.7)",
-    zIndex: 20,
-    animation: "panelIn 0.18s cubic-bezier(.22,1,.36,1)",
-    display: "flex", flexDirection: "column",
-  },
-  langRow: {
-    display: "flex", alignItems: "center", gap: 10,
-    padding: "7px 14px",
-    background: "transparent",
-    width: "100%", textAlign: "left" as const,
-  },
-  langRowFlag:  { fontSize: 14, lineHeight: 1, flexShrink: 0 },
-  langRowLabel: { color: "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: 500, flex: 1 },
-  langDivider:  { height: 1, background: "rgba(255,255,255,0.07)", margin: "4px 0" },
-  langAction: {
-    display: "flex", alignItems: "center",
-    padding: "7px 14px",
-    background: "transparent",
-    color: "rgba(255,255,255,0.38)", fontSize: 12, fontWeight: 500,
-    width: "100%", textAlign: "left" as const,
+  shortcutKey: {
+    color: "rgba(167,139,250,0.96)",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 0.35,
+    background: "rgba(167,139,250,0.12)",
+    border: "1px solid rgba(167,139,250,0.22)",
+    borderRadius: 6,
+    padding: "2px 6px",
   },
   dictatingBubble: {
     position: "absolute" as const,
@@ -807,7 +718,7 @@ const s: Record<string, React.CSSProperties> = {
     fontVariantNumeric: "tabular-nums", letterSpacing: 0.5, flexShrink: 0,
   },
   appIcon: {
-    width: 14, height: 14, borderRadius: 3, flexShrink: 0, objectFit: "contain",
+    width: 14, height: 14, borderRadius: 4, flexShrink: 0, objectFit: "contain",
   },
   progressTrack: {
     width: 180, height: 3, borderRadius: 99,

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import sys
+import threading
 from sidecar.ipc import IPC, Command, Event
-from sidecar.hardware import detect as detect_hardware
+from sidecar.hardware import DEFAULT_MODEL, detect as detect_hardware, detect_fast_device
 from sidecar.recorder import Recorder
 from sidecar.models import benchmark_model_async, MODEL_CATALOG
 
@@ -68,10 +69,14 @@ def _iter_stdin_lines():
 def main() -> None:
     ipc = IPC()
 
-    # Detect hardware and create recorder immediately — no IPC handshake needed
-    hw = detect_hardware()
-    ipc.send(Event.HARDWARE, **hw.to_dict())
-    recorder = Recorder(ipc=ipc, hw=hw)
+    # Windows keeps the fixed Parakeet model. Only inspect ONNX providers here;
+    # the full WMI/PowerShell inventory remains an explicit diagnostics action.
+    if sys.platform == "win32":
+        recorder = Recorder(ipc=ipc, hw=None, model_name=DEFAULT_MODEL, device=detect_fast_device())
+    else:
+        hw = detect_hardware()
+        ipc.send(Event.HARDWARE, **hw.to_dict())
+        recorder = Recorder(ipc=ipc, hw=hw)
 
     ipc.send(Event.READY)
 
@@ -89,8 +94,8 @@ def main() -> None:
             ipc.send(Event.PONG)
 
         elif cmd == Command.DETECT_HARDWARE:
-            # Re-send cached result — hardware doesn't change at runtime
-            ipc.send(Event.HARDWARE, **hw.to_dict())
+            detected = detect_hardware()
+            ipc.send(Event.HARDWARE, **detected.to_dict())
 
         elif cmd == Command.SET_MODEL:
             model_name = payload.get("model", "")
@@ -132,6 +137,9 @@ def main() -> None:
 
         elif cmd == Command.TOGGLE_HANDSFREE:
             recorder.toggle_handsfree()
+
+        elif cmd == Command.SET_WAKE_PHRASE_ENABLED:
+            recorder.set_wake_phrase_enabled(bool(payload.get("enabled", False)))
 
         elif cmd == Command.QUIT:
             recorder.shutdown()

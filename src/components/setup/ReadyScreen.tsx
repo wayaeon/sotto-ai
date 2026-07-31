@@ -2,6 +2,8 @@ interface Props {
   onComplete: () => void;
 }
 
+import { WINDOWS_SHORTCUTS } from "../../lib/shortcuts";
+
 export default function ReadyScreen({ onComplete }: Props) {
   return (
     <div style={{
@@ -68,7 +70,7 @@ export default function ReadyScreen({ onComplete }: Props) {
         borderRadius: "var(--radius-md)",
         marginBottom: 32,
       }}>
-        {["Right Ctrl"].map((k, i) => (
+        {[WINDOWS_SHORTCUTS.pushToTalk].map((k, i) => (
           <span key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <kbd style={{
               background: "var(--surface-2)",

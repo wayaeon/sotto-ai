@@ -1,11 +1,28 @@
 import { useEffect, useRef } from "react";
-import { onSidecarEvent, onFocusedApp, injectText, setModel as setModelIpc, type SidecarMessage } from "../lib/tauri";
-import { useAppStore, type RecordingState } from "../stores/appStore";
-import { insertTranscription, updateMetrics } from "../lib/db";
+import { onSidecarEvent, onFocusedApp, onExternalContext, injectText, setDictionary, setFillerConfig, type SidecarMessage } from "../lib/tauri";
+import { useAppStore, type ExternalContext, type FocusedApp, type RecordingState } from "../stores/appStore";
+import { applyCorrectionRules, insertTranscription, updateMetrics } from "../lib/db";
+import { getVocabulary } from "../lib/localData";
+import { scheduleTranscriptAnalysis } from "../lib/transcriptAnalysis";
+import { formatForContext, resolveContextProfile } from "../lib/contextFormatting";
 
 // Single source of truth for the default model.
 // Always parakeet TDT v3 — ONNX runtime, works on any hardware.
 const DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3";
+const DEFAULT_FILLER_WORDS = [
+  "um", "umm", "uh", "uhh", "like", "you know", "i mean",
+  "sort of", "kind of", "actually", "basically", "literally", "so yeah",
+];
+
+function readFillerConfig(): { enabled: boolean; words: string[] } {
+  const enabled = localStorage.getItem("verba_setting_filler_enabled") !== "false";
+  try {
+    const raw = localStorage.getItem("verba_filler_words");
+    const words = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(words)) return { enabled, words: words.filter((word): word is string => typeof word === "string" && Boolean(word.trim())) };
+  } catch { /* use the built-in list */ }
+  return { enabled, words: DEFAULT_FILLER_WORDS };
+}
 
 /**
  * primary: true  → Pill window only. Handles injection, history, metrics.
@@ -19,26 +36,44 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     setSidecarReady,
     setModelReady,
     setRecordingState,
+    setAudioLevel,
     appendWord,
     commitSegment,
     setTier,
     setModel,
+    setModelDownload,
     setHandsFreeActive,
+    setWakePhraseActive,
+    setWakePhraseStatus,
+    setTabletPosture,
     setFocusedApp,
+    setExternalContext,
     setLastDictationApp,
     setLastDictationStats,
   } = useAppStore();
 
   const dictationStartMs = useRef<number | null>(null);
+  const dictationTarget = useRef<FocusedApp | null>(null);
+  const dictationContext = useRef<ExternalContext | null>(null);
 
   // Separate listener/effect — this event comes straight from Rust, not
   // through the sidecar's JSON-lines protocol like everything else here.
   useEffect(() => {
     const unlisten = onFocusedApp((app) => {
-      setFocusedApp({ name: app.name, iconDataUri: app.icon_data_uri, kind: app.kind });
+      const target = { name: app.name, iconDataUri: app.icon_data_uri, kind: app.kind } as FocusedApp;
+      setFocusedApp(target);
+      if (dictationStartMs.current !== null) dictationTarget.current = target;
     });
     return () => { unlisten.then((fn) => fn()); };
   }, [setFocusedApp]);
+
+  useEffect(() => {
+    const unlisten = onExternalContext((context) => {
+      setExternalContext(context);
+      if (dictationStartMs.current !== null) dictationContext.current = context;
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [setExternalContext]);
 
   useEffect(() => {
     const unlisten = onSidecarEvent((msg: SidecarMessage) => {
@@ -53,7 +88,11 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             // stale, worse model forever with no UI to fix it.)
             localStorage.setItem("verba_model", DEFAULT_MODEL);
             setModel(DEFAULT_MODEL);
-            setModelIpc(DEFAULT_MODEL).catch((e) => console.warn("[set_model]", e));
+            if (primary) {
+              const filler = readFillerConfig();
+              setFillerConfig(filler.enabled, filler.words).catch(() => {});
+              setDictionary(getVocabulary().map((entry) => entry.phonetic ? `${entry.term} (${entry.phonetic})` : entry.term)).catch(() => {});
+            }
           }
           break;
 
@@ -66,63 +105,92 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           break;
 
         case "segment_done": {
-          const raw = msg.text;
+          const raw = applyCorrectionRules(msg.text);
           const rawTextBeforeFilter = msg.raw_text ?? null;
-          commitSegment(raw);
+          const dictatedInto = dictationTarget.current ?? useAppStore.getState().focusedApp;
+          const context = dictationContext.current;
+          const profile = resolveContextProfile(dictatedInto, context);
+          const formatted = formatForContext(raw, profile);
 
           const durationMs = dictationStartMs.current
             ? Date.now() - dictationStartMs.current
             : 0;
           dictationStartMs.current = null;
+          dictationTarget.current = null;
+          dictationContext.current = null;
 
-          // Runs in every window (each has its own store — sidecar-event
-          // broadcasts to all of them, so this is how they stay in sync
-          // instead of only the Pill knowing what was just dictated).
-          if (raw.trim()) {
-            // Snapshot now — focusedApp reflects whatever was focused when this
-            // utterance *started*; by the time segment_done fires the user may
-            // have already switched windows, so this pins it to the right one.
-            const dictatedInto = useAppStore.getState().focusedApp;
+          const finish = (finalText: string) => {
+            commitSegment(finalText);
+            if (finalText.trim()) {
             setLastDictationApp(dictatedInto);
-            setLastDictationStats({ wordCount: raw.trim().split(/\s+/).length, durationMs });
+              setLastDictationStats({ wordCount: finalText.trim().split(/\s+/).length, durationMs });
+            }
+
+            if (finalText.trim() && primary) {
+              const currentModel = useAppStore.getState().model ?? "";
+              const currentTier  = useAppStore.getState().tier  ?? "";
+              const destination = useAppStore.getState().lastDictationApp;
+
+              localStorage.setItem("verba_last_transcription", finalText);
+
+              injectText(finalText).catch((e) => console.warn("[inject_text]", e));
+
+              const saved = insertTranscription(
+                finalText, currentModel, currentTier, durationMs,
+                destination?.name ?? null, destination?.iconDataUri ?? null,
+                rawTextBeforeFilter
+              );
+              scheduleTranscriptAnalysis(saved);
+              updateMetrics(finalText.trim().split(/\s+/).length, durationMs);
+            }
+          };
+
+          if (!primary || !formatted.trim()) {
+            finish(formatted);
+            break;
           }
 
-          // Injection/history/metrics run only in the primary (Pill)
-          // instance, to avoid double-injecting and duplicate history rows.
-          if (raw.trim() && primary) {
-            const currentModel = useAppStore.getState().model ?? "";
-            const currentTier  = useAppStore.getState().tier  ?? "";
-            const dictatedInto = useAppStore.getState().lastDictationApp;
-
-            localStorage.setItem("verba_last_transcription", raw);
-
-            // inject_text Rust command emits "inject-done" to all windows after completing
-            injectText(raw).catch((e) => console.warn("[inject_text]", e));
-
-            insertTranscription(
-              raw, currentModel, currentTier, durationMs,
-              dictatedInto?.name ?? null, dictatedInto?.iconDataUri ?? null,
-              rawTextBeforeFilter
-            );
-            updateMetrics(raw.trim().split(/\s+/).length, durationMs);
-          }
+          finish(formatted);
           break;
         }
 
         case "status": {
+          const wakeStatuses = {
+            wake_armed: "armed",
+            wake_listening: "hearing",
+            wake_detected: "detected",
+            wake_dictating: "dictating",
+            wake_off: "off",
+          } as const;
+          const wakeStatus = wakeStatuses[msg.msg as keyof typeof wakeStatuses];
+          if (wakeStatus) {
+            setWakePhraseStatus(wakeStatus);
+            setWakePhraseActive(wakeStatus !== "off");
+            if (msg.msg !== "wake_dictating") break;
+          }
           const statusMap: Record<string, RecordingState> = {
             recording_ptt:  "recording",
             handsfree_ptt:  "recording",
+            wake_dictating: "recording",
             recording:      "recording",
             processing:     "processing",
             loading_model:  "loading",
             idle:           "idle",
           };
-          const state = statusMap[msg.msg] ?? "idle";
-          if (state === "recording" && dictationStartMs.current === null) {
-            dictationStartMs.current = Date.now();
+          const state = statusMap[msg.msg];
+          // Worker loading is deliberately overlapped with capture. Its lifecycle
+          // statuses must never make a live recording look idle or loading.
+          const preserveActiveCapture = useAppStore.getState().recordingState === "recording"
+            && (state === "loading" || state === "idle");
+          if (state && !preserveActiveCapture) {
+            if (state === "recording" && dictationStartMs.current === null) {
+              dictationStartMs.current = Date.now();
+              dictationTarget.current = useAppStore.getState().focusedApp;
+              dictationContext.current = useAppStore.getState().externalContext;
+            }
+            setRecordingState(state);
+            if (state === "idle") setAudioLevel(0);
           }
-          setRecordingState(state);
           // A successful state transition clears any prior error
           if (msg.msg === "recording_ptt" || msg.msg.startsWith("worker_ready")) {
             useAppStore.getState().setLastError(null);
@@ -139,6 +207,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
               localStorage.setItem("verba_model", parts.model);
             }
             setModelReady(true);
+            setModelDownload(null);
           }
           else if (msg.msg.startsWith("model_selected")) {
             const parts = Object.fromEntries(
@@ -156,10 +225,30 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           break;
         }
 
+        case "download_progress":
+          if (msg.model === DEFAULT_MODEL) {
+            setModelDownload({
+              percent: msg.percent,
+              bytesDownloaded: msg.bytes_downloaded,
+              bytesTotal: msg.bytes_total,
+              downloadedLabel: msg.downloaded_label,
+              totalLabel: msg.total_label,
+            });
+          }
+          break;
+
         case "hardware":
           setTier(msg.tier as any);
           // Tier is informational only — never overwrite the user's model choice.
           localStorage.setItem("verba_tier", msg.tier);
+          break;
+
+        case "audio_level":
+          setAudioLevel(msg.level);
+          break;
+
+        case "tablet_posture":
+          setTabletPosture(msg.posture);
           break;
 
         case "error":
@@ -179,5 +268,5 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setSidecarReady, setModelReady, setRecordingState, appendWord, commitSegment, setTier, setModel, setHandsFreeActive, setLastDictationApp, setLastDictationStats]);
+  }, [setSidecarReady, setModelReady, setRecordingState, setAudioLevel, appendWord, commitSegment, setTier, setModel, setModelDownload, setHandsFreeActive, setWakePhraseActive, setWakePhraseStatus, setTabletPosture, setLastDictationApp, setLastDictationStats]);
 }

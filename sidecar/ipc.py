@@ -9,6 +9,7 @@ class Command(str, Enum):
     START_PTT = "start_ptt"
     STOP_PTT = "stop_ptt"
     TOGGLE_HANDSFREE = "toggle_handsfree"
+    SET_WAKE_PHRASE_ENABLED = "set_wake_phrase_enabled"
     DETECT_HARDWARE = "detect_hardware"
     DOWNLOAD_MODEL = "download_model"
     PAUSE_DOWNLOAD_MODEL = "pause_download_model"

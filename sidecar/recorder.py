@@ -38,6 +38,10 @@ _SAMPLE_WIDTH    = 2       # 16-bit PCM
 _CHUNK_SIZE      = 1024
 _WORKER_TIMEOUT  = 1800    # allow slow CPU models to finish without unloading
 _WORKER_INIT_S   = 120     # seconds to wait for model load (GPU can take ~30 s)
+# Keep the model warm between normal dictations. Reloading after 45 s made the
+# next utterance pay the full Parakeet startup cost; ten minutes still bounds
+# idle memory without turning ordinary pauses into multi-second cold starts.
+_WORKER_IDLE_UNLOAD_S = 10 * 60
 
 # ── hands-free VAD segmentation ──────────────────────────────────────────────
 _VAD_FRAME_MS           = 30
@@ -56,13 +60,6 @@ _HANDSFREE_ONSET_FRAMES      = _HANDSFREE_ONSET_MS // _VAD_FRAME_MS
 # overflow the queue and silently drop audio spoken while it's loading.
 _PUMP_CHUNK_S           = _CHUNK_SIZE / _SAMPLE_RATE
 _HANDSFREE_QUEUE_MAXLEN = int(_WORKER_INIT_S / _PUMP_CHUNK_S)
-
-try:
-    import torch
-    torch.hub._check_repo_is_trusted = lambda *args, **kwargs: None  # noqa
-except Exception:
-    pass
-
 
 def _pcm16_level(data: bytes) -> float:
     """Return RMS level for mono 16-bit PCM bytes, normalized to 0..1."""
@@ -105,11 +102,19 @@ def _worker_loop(model_name: str, model_path: str, runtime: str, device: str, ta
 
 
 class Recorder:
-    def __init__(self, ipc: IPC, hw: "HardwareInfo") -> None:
+    def __init__(
+        self,
+        ipc: IPC,
+        hw: "HardwareInfo | None" = None,
+        model_name: str | None = None,
+        device: str = "cpu",
+    ) -> None:
         self._ipc        = ipc
-        self._tier       = hw.tier
-        self._device     = hw.device_str
-        self._model_name = best_available_model(hw.model_name)
+        if hw is None and model_name is None:
+            raise ValueError("Recorder requires hardware info or an explicit model")
+        self._tier       = hw.tier if hw else ModelTier.TIER_CPU
+        self._device     = hw.device_str if hw else device
+        self._model_name = model_name or best_available_model(hw.model_name)
         self._initial_prompt = ""
 
         # Filler-word filter — on by default with a built-in list so it
@@ -146,10 +151,13 @@ class Recorder:
         self._worker_error:  str | None = None
         self._loaded_model_name: str | None = None
         self._transcription_active = False
+        self._worker_idle_timer: threading.Timer | None = None
 
         # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────
         self._handsfree       = False
         self._handsfree_queue: "queue.Queue[bytes] | None" = None
+        self._wake_mode = "off"
+        self._wake_detector = None
 
         _RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         threading.Thread(target=self._preload, daemon=True).start()
@@ -159,10 +167,8 @@ class Recorder:
     def _preload(self) -> None:
         """Start the always-on audio pump.
 
-        Deliberately does NOT load a model. The frontend sends set_model
-        immediately after the READY event, and that is the single trigger
-        for the first model load. Loading here as well caused a race where
-        two threads fought over the worker queues and the load timed out.
+        Deliberately does not load Parakeet. The worker is loaded only after
+        the user begins a dictation, so idle Verba stays lightweight.
         """
         try:
             # Start always-on audio pump — keeps mic stream open permanently
@@ -216,6 +222,8 @@ class Recorder:
                     wf.writeframes(data)
                 except Exception:
                     pass
+            if wf is not None or hf_queue is not None:
+                self._ipc.send(Event.AUDIO_LEVEL, level=_pcm16_level(data))
             if hf_queue is not None:
                 try:
                     hf_queue.put_nowait(data)
@@ -329,6 +337,33 @@ class Recorder:
                 self._ipc.send(Event.ERROR, msg=f"Worker respawn failed: {e}")
                 return False
 
+    def _cancel_worker_idle_unload(self) -> None:
+        timer = getattr(self, "_worker_idle_timer", None)
+        if timer is not None:
+            timer.cancel()
+            self._worker_idle_timer = None
+
+    def preload_worker(self) -> None:
+        """Overlap the first model load with the user's speech."""
+        self._cancel_worker_idle_unload()
+        threading.Thread(target=self._ensure_worker, name="verba-model-load", daemon=True).start()
+
+    def schedule_worker_idle_unload(self) -> None:
+        self._cancel_worker_idle_unload()
+        if self._worker_proc is None:
+            return
+        self._worker_idle_timer = threading.Timer(
+            _WORKER_IDLE_UNLOAD_S, self._unload_idle_worker
+        )
+        self._worker_idle_timer.daemon = True
+        self._worker_idle_timer.start()
+
+    def _unload_idle_worker(self) -> None:
+        with self._model_lock:
+            if self._recording_active or self._transcription_active:
+                return
+            self._stop_worker()
+
     # ── PTT ───────────────────────────────────────────────────────────────────
 
     def start_ptt(self) -> None:
@@ -341,6 +376,7 @@ class Recorder:
         if self._transcription_active:
             self._ipc.send(Event.ERROR, msg=f"{self._model_name} is still transcribing the previous recording")
             return
+        self.preload_worker()
         with self._lock:
             if self._recording_active:
                 return  # already recording
@@ -457,19 +493,155 @@ class Recorder:
         finally:
             self._transcription_active = False
             self._ipc.send(Event.STATUS, msg="idle")
+            self.schedule_worker_idle_unload()
 
     # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────────
 
     def toggle_handsfree(self) -> None:
         with self._lock:
+            if self._wake_mode != "off":
+                self._wake_mode = "off"
+                detector, self._wake_detector = self._wake_detector, None
+                if detector is not None:
+                    detector.close()
+                self._ipc.send(Event.STATUS, msg="wake_off")
             self._handsfree = not self._handsfree
             if self._handsfree:
                 self._handsfree_queue = queue.Queue(maxsize=_HANDSFREE_QUEUE_MAXLEN)
                 threading.Thread(target=self._handsfree_loop, daemon=True).start()
+                self.preload_worker()
                 self._ipc.send(Event.STATUS, msg="handsfree_on")
             else:
                 self._handsfree_queue = None
                 self._ipc.send(Event.STATUS, msg="handsfree_off")
+
+    def set_wake_phrase_enabled(self, enabled: bool) -> bool:
+        """Arm local keyword detection without ever loading the ASR worker."""
+        with self._lock:
+            if not enabled:
+                self._wake_mode = "off"
+                detector, self._wake_detector = self._wake_detector, None
+                if not self._handsfree:
+                    self._handsfree_queue = None
+                if detector is not None:
+                    detector.close()
+                self._ipc.send(Event.STATUS, msg="wake_off")
+                return True
+            if self._wake_mode != "off":
+                return True
+            if self._handsfree:
+                self._handsfree = False
+                self._handsfree_queue = None
+                self._ipc.send(Event.STATUS, msg="handsfree_off")
+            self._wake_mode = "arming"
+        threading.Thread(target=self._arm_wake_phrase, name="verba-wake-word", daemon=True).start()
+        return True
+
+    def _arm_wake_phrase(self) -> None:
+        try:
+            from .models import download_wake_word_model, wake_word_model_ready
+            from .wakeword import WakeWordDetector
+
+            ready, _ = wake_word_model_ready()
+            if not ready and not download_wake_word_model(self._ipc):
+                raise RuntimeError("Wake phrase model could not be prepared")
+            detector = WakeWordDetector()
+            with self._lock:
+                if self._wake_mode != "arming":
+                    detector.close()
+                    return
+                self._wake_detector = detector
+                self._handsfree_queue = queue.Queue(maxsize=_HANDSFREE_QUEUE_MAXLEN)
+                self._wake_mode = "armed"
+            self._ipc.send(Event.STATUS, msg="wake_armed")
+            threading.Thread(target=self._wake_phrase_loop, name="verba-wake-vad", daemon=True).start()
+        except Exception as exc:
+            with self._lock:
+                self._wake_mode = "off"
+                self._wake_detector = None
+                self._handsfree_queue = None
+            self._ipc.send(Event.ERROR, msg=f"Wake phrase unavailable: {exc}")
+            self._ipc.send(Event.STATUS, msg="wake_off")
+
+    def _wake_phrase_loop(self) -> None:
+        """VAD-gate the KWS model, then collect only audio after the phrase."""
+        vad = webrtcvad.Vad(_VAD_AGGRESSIVENESS)
+        with self._lock:
+            audio_q = self._handsfree_queue
+        frame_buf = bytearray()
+        wake_phrase_buf = bytearray()
+        dictation_buf = bytearray()
+        consecutive_speech = speech_frames = silence_frames = trailing_silence_frames = 0
+
+        def begin_dictation() -> None:
+            wake_phrase_buf.clear()
+            dictation_buf.clear()
+            self.preload_worker()
+            self._wake_mode = "dictating"
+            self._ipc.send(Event.STATUS, msg="wake_detected")
+            self._ipc.send(Event.STATUS, msg="wake_dictating")
+
+        while self._wake_mode != "off" and audio_q is not None:
+            try:
+                chunk = audio_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            frame_buf += chunk
+            while len(frame_buf) >= _VAD_FRAME_BYTES:
+                frame = bytes(frame_buf[:_VAD_FRAME_BYTES])
+                del frame_buf[:_VAD_FRAME_BYTES]
+                try:
+                    is_speech = vad.is_speech(frame, _SAMPLE_RATE)
+                except Exception:
+                    is_speech = False
+
+                if self._wake_mode == "armed":
+                    if is_speech:
+                        trailing_silence_frames = 0
+                        consecutive_speech += 1
+                        wake_phrase_buf += frame
+                        if consecutive_speech >= _HANDSFREE_ONSET_FRAMES:
+                            if consecutive_speech == _HANDSFREE_ONSET_FRAMES:
+                                self._ipc.send(Event.STATUS, msg="wake_listening")
+                            detector = self._wake_detector
+                            detector_audio = bytes(wake_phrase_buf) if consecutive_speech == _HANDSFREE_ONSET_FRAMES else frame
+                            if detector is not None and detector.accept_pcm16(detector_audio):
+                                speech_frames = silence_frames = 0
+                                begin_dictation()
+                    else:
+                        consecutive_speech = 0
+                        detector = self._wake_detector
+                        if wake_phrase_buf and detector is not None:
+                            # KWS needs one or two blank frames to finalize a
+                            # phrase that ends exactly before the user pauses.
+                            trailing_silence_frames += 1
+                            if detector.accept_pcm16(frame):
+                                speech_frames = silence_frames = 0
+                                begin_dictation()
+                            elif trailing_silence_frames >= 10:
+                                wake_phrase_buf.clear()
+                                trailing_silence_frames = 0
+                                detector.reset()
+                                self._ipc.send(Event.STATUS, msg="wake_armed")
+                        elif detector is not None:
+                            detector.reset()
+                elif self._wake_mode == "dictating":
+                    if is_speech:
+                        dictation_buf += frame
+                        speech_frames += 1
+                        silence_frames = 0
+                    elif dictation_buf:
+                        dictation_buf += frame
+                        silence_frames += 1
+                        if silence_frames >= _HANDSFREE_SILENCE_FRAMES:
+                            if speech_frames >= _HANDSFREE_MIN_SPEECH_FRAMES:
+                                self._ipc.send(Event.STATUS, msg="processing")
+                                self._transcribe_handsfree_utterance(bytes(dictation_buf))
+                            dictation_buf.clear()
+                            speech_frames = silence_frames = 0
+                            if self._wake_mode != "off":
+                                self._wake_mode = "armed"
+                                self._ipc.send(Event.STATUS, msg="wake_armed")
 
     def _handsfree_loop(self) -> None:
         """Consume pump audio, segment it with VAD, transcribe each finished
@@ -581,6 +753,8 @@ class Recorder:
             if model_name is None:
                 return
 
+            self._cancel_worker_idle_unload()
+
             # Already loaded and alive — confirm and bail, don't kill/restart.
             if (
                 model_name == self._loaded_model_name
@@ -600,14 +774,6 @@ class Recorder:
             self._model_name = model_name
             self._stop_worker()
             self._worker_error = None
-            try:
-                self._ipc.send(Event.STATUS, msg="loading_model")
-                self._start_worker()
-            except Exception as e:
-                self._worker_error = str(e)
-                self._ipc.send(Event.ERROR, msg=f"Model switch failed for {model_name}: {e}")
-                self._ipc.send(Event.STATUS, msg="idle")
-                return
 
         # Hands-free shares this same worker process, so it automatically
         # picks up the new model on its next utterance — nothing to redo here.
@@ -641,6 +807,7 @@ class Recorder:
         self._loaded_model_name = None
 
     def shutdown(self) -> None:
+        self._cancel_worker_idle_unload()
         with self._lock:
             self._recording_active = False
             if self._current_wf is not None:
@@ -650,6 +817,11 @@ class Recorder:
                     pass
                 self._current_wf = None
             self._handsfree = False
+            self._wake_mode = "off"
+            detector, self._wake_detector = self._wake_detector, None
+            self._handsfree_queue = None
+            if detector is not None:
+                detector.close()
         self._shutdown_event.set()   # stop audio pump
         # Don't deadlock on a load in progress — bounded wait, then force-stop.
         acquired = self._model_lock.acquire(timeout=2)

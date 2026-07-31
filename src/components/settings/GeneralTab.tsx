@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 interface Setting {
   key: string;
@@ -12,6 +13,7 @@ const SETTINGS: Setting[] = [
   { key: "show_overlay",      label: "Show pill while recording",      sub: "Display the floating pill when transcription is active", default: true  },
   { key: "inject_text",       label: "Inject text into active window", sub: "Type transcribed text directly into the focused field",  default: true  },
   { key: "copy_to_clipboard", label: "Copy to clipboard",             sub: "Also copy each transcription to your clipboard",        default: true  },
+  { key: "always_show_touch_control", label: "Always show touch control", sub: "Keep the large dictation button visible if your tablet posture is not detected", default: false },
 ];
 
 function getStored(key: string, def: boolean): boolean {
@@ -24,10 +26,22 @@ export default function GeneralTab() {
     Object.fromEntries(SETTINGS.map(s => [s.key, getStored(s.key, s.default)]))
   );
 
+  useEffect(() => {
+    if (!import.meta.env.PROD) return;
+    const desired = getStored("launch_at_login", true);
+    void isEnabled().then((enabled) => {
+      if (desired && !enabled) return enable();
+      if (!desired && enabled) return disable();
+    }).catch((error) => console.warn("[autostart]", error));
+  }, []);
+
   const toggle = (key: string) => {
     setValues(prev => {
       const next = { ...prev, [key]: !prev[key] };
       localStorage.setItem(`verba_setting_${key}`, String(next[key]));
+      if (key === "launch_at_login" && import.meta.env.PROD) {
+        void (next[key] ? enable() : disable()).catch((error) => console.warn("[autostart]", error));
+      }
       return next;
     });
   };

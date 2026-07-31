@@ -1,5 +1,5 @@
 import { useAppStore } from "../stores/appStore";
-import { setModel as setModelIpc, toggleHandsfree } from "../lib/tauri";
+import { setModel as setModelIpc, setWakePhraseEnabled, toggleHandsfree } from "../lib/tauri";
 
 /**
  * The Orb — the single hero of the Talk surface (DESIGN.md §3).
@@ -9,8 +9,8 @@ import { setModel as setModelIpc, toggleHandsfree } from "../lib/tauri";
 
 export type OrbState = "loading" | "ready" | "listening" | "recording" | "processing" | "error";
 
-export function useOrbState(): { state: OrbState; detail: string } {
-  const { recordingState, modelReady, model, lastError, handsFreeActive } = useAppStore();
+function useOrbState(): { state: OrbState; detail: string } {
+  const { recordingState, modelReady, model, lastError, handsFreeActive, wakePhraseActive } = useAppStore();
 
   if (lastError && recordingState === "idle") {
     return { state: "error", detail: lastError };
@@ -24,6 +24,9 @@ export function useOrbState(): { state: OrbState; detail: string } {
         // Armed between utterances — must stay visually distinct from "ready"
         // so hands-free never silently listens without you knowing.
         return { state: "listening", detail: "Hands-free on — click to stop" };
+      }
+      if (wakePhraseActive) {
+        return { state: "listening", detail: "Wake phrase armed — say Verba dictate" };
       }
       return modelReady
         ? { state: "ready", detail: "Start dictating" }
@@ -41,6 +44,7 @@ export default function Orb() {
   const { state, detail } = useOrbState();
   const setLastError = useAppStore((s) => s.setLastError);
   const model = useAppStore((s) => s.model);
+  const wakePhraseActive = useAppStore((s) => s.wakePhraseActive);
 
   const onClick = () => {
     if (state === "error") {
@@ -50,6 +54,10 @@ export default function Orb() {
       return;
     }
     if (state === "ready" || state === "listening" || state === "recording") {
+      if (wakePhraseActive) {
+        setWakePhraseEnabled(false).catch(console.error);
+        return;
+      }
       toggleHandsfree().catch(console.error);
     }
   };
@@ -84,11 +92,11 @@ export default function Orb() {
       <div className="orb-label" data-state={state}>{detail}</div>
       {state === "ready" && (
         <div className="orb-hint">
-          or hold <kbd>Ctrl</kbd> + <kbd>Win</kbd> in any app
+          or hold <kbd>Ctrl</kbd> + <kbd>Alt</kbd> in any app
         </div>
       )}
       {state === "listening" && (
-        <div className="orb-hint">still listening between utterances — click to stop</div>
+        <div className="orb-hint">{wakePhraseActive ? "say Verba dictate — click to stop" : "still listening between utterances — click to stop"}</div>
       )}
       {state === "error" && (
         <div className="orb-hint">click to retry</div>

@@ -1,0 +1,11 @@
+{
+  "name": "verba-local-context",
+  "displayName": "Verba Local Context",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {},
+  "scripts": {}
+}

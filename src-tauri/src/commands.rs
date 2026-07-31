@@ -1,7 +1,35 @@
-use tauri::{AppHandle, Emitter};
+use std::fs;
+use tauri::{AppHandle, Emitter, Manager};
 use serde_json::json;
 use crate::sidecar::send_command;
 use crate::injection::Injector;
+
+fn local_data_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let root = app.path().document_dir().map_err(|e| e.to_string())?.join("Verba");
+    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    Ok(root.join("verba-data.json"))
+}
+
+#[tauri::command]
+pub fn load_local_data(app: AppHandle) -> Result<String, String> {
+    let path = local_data_path(&app)?;
+    match fs::read_to_string(path) {
+        Ok(data) => Ok(data),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn save_local_data(app: AppHandle, data: String) -> Result<(), String> {
+    let path = local_data_path(&app)?;
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, data).map_err(|e| e.to_string())?;
+    // ponytail: one local JSON document keeps the MVP dependency-free; move to
+    // SQLite when history size or concurrent writers makes rewrites measurable.
+    if path.exists() { fs::remove_file(&path).map_err(|e| e.to_string())?; }
+    fs::rename(temp, path).map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 pub fn open_url(url: String) {
@@ -36,6 +64,11 @@ pub fn stop_ptt(app: AppHandle) {
 #[tauri::command]
 pub fn toggle_handsfree(app: AppHandle) {
     send_command(&app, json!({"cmd": "toggle_handsfree"}));
+}
+
+#[tauri::command]
+pub fn set_wake_phrase_enabled(app: AppHandle, enabled: bool) {
+    send_command(&app, json!({"cmd": "set_wake_phrase_enabled", "enabled": enabled}));
 }
 
 #[tauri::command]

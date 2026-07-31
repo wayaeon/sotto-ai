@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 export const startPtt = () => invoke("start_ptt");
 export const stopPtt = () => invoke("stop_ptt");
 export const toggleHandsfree = () => invoke("toggle_handsfree");
+export const setWakePhraseEnabled = (enabled: boolean) => invoke("set_wake_phrase_enabled", { enabled });
 export const pingSidecar = () => invoke("ping_sidecar");
 export const detectHardware = () => invoke("detect_hardware");
 export const setModel = (model: string) => invoke("set_model", { model });
@@ -13,6 +14,8 @@ export const setFillerConfig = (enabled: boolean, words: string[]) => invoke("se
 export const injectText = (text: string) => invoke("inject_text", { text });
 export const openUrl = (url: string) => invoke("open_url", { url });
 export const openPath = (path: string) => invoke("open_path", { path });
+export const loadLocalData = () => invoke<string>("load_local_data");
+export const saveLocalData = (data: string) => invoke("save_local_data", { data });
 
 export interface StageTiming {
   capture_start_ms?: number;
@@ -67,12 +70,14 @@ export type SidecarMessage =
   | { event: "word"; text: string; partial: boolean }
   | { event: "segment_done"; text: string; raw_text?: string | null; audio_path?: string; timing?: StageTiming }
   | { event: "audio_recorded"; audio_path: string }
+  | { event: "download_progress"; model: string; percent: number; bytes_downloaded: number; bytes_total: number; downloaded_label: string; total_label: string }
   | { event: "error"; msg: string }
   | { event: "pong" }
   | { event: "status"; msg: string }
   | ({ event: "hardware" } & HardwareInfo)
   | ({ event: "benchmark_result" } & BenchmarkResult)
-  | { event: "audio_level"; level: number };
+  | { event: "audio_level"; level: number }
+  | { event: "tablet_posture"; posture: "tablet" | "laptop" };
 
 export function onSidecarEvent(
   handler: (msg: SidecarMessage) => void
@@ -93,10 +98,24 @@ export interface FocusedAppPayload {
   kind: "app" | "site";
 }
 
+export interface ExternalContextPayload {
+  source: "browser" | "cursor";
+  app: string;
+  site?: string;
+  field?: "email" | "compose" | "text" | "code";
+  activeFile?: string;
+}
+
 // Emitted directly by Rust (not via the sidecar's JSON-lines protocol) when a
 // PTT or hands-free utterance starts, carrying whatever app/site was focused.
 export function onFocusedApp(
   handler: (app: FocusedAppPayload) => void
 ): Promise<UnlistenFn> {
   return listen<FocusedAppPayload>("focused-app", (event) => handler(event.payload));
+}
+
+export function onExternalContext(
+  handler: (context: ExternalContextPayload) => void
+): Promise<UnlistenFn> {
+  return listen<ExternalContextPayload>("external-context", (event) => handler(event.payload));
 }

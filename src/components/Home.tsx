@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
-import { getTranscriptions, type Transcription } from "../lib/db";
+import { applyCorrectionRules, applyCorrectionToTranscriptions, deleteTranscription, getTranscriptions, type Transcription } from "../lib/db";
+import { getVocabulary, saveVocabulary, type VocabularyEntry, getCorrectionRules, saveCorrectionRules, type CorrectionRule } from "../lib/localData";
+import { getTranscriptAnalyses } from "../lib/transcriptAnalysis";
+import { derivePracticeFocus, synonymsForWord } from "../lib/insights";
 import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
+import { setDictionary, setWakePhraseEnabled } from "../lib/tauri";
 
 // ─── Types ────────────────────────────────────────────────
 
-type View = "home" | "history" | "insights" | "commands" | "settings" | "account" | "debug";
+type View = "home" | "history" | "insights" | "features" | "vocabulary" | "corrections" | "commands" | "settings" | "account" | "debug";
 
 interface Metrics {
   totalWords: number;
@@ -26,12 +30,6 @@ interface Command {
   enabled: boolean;
   runs: number;
   accent: string;
-}
-
-interface DictEntry {
-  id: string;
-  term: string;
-  phonetic: string;
 }
 
 // ─── Constants ────────────────────────────────────────────
@@ -150,18 +148,6 @@ function saveCommands(cmds: Command[]): void {
   localStorage.setItem("verba_commands", JSON.stringify(cmds));
 }
 
-function getDictionary(): DictEntry[] {
-  try {
-    const raw = localStorage.getItem("verba_dictionary");
-    if (raw) return JSON.parse(raw) as DictEntry[];
-  } catch { /* ignore */ }
-  return [];
-}
-
-function saveDictionary(entries: DictEntry[]): void {
-  localStorage.setItem("verba_dictionary", JSON.stringify(entries));
-}
-
 const DEFAULT_FILLER_WORDS = [
   "um", "umm", "uh", "uhh", "like", "you know", "i mean",
   "sort of", "kind of", "actually", "basically", "literally", "so yeah",
@@ -260,41 +246,6 @@ const Icons = {
 };
 
 // ─── Shared Components ────────────────────────────────────
-
-interface WaveformProps {
-  bars?: number;
-  height?: number;
-  color?: string;
-  style?: React.CSSProperties;
-  static?: boolean;
-}
-
-function Waveform({ bars = 20, height = 28, color = "currentColor", style, static: isStatic = false }: WaveformProps) {
-  const heights = useMemo(() => {
-    return Array.from({ length: bars }, (_, i) => {
-      const h = Math.abs(Math.sin(i * 0.7 + 1.2)) * 0.65 + 0.35;
-      return Math.round(h * height);
-    });
-  }, [bars, height]);
-
-  return (
-    <div
-      className={`wave${isStatic ? " wave-static" : ""}`}
-      style={{ height, color, ...style }}
-    >
-      {heights.map((h, i) => (
-        <div
-          key={i}
-          className="bar"
-          style={{
-            height: h,
-            animationDelay: isStatic ? undefined : `${(i * 60) % 1200}ms`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
 
 interface KbdProps {
   keys: string[];
@@ -422,7 +373,7 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
   if (metrics.streak > 0) ambient.push(`streak ${metrics.streak}d`);
 
   return (
-    <div className="main fade-in">
+    <div className="main fade-in settings-main">
       <div className="main-header talk-header">
         <div>
           <div className="eyebrow">
@@ -451,7 +402,7 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
           </button>
         ) : (
           <div className="talk-last talk-last-empty">
-            Hold <kbd>Ctrl</kbd> + <kbd>Win</kbd> and speak — your words appear wherever you're typing.
+          Hold <kbd>Ctrl</kbd> + <kbd>Alt</kbd> and speak — your words appear wherever you're typing.
           </div>
         )}
 
@@ -481,43 +432,32 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
 
 // ─── History Screen ───────────────────────────────────────
 
-/** v2: History hosts two tabs — Transcripts (default) and Insights (DESIGN.md §4). */
-function HistoryView({ transcriptions, metrics }: { transcriptions: Transcription[]; metrics: Metrics }) {
-  const [tab, setTab] = useState<"transcripts" | "insights">("transcripts");
-  return (
-    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
-      <div className="view-tabs">
-        <button className={tab === "transcripts" ? "active" : ""} onClick={() => setTab("transcripts")}>
-          Transcripts
-        </button>
-        <button className={tab === "insights" ? "active" : ""} onClick={() => setTab("insights")}>
-          Insights
-        </button>
-      </div>
-      {tab === "transcripts"
-        ? <HistoryScreen transcriptions={transcriptions} />
-        : <InsightsScreen transcriptions={transcriptions} metrics={metrics} />}
-    </div>
-  );
-}
-
 interface HistoryScreenProps {
   transcriptions: Transcription[];
+  onChanged: () => void;
+  initialSearch?: string;
+  onInitialSearchConsumed?: () => void;
+  searchRef: React.RefObject<HTMLInputElement | null>;
 }
 
-function HistoryScreen({ transcriptions }: HistoryScreenProps) {
-  const [selected, setSelected] = useState<Transcription | null>(transcriptions[0] ?? null);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
+interface TextSelectionState { text: string; x: number; y: number; }
+
+function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSearchConsumed, searchRef }: HistoryScreenProps) {
+  const [selected, setSelected] = useState<Transcription | null>(null);
+  const [search, setSearch] = useState(initialSearch ?? "");
+  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [textSelection, setTextSelection] = useState<TextSelectionState | null>(null);
+  const [correctionDraft, setCorrectionDraft] = useState<{ from: string; to: string } | null>(null);
 
   const filtered = useMemo(() => {
     return transcriptions.filter((t) => {
       if (search && !t.text.toLowerCase().includes(search.toLowerCase())) return false;
-      if (filter !== "all" && t.app_name !== filter) return false;
+      if (selectedFilters.length > 0 && (!t.app_name || !selectedFilters.includes(t.app_name))) return false;
       return true;
     });
-  }, [transcriptions, search, filter]);
+  }, [transcriptions, search, selectedFilters]);
 
   function handleCopy() {
     if (!selected) return;
@@ -527,173 +467,274 @@ function HistoryScreen({ transcriptions }: HistoryScreenProps) {
     });
   }
 
-  function handleDownload() {
-    if (!selected) return;
-    const blob = new Blob([selected.text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `transcription-${selected.id}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  function removeSelected() {
+    if (!selected || !deleteTranscription(selected.id)) return;
+    setConfirmDelete(false);
+    setSelected(null);
+    onChanged();
   }
 
   const contextFilters = useMemo(() => {
-    const names = new Set(
-      transcriptions.map((t) => t.app_name).filter((n): n is string => !!n)
-    );
-    return ["all", ...[...names].sort()];
+    const apps = new Map<string, { icon: string | null; count: number }>();
+    transcriptions.forEach((transcription) => {
+      if (transcription.app_name) {
+        const existing = apps.get(transcription.app_name);
+        apps.set(transcription.app_name, {
+          icon: existing?.icon ?? transcription.app_icon,
+          count: (existing?.count ?? 0) + 1,
+        });
+      }
+    });
+    return [
+      { name: "all", icon: null },
+      ...[...apps.entries()]
+        .sort(([left, a], [right, b]) => b.count - a.count || left.localeCompare(right))
+        .map(([name, { icon }]) => ({ name, icon })),
+    ];
   }, [transcriptions]);
 
   useEffect(() => {
-    if (filter !== "all" && !contextFilters.includes(filter)) {
-      setFilter("all");
+    const available = new Set(contextFilters.slice(1).map((item) => item.name));
+    setSelectedFilters((current) => current.filter((name) => available.has(name)));
+  }, [contextFilters]);
+
+  useEffect(() => {
+    if (initialSearch === undefined) return;
+    setSearch(initialSearch);
+    onInitialSearchConsumed?.();
+  }, [initialSearch, onInitialSearchConsumed]);
+
+  useEffect(() => {
+    if (selected && !filtered.some((item) => item.id === selected.id)) {
+      setSelected(null);
+      setConfirmDelete(false);
     }
-  }, [filter, contextFilters]);
+  }, [filtered, selected]);
+
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() ?? "";
+      const anchor = selection?.anchorNode?.parentElement?.closest(".history-transcript-text");
+      if (!text || !anchor || !selection?.rangeCount) {
+        setTextSelection(null);
+        return;
+      }
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      setTextSelection({ text, x: rect.left + rect.width / 2, y: rect.bottom + 8 });
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, []);
+
+  function addSelectedVocabulary() {
+    if (!textSelection) return;
+    const existing = getVocabulary();
+    if (!existing.some((entry) => entry.term.toLowerCase() === textSelection.text.toLowerCase())) {
+      const next = [...existing, { id: `dict_${Date.now()}`, term: textSelection.text, category: "term" as const, proficiency: "learning" as const }];
+      saveVocabulary(next);
+      setDictionary(next.map((entry) => entry.phonetic ? `${entry.term} (${entry.phonetic})` : entry.term)).catch(() => {});
+    }
+    setTextSelection(null);
+  }
+
+  function applyCorrection() {
+    if (!correctionDraft?.from.trim() || !correctionDraft.to.trim()) return;
+    const rule: CorrectionRule = {
+      id: `rule_${Date.now()}`,
+      from: correctionDraft.from.trim(),
+      to: correctionDraft.to.trim(),
+      scope: "all",
+      appName: null,
+      created_at: new Date().toISOString(),
+    };
+    saveCorrectionRules([...getCorrectionRules(), rule]);
+    applyCorrectionToTranscriptions(rule);
+    setSelected((current) => current ? { ...current, text: applyCorrectionRules(current.text, [rule]) } : current);
+    setCorrectionDraft(null);
+    setTextSelection(null);
+    onChanged();
+  }
 
   return (
-    <div className="main" style={{ overflow: "hidden" }}>
-      <div className="main-header">
+    <div className="main history-screen">
+      <header className="history-header">
         <div>
-          <div className="eyebrow">Library · {transcriptions.length} transcription{transcriptions.length !== 1 ? "s" : ""}</div>
-          <h1 className="page-title"><em>History</em></h1>
+          <div className="eyebrow">Your voice, organized</div>
+          <h1 className="page-title"><em>Library</em></h1>
+          <p className="history-subtitle">{transcriptions.length} transcription{transcriptions.length !== 1 ? "s" : ""} · ready when you are</p>
         </div>
-      </div>
+      </header>
 
-      {/* Search + filters */}
-      <div style={{ padding: "12px 36px", display: "flex", gap: 10, alignItems: "center" }}>
-        <div className="input" style={{ flex: 1 }}>
+      <div className="history-toolbar">
+        <div className="input history-search">
           <Icons.Search size={14} style={{ color: "var(--text-4)", flexShrink: 0 }} />
           <input
+            ref={searchRef}
+            id="history-search"
             placeholder="Search transcriptions…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {contextFilters.map((f) => (
+        <div className="history-filter-anchor">
+          <button
+            className={`history-filter${selectedFilters.length === 0 ? " active" : " has-filter"}`}
+            onClick={() => setSelectedFilters([])}
+            title={selectedFilters.length === 0 ? "All apps" : "Clear app filters"}
+            aria-label={selectedFilters.length === 0 ? "All apps" : "Clear app filters"}
+          >
+            <Icons.Filter size={14} />
+          </button>
+        </div>
+        <div className="history-filters history-app-rail" aria-label="Filter by app">
+          {contextFilters.slice(1).map(({ name, icon }) => (
             <button
-              key={f}
-              className={`btn btn-sm${filter === f ? "" : " btn-ghost"}`}
-              style={filter === f ? { background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.25)", color: "var(--c-violet)" } : {}}
-              onClick={() => setFilter(f)}
+              key={name}
+              className={`history-filter${selectedFilters.includes(name) ? " active" : ""}`}
+              onClick={() => setSelectedFilters((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name])}
+              title={name}
+              aria-label={name}
+              aria-pressed={selectedFilters.includes(name)}
             >
-              {f === "all" ? "All" : f}
+              {icon ? <img src={icon} alt="" /> : <Icons.FileText size={14} />}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Split pane */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden", borderTop: "1px solid var(--border)" }}>
-        {/* List */}
-        <div style={{ width: 380, flexShrink: 0, borderRight: "1px solid var(--border)", overflowY: "auto" }}>
+      <div className={`history-layout${selected ? " has-detail" : ""}`}>
+        <section className="history-list-pane" aria-label="Transcription history">
+          <div className="history-list-head">
+            <span>{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
+            <span>Most recent</span>
+          </div>
+          <div className="history-list">
           {filtered.length === 0 ? (
-            <div className="empty" style={{ margin: 24 }}>
+            <div className="empty history-empty">
               <div className="empty-icon"><Icons.Clock size={22} /></div>
               <h4>No transcriptions</h4>
               <p>Start dictating to build your library.</p>
             </div>
           ) : (
             filtered.map((t) => {
-              const title = t.text.slice(0, 60) || "Untitled";
-              const preview = t.text.slice(0, 80);
+              const normalized = t.text.trim();
+              const sentence = normalized.match(/^[\s\S]*?[.!?](?:\s|$)/)?.[0].trim();
+              const title = sentence || normalized || "Untitled";
+              const preview = sentence ? normalized.slice(sentence.length).trim() : normalized;
               const when = relativeTime(t.created_at);
               const dur = fmtDuration(t.duration_ms);
               const isSelected = selected?.id === t.id;
               return (
                 <div
                   key={t.id}
-                  className={`list-row${isSelected ? " selected" : ""}`}
-                  style={{ gridTemplateColumns: "1fr" }}
+                  className={`history-row${isSelected ? " selected" : ""}`}
                   onClick={() => setSelected(t)}
                   title={t.text}
+                  aria-current={isSelected ? "true" : undefined}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(125,211,252,0.08)", border: "1px solid rgba(125,211,252,0.14)", display: "grid", placeItems: "center", color: "var(--c-blue)", flexShrink: 0, overflow: "hidden" }}>
-                      {t.app_icon ? <img src={t.app_icon} alt="" style={{ width: 16, height: 16 }} /> : <Icons.FileText size={13} />}
+                  <div className="history-row-main">
+                    <div className="history-row-icon">
+                      {t.app_icon ? <img src={t.app_icon} alt="" /> : <Icons.FileText size={13} />}
                     </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-                      <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</div>
+                    <div className="history-row-copy">
+                      <div className="history-row-title">{title}</div>
+                      {preview && <div className="history-row-preview">{preview}</div>}
                     </div>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>
+                  <div className="history-row-footer">
+                    {t.app_name && <span className="history-row-app">{t.app_name}</span>}
                     <span>{dur}</span>
+                    <span aria-hidden="true">·</span>
                     <span>{when}</span>
                   </div>
                 </div>
               );
             })
           )}
-        </div>
+          </div>
+        </section>
 
-        {/* Detail */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 28 }}>
-          {!selected ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-              <div style={{ textAlign: "center", color: "var(--text-4)" }}>
-                <Icons.FileText size={36} />
-                <p style={{ marginTop: 12, fontSize: 13 }}>Select a transcription</p>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div style={{ marginBottom: 20 }}>
-                <h2 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 400, margin: "0 0 8px" }}>
-                  {selected.text.slice(0, 60) || "Untitled"}
-                </h2>
-                <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
-                  <span>{new Date(selected.created_at).toLocaleString()}</span>
-                  <span>·</span>
-                  <span>{fmtDuration(selected.duration_ms)}</span>
-                  <span>·</span>
-                  <span>{wordCount(selected.text)} words</span>
-                  {selected.model && <><span>·</span><span>{selected.model}</span></>}
+        {/* Detail panel only opens after selecting a transcript. */}
+        {selected && (
+          <aside className="history-detail" aria-label="Transcript detail">
+            <div className="history-detail-inner">
+              <div className="history-detail-head">
+                <div className="history-detail-source">
+                  <div className="history-detail-icon">
+                    {selected.app_icon ? <img src={selected.app_icon} alt="" /> : <Icons.FileText size={14} />}
+                  </div>
+                  <span>{selected.app_name || "Verba transcript"}</span>
                 </div>
+                <button className="history-close" onClick={() => setSelected(null)} aria-label="Close transcript" title="Close transcript"><Icons.X size={15} /></button>
               </div>
-
-              {/* Waveform strip — decorative duration indicator, no audio is retained to play back */}
-              <div className="card" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20, padding: "14px 18px" }}>
-                <Waveform bars={40} height={24} color="var(--c-violet)" static />
-                <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
-                  {fmtDuration(selected.duration_ms)}
-                </span>
+              <h2 className="history-detail-title">
+                {selected.text.trim() || "Untitled"}
+              </h2>
+              <div className="history-detail-meta">
+                  <span>{new Date(selected.created_at).toLocaleString()}</span>
+                <span>·</span>
+                <span>{fmtDuration(selected.duration_ms)}</span>
+                <span>·</span>
+                <span>{wordCount(selected.text)} words</span>
               </div>
 
               {/* Text */}
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>Transcript</span>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button className="btn btn-ghost btn-sm" onClick={handleCopy}>
+              <div className="history-detail-actions">
+                <div className="history-detail-actions-left">
+                  <button className="btn btn-sm" onClick={handleCopy}>
                       {copied ? <Icons.Check size={12} /> : <Icons.Copy size={12} />}
                       {copied ? "Copied" : "Copy"}
-                    </button>
-                    <button className="btn btn-ghost btn-sm" onClick={handleDownload}>
-                      <Icons.Download size={12} /> Download
-                    </button>
-                  </div>
+                  </button>
                 </div>
-                <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text-2)", margin: 0, whiteSpace: "pre-wrap" }}>
+                <div className="history-detail-actions-right">
+                  {confirmDelete ? (
+                    <>
+                      <span className="history-delete-warning">Delete this transcript?</span>
+                      <button className="btn btn-sm" onClick={removeSelected}>Delete</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                    </>
+                  ) : (
+                    <button className="btn btn-ghost btn-sm history-delete-action" onClick={() => setConfirmDelete(true)}><Icons.Trash size={12} /> Delete</button>
+                  )}
+                </div>
+              </div>
+              <div className="history-card history-transcript-card">
+                <div className="history-card-label">Transcript</div>
+                <p className="history-transcript-text">
                   {selected.text}
                 </p>
               </div>
 
               {/* Meta */}
-              <div className="card" style={{ fontSize: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-4)", fontFamily: "var(--font-mono)", marginBottom: 12 }}>Details</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 24px", color: "var(--text-3)" }}>
-                  <div>Model: <span style={{ color: "var(--text-2)" }}>{selected.model || "—"}</span></div>
-                  <div>Tier: <span style={{ color: "var(--text-2)" }}>{selected.tier || "—"}</span></div>
-                  <div>Words: <span style={{ color: "var(--text-2)" }}>{wordCount(selected.text)}</span></div>
-                  <div>Duration: <span style={{ color: "var(--text-2)" }}>{fmtDuration(selected.duration_ms)}</span></div>
+              <div className="history-card history-meta-card">
+                <div className="history-card-label">Details</div>
+                <div className="history-meta-grid">
+                  <div>Model <strong>{selected.model || "Local Parakeet"}</strong></div>
+                  <div>Tier <strong>{selected.tier || "Local"}</strong></div>
+                  <div>Words <strong>{wordCount(selected.text)}</strong></div>
+                  <div>Duration <strong>{fmtDuration(selected.duration_ms)}</strong></div>
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          </aside>
+        )}
       </div>
+      {textSelection && !correctionDraft && (
+        <div className="history-teach-toolbar" onMouseDown={(event) => event.preventDefault()} style={{ left: textSelection.x, top: textSelection.y }} role="toolbar" aria-label="Teach Verba">
+          <span>Teach Verba</span>
+          <button className="btn btn-sm" onClick={addSelectedVocabulary}><Icons.Plus size={12} /> Vocabulary</button>
+          <button className="btn btn-sm btn-primary" onClick={() => setCorrectionDraft({ from: textSelection.text, to: "" })}><Icons.Check size={12} /> Correct</button>
+        </div>
+      )}
+      {correctionDraft && (
+        <div className="history-correction-popover" onMouseDown={(event) => event.stopPropagation()} style={{ left: textSelection?.x ?? "50%", top: textSelection?.y ?? "50%" }} role="dialog" aria-label="Create correction rule">
+          <div className="history-card-label">Correct this phrase</div>
+          <div className="history-correction-from">{correctionDraft.from}</div>
+          <div className="input"><input autoFocus value={correctionDraft.to} onChange={(event) => setCorrectionDraft({ ...correctionDraft, to: event.target.value })} placeholder="Replacement" onKeyDown={(event) => event.key === "Enter" && applyCorrection()} /></div>
+          <div className="history-correction-actions"><button className="btn btn-sm btn-primary" onClick={applyCorrection}>Apply to library</button><button className="btn btn-sm btn-ghost" onClick={() => setCorrectionDraft(null)}>Cancel</button></div>
+        </div>
+      )}
     </div>
   );
 }
@@ -713,7 +754,20 @@ function heatCell(t: number, hue: number): string {
 }
 
 function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }) {
-  const [mode, setMode] = useState<HeatmapMode>("24h");
+  const mode: HeatmapMode = "24h";
+  const [selectedCell, setSelectedCell] = useState<string | null>(null);
+  const selectCell = (label: string) => setSelectedCell((current) => current === label ? null : label);
+  const cellInteraction = (label: string) => ({
+    tabIndex: 0,
+    role: "button" as const,
+    onClick: () => selectCell(label),
+    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectCell(label);
+      }
+    },
+  });
 
   // ── 24h: day-of-week × hour ──────────────────────────────
   const grid24h = useMemo(() => {
@@ -802,25 +856,8 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
 
   return (
     <>
-      <SectionHead
-        label="When You Dictate"
-        action={
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span className="chip"><span className="chip-dot" style={{ background: "var(--c-violet)" }} />{modeLabel}</span>
-            <div style={{ display: "flex", gap: 4 }}>
-              {(["24h", "30d", "365d"] as HeatmapMode[]).map((m) => (
-                <button
-                  key={m}
-                  className={`btn btn-sm${mode === m ? "" : " btn-ghost"}`}
-                  style={mode === m ? { background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.25)", color: "var(--c-violet)" } : {}}
-                  onClick={() => setMode(m)}
-                >{m}</button>
-              ))}
-            </div>
-          </div>
-        }
-      />
-      <div className="card" style={{ overflowX: "auto" }}>
+      <SectionHead label="When You Dictate" action={<span className="chip"><span className="chip-dot" style={{ background: "var(--c-violet)" }} />{modeLabel}</span>} />
+      <div className="card insights-heatmap-card">
         {transcriptions.length === 0 ? (
           <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-4)", fontSize: 13 }}>
             No data yet — start dictating to see when you're most productive.
@@ -847,8 +884,11 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                   return (
                     <div
                       key={hourIdx}
-                      title={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 — ${count} session${count !== 1 ? "s" : ""}`}
-                      style={{ flex: 1, height: 28, borderRadius: 4, background: heatCell(t, hue), border: "1px solid rgba(255,255,255,0.02)", transition: "background 0.15s" }}
+                      className="heatmap-cell"
+                      {...cellInteraction(`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 · ${count} session${count !== 1 ? "s" : ""}`)}
+                      data-tooltip={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 · ${count} session${count !== 1 ? "s" : ""}`}
+                      aria-label={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 — ${count} session${count !== 1 ? "s" : ""}`}
+                      style={{ flex: 1, minWidth: 0, aspectRatio: "1", borderRadius: 4, background: heatCell(t, hue), border: "1px solid rgba(255,255,255,0.02)", transition: "background 0.15s" }}
                     />
                   );
                 })}
@@ -882,7 +922,10 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                 return (
                   <div
                     key={i}
-                    title={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
+                    className="heatmap-cell"
+                    {...cellInteraction(`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`)}
+                    data-tooltip={`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
+                    aria-label={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
                     style={{
                       aspectRatio: "1",
                       borderRadius: 6,
@@ -910,7 +953,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
           </div>
         ) : (
           /* ── 365d GitHub-style ── */
-          <div>
+          <div className="insights-heatmap-scroll">
             {/* month labels row */}
             <div style={{ display: "flex", marginBottom: 4, paddingLeft: 28 }}>
               {weeks365d.map((_, wi) => {
@@ -943,7 +986,10 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                       return (
                         <div
                           key={di}
-                          title={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
+                          className="heatmap-cell"
+                          {...cellInteraction(`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`)}
+                          data-tooltip={`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
+                          aria-label={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
                           style={{
                             width: CELL_SZ, height: CELL_SZ, borderRadius: 2,
                             background: heatCell(t, 290),
@@ -967,6 +1013,7 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
             </div>
           </div>
         )}
+        {selectedCell && <div className="insights-selection">Selected: {selectedCell}</div>}
       </div>
     </>
   );
@@ -976,7 +1023,8 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
 
 interface InsightsScreenProps {
   transcriptions: Transcription[];
-  metrics: Metrics;
+  onViewChange: (view: View) => void;
+  onWordSelect: (word: string) => void;
 }
 
 const INSIGHTS_STOP_WORDS = new Set([
@@ -1032,25 +1080,13 @@ function vocabularyRichness(transcriptions: Transcription[]): number {
   return new Set(words).size / words.length;
 }
 
-function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
+function InsightsScreen({ transcriptions, onViewChange, onWordSelect }: InsightsScreenProps) {
   const [range, setRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
+  const [selectedContext, setSelectedContext] = useState<string | null>(null);
+  const [selectedWord, setSelectedWord] = useState<string | null>(null);
+  const [focusCopied, setFocusCopied] = useState(false);
 
   const ranges: Array<"7d" | "30d" | "90d" | "all"> = ["7d", "30d", "90d", "all"];
-
-  // Build daily volume data for sparkline (last 30 days)
-  const volumeData = useMemo(() => {
-    const days = 30;
-    const bins = new Array(days).fill(0);
-    const now = Date.now();
-    transcriptions.forEach((t) => {
-      const age = (now - new Date(t.created_at).getTime()) / 86400000;
-      const idx = Math.floor(age);
-      if (idx >= 0 && idx < days) bins[days - 1 - idx]++;
-    });
-    return bins;
-  }, [transcriptions]);
-
-  const maxVol = Math.max(...volumeData, 1);
 
   const rangeDays = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : Infinity;
   const inRange = useMemo(() => {
@@ -1060,6 +1096,12 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
       (t) => (now - new Date(t.created_at).getTime()) / 86400000 <= rangeDays
     );
   }, [transcriptions, rangeDays]);
+  const chartDays = useMemo(() => {
+    if (rangeDays !== Infinity) return rangeDays;
+    const oldest = transcriptions[transcriptions.length - 1];
+    return oldest ? Math.max(7, Math.ceil((Date.now() - new Date(oldest.created_at).getTime()) / 86400000)) : 7;
+  }, [rangeDays, transcriptions]);
+
   const priorRange = useMemo(() => {
     if (rangeDays === Infinity) return [];
     const now = Date.now();
@@ -1068,6 +1110,16 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
       return age > rangeDays && age <= rangeDays * 2;
     });
   }, [transcriptions, rangeDays]);
+  const periodMetrics = useMemo(() => {
+    const words = inRange.reduce((sum, item) => sum + wordCount(item.text), 0);
+    const duration = inRange.reduce((sum, item) => sum + item.duration_ms, 0);
+    return {
+      words,
+      duration,
+      sessions: inRange.length,
+      wpm: duration > 0 ? Math.round((words / duration) * 60_000) : 0,
+    };
+  }, [inRange]);
 
   const fillerWordsForInsights = useMemo(() => getFillerWords(), []);
   const topWords = useMemo(
@@ -1086,36 +1138,34 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
   }, [richnessCurrent, richnessPrevious]);
 
   const fillerTrendData = useMemo(() => {
-    const days = 30;
-    const bins = new Array(days).fill(0);
+    const bins = new Array(chartDays).fill(0);
     const now = Date.now();
-    transcriptions.forEach((t) => {
+    inRange.forEach((t) => {
       const age = (now - new Date(t.created_at).getTime()) / 86400000;
       const idx = Math.floor(age);
-      if (idx >= 0 && idx < days) {
-        bins[days - 1 - idx] += countFillerWords(t.raw_text ?? t.text, fillerWordsForInsights);
+      if (idx >= 0 && idx < chartDays) {
+        bins[chartDays - 1 - idx] += countFillerWords(t.raw_text ?? t.text, fillerWordsForInsights);
       }
     });
     return bins;
-  }, [transcriptions, fillerWordsForInsights]);
+  }, [chartDays, inRange, fillerWordsForInsights]);
   const maxFiller = Math.max(...fillerTrendData, 1);
 
   const wpmTrendData = useMemo(() => {
-    const days = 30;
-    const sums = new Array(days).fill(0);
-    const counts = new Array(days).fill(0);
+    const sums = new Array(chartDays).fill(0);
+    const counts = new Array(chartDays).fill(0);
     const now = Date.now();
-    transcriptions.forEach((t) => {
+    inRange.forEach((t) => {
       const age = (now - new Date(t.created_at).getTime()) / 86400000;
       const idx = Math.floor(age);
-      if (idx >= 0 && idx < days && t.duration_ms > 0) {
+      if (idx >= 0 && idx < chartDays && t.duration_ms > 0) {
         const wpm = (wordCount(t.text) / t.duration_ms) * 60000;
-        sums[days - 1 - idx] += wpm;
-        counts[days - 1 - idx]++;
+        sums[chartDays - 1 - idx] += wpm;
+        counts[chartDays - 1 - idx]++;
       }
     });
     return sums.map((s, i) => (counts[i] > 0 ? Math.round(s / counts[i]) : 0));
-  }, [transcriptions]);
+  }, [chartDays, inRange]);
   const maxWpm = Math.max(...wpmTrendData, 1);
   const contextBreakdown = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1132,20 +1182,44 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
   const contextTotal = contextBreakdown.reduce((s, [, c]) => s + c, 0) || 1;
   const CONTEXT_COLORS = ["var(--c-violet)", "var(--c-blue)", "var(--c-mint)", "var(--c-amber)", "var(--c-rose)", "var(--text-4)"];
   const CONTEXT_CHIP_TONES = ["violet", "blue", "mint", "amber", "rose"];
+  const analysisMetrics = useMemo(() => {
+    const ids = new Set(inRange.map((item) => item.id));
+    const analyses = getTranscriptAnalyses().filter((item) => ids.has(item.transcription_id));
+    const reviewFlags = analyses.reduce((sum, item) => sum + item.quality_flags.filter((flag) => flag !== "postprocessed").length, 0);
+    const rawWords = analyses.reduce((sum, item) => sum + item.raw_word_count, 0);
+    const fillerWords = analyses.reduce((sum, item) => sum + item.filler_word_count, 0);
+    const repeatedWords = analyses.reduce((sum, item) => sum + item.repeated_word_count, 0);
+    return {
+      analyzed: analyses.length,
+      postprocessed: analyses.filter((item) => item.quality_flags.includes("postprocessed")).length,
+      reviewFlags,
+      fillerRate: rawWords > 0 ? fillerWords / rawWords : 0,
+      repeatedWords,
+    };
+  }, [inRange]);
+  const practiceFocus = useMemo(
+    () => derivePracticeFocus({
+      fillerRate: analysisMetrics.fillerRate,
+      repeatedWords: analysisMetrics.repeatedWords,
+      wpm: periodMetrics.wpm,
+      vocabularyRichness: richnessCurrent,
+    }),
+    [analysisMetrics, periodMetrics.wpm, richnessCurrent]
+  );
 
   return (
-    <div className="main fade-in">
-      <div className="main-header">
+    <div className="main fade-in insights-page">
+      <div className="main-header insights-header">
         <div>
           <div className="eyebrow">Analytics</div>
           <h1 className="page-title"><em>Insights</em></h1>
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div className="insights-range" aria-label="Insights range">
           {ranges.map((r) => (
             <button
               key={r}
               className={`btn btn-sm${range === r ? "" : " btn-ghost"}`}
-              style={range === r ? { background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.25)", color: "var(--c-violet)" } : {}}
+              aria-pressed={range === r}
               onClick={() => setRange(r)}
             >
               {r}
@@ -1154,154 +1228,115 @@ function InsightsScreen({ transcriptions, metrics }: InsightsScreenProps) {
         </div>
       </div>
 
-      <div className="main-body stagger">
-        {/* Big stats */}
-        <div className="stat-grid">
-          <Stat value={metrics.totalWords > 0 ? metrics.totalWords.toLocaleString() : "—"} label="Total words" sub="dictated" accent="violet" italic />
-          <Stat value={metrics.avgWpm > 0 ? metrics.avgWpm : "—"} unit={metrics.avgWpm > 0 ? "wpm" : undefined} label="Avg. speed" accent="blue" />
-          <Stat value={metrics.totalMs > 0 ? fmtMinutes(Math.round(metrics.totalMs * 0.4)) : "—"} label="Time saved" sub="est." accent="amber" />
-          <Stat value={metrics.sessions > 0 ? `${metrics.sessions}` : "—"} label="Sessions" sub="total" accent="mint" />
+      <div className="main-body stagger insights-body">
+        <div className="stat-grid insights-metrics">
+          <Stat value={periodMetrics.words > 0 ? periodMetrics.words.toLocaleString() : "—"} label="Words" sub="dictated" accent="violet" italic />
+          <Stat value={periodMetrics.wpm > 0 ? periodMetrics.wpm : "—"} unit={periodMetrics.wpm > 0 ? "wpm" : undefined} label="Speaking pace" accent="blue" />
+          <Stat value={periodMetrics.duration > 0 ? fmtMinutes(Math.round(periodMetrics.duration * 0.4)) : "—"} label="Time saved" sub="estimate" accent="amber" />
+          <Stat value={periodMetrics.sessions > 0 ? `${periodMetrics.sessions}` : "—"} label="Sessions" sub="this period" accent="mint" />
         </div>
 
-        {/* Volume sparkline */}
-        <SectionHead label="Daily Volume" />
-        <div className="card card-glow" data-accent="violet">
-          {transcriptions.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-4)", fontSize: 13 }}>
-              No data yet — start dictating to see your volume trends.
-            </div>
-          ) : (
-            <svg width="100%" height="80" viewBox={`0 0 ${volumeData.length * 12} 80`} preserveAspectRatio="none">
-              {volumeData.map((v, i) => {
-                const h = (v / maxVol) * 60;
-                return (
-                  <rect
-                    key={i}
-                    x={i * 12}
-                    y={70 - h}
-                    width={10}
-                    height={h + 2}
-                    rx={2}
-                    fill="rgba(167,139,250,0.4)"
-                  />
-                );
-              })}
-            </svg>
-          )}
-          <div style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", marginTop: 6 }}>
-            Last 30 days — {transcriptions.length} total session{transcriptions.length !== 1 ? "s" : ""}
-          </div>
-        </div>
-
-        {/* Heatmap */}
-        <ActivityHeatmap transcriptions={transcriptions} />
-
-        {/* Context breakdown — which apps you actually dictated into, from real app_name data */}
-        <SectionHead label="Context Breakdown" />
-        <div className="card" style={{ display: "flex", alignItems: "center", gap: 24 }}>
-          {contextBreakdown.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "8px 0", color: "var(--text-4)", fontSize: 13, width: "100%" }}>
-              No data yet — start dictating to see which apps you use most.
-            </div>
-          ) : (
-            <>
-              <div style={{ textAlign: "center" }}>
-                <svg width={100} height={100} viewBox="0 0 36 36">
-                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="3.8" />
-                  {(() => {
-                    let cumulativePct = 0;
-                    return contextBreakdown.map(([name, count], i) => {
-                      const pct = (count / contextTotal) * 100;
-                      const el = (
-                        <circle
-                          key={name}
-                          cx="18" cy="18" r="15.9" fill="none"
-                          stroke={CONTEXT_COLORS[i % CONTEXT_COLORS.length]}
-                          strokeWidth="3.8"
-                          strokeDasharray={`${pct} ${100 - pct}`}
-                          strokeDashoffset={-cumulativePct}
-                          strokeLinecap="butt"
-                          transform="rotate(-90 18 18)"
-                        />
-                      );
-                      cumulativePct += pct;
-                      return el;
-                    });
-                  })()}
-                </svg>
-                <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{contextTotal} notes</div>
-              </div>
-              <div style={{ flex: 1 }}>
-                {contextBreakdown.map(([name, count], i) => (
-                  <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-                    <Chip dot tone={CONTEXT_CHIP_TONES[i]}>{name}</Chip>
-                    <div style={{ flex: 1, height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 2, overflow: "hidden" }}>
-                      <div style={{ width: `${(count / contextTotal) * 100}%`, height: "100%", background: CONTEXT_COLORS[i % CONTEXT_COLORS.length], borderRadius: 2 }} />
-                    </div>
-                    <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{count}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Communication style */}
-        <SectionHead label="Communication Style" />
-        <div className="stat-grid">
-          <Stat
-            value={Math.round(richnessCurrent * 100)}
-            unit="%"
-            label="Vocabulary richness"
-            hint="Unique words ÷ total words in this period — higher means more varied language."
-            delta={richnessDelta}
-            deltaDown={richnessDelta?.startsWith("↓")}
-            accent="violet"
-          />
-        </div>
-
-        <SectionHead label="Most-Used Words" />
-        <div className="card">
-          {topWords.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-4)", fontSize: 13 }}>
-              No data yet — start dictating to see your most-used words.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {topWords.map(({ word, count }, i) => (
-                <div key={word} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ width: 18, fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{i + 1}</span>
-                  <span style={{ flex: 1, fontSize: 13, color: "var(--text-2)" }}>{word}</span>
-                  <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>{count}</span>
+        <div className="insights-grid insights-grid-wide">
+          <section className="insights-panel"><ActivityHeatmap transcriptions={inRange} /></section>
+          <section className="insights-panel">
+            <SectionHead label="Context Breakdown" />
+            <div className="card insights-context-card">
+              {contextBreakdown.length === 0 ? (
+                <div className="insights-empty">No data yet — start dictating to see which apps you use most.</div>
+              ) : (
+                <div className="insights-context-list">
+                  {contextBreakdown.map(([name, count], i) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={`insights-context-button${selectedContext === name ? " active" : ""}`}
+                      aria-pressed={selectedContext === name}
+                      onClick={() => setSelectedContext((current) => current === name ? null : name)}
+                    >
+                      <Chip dot tone={CONTEXT_CHIP_TONES[i]}>{name}</Chip>
+                      <span className="insights-context-track"><span style={{ width: `${(count / contextTotal) * 100}%`, background: CONTEXT_COLORS[i % CONTEXT_COLORS.length] }} /></span>
+                      <span className="insights-context-count">{count}</span>
+                    </button>
+                  ))}
                 </div>
-              ))}
+              )}
+              {selectedContext && <div className="insights-selection">Selected context: {selectedContext}</div>}
             </div>
-          )}
+          </section>
         </div>
 
-        <SectionHead label="Filler Word Trend" />
-        <div className="card">
-          <svg width="100%" height="60" viewBox={`0 0 ${fillerTrendData.length * 12} 60`} preserveAspectRatio="none">
-            {fillerTrendData.map((v, i) => {
-              const h = (v / maxFiller) * 44;
-              return <rect key={i} x={i * 12} y={54 - h} width={10} height={h + 2} rx={2} fill="rgba(251,191,36,0.4)" />;
-            })}
-          </svg>
-          <div style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", marginTop: 6 }}>
-            Last 30 days — {fillerTrendData.reduce((a, b) => a + b, 0)} filler word{fillerTrendData.reduce((a, b) => a + b, 0) === 1 ? "" : "s"} caught
-          </div>
+        <div className="insights-grid">
+          <section className="insights-panel">
+            <SectionHead label="Communication Style" />
+            <div className="stat-grid insights-single-stat">
+              <Stat value={Math.round(richnessCurrent * 100)} unit="%" label="Vocabulary richness" hint="Unique words ÷ total words in this period — higher means more varied language." delta={richnessDelta} deltaDown={richnessDelta?.startsWith("↓")} accent="violet" />
+            </div>
+          </section>
+          <section className="insights-panel">
+            <SectionHead label="Accuracy signals" />
+            <div className="stat-grid insights-triple-stat">
+              <Stat value={analysisMetrics.analyzed} label="Analyzed" sub="local" accent="mint" />
+              <Stat value={analysisMetrics.postprocessed} label="Postprocessed" sub="raw differed" accent="amber" />
+              <Stat value={analysisMetrics.reviewFlags} label="Review flags" sub="review" accent="rose" />
+            </div>
+          </section>
         </div>
 
-        <SectionHead label="Speaking Pace Trend" />
-        <div className="card">
-          <svg width="100%" height="60" viewBox={`0 0 ${wpmTrendData.length * 12} 60`} preserveAspectRatio="none">
-            {wpmTrendData.map((v, i) => {
-              const h = (v / maxWpm) * 44;
-              return <rect key={i} x={i * 12} y={54 - h} width={10} height={h + 2} rx={2} fill="rgba(125,211,252,0.4)" />;
-            })}
-          </svg>
-          <div style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)", marginTop: 6 }}>
-            Last 30 days — average words per minute per day
+        <div className="insights-grid insights-lower-grid">
+          <section className="insights-panel">
+            <SectionHead label="Most-Used Words" action={<span className="section-link">Select a word to search history</span>} />
+            <div className="card insights-words-card">
+              {topWords.length === 0 ? (
+                <div className="insights-empty">No data yet — start dictating to see your most-used words.</div>
+              ) : (
+                <div className="insights-word-list">
+                  {topWords.map(({ word, count }, i) => {
+                    const alternatives = synonymsForWord(word);
+                    return (
+                      <div key={word} className={`insights-word-row${selectedWord === word ? " active" : ""}`}>
+                        <button type="button" className="insights-word-button" aria-pressed={selectedWord === word} onClick={() => { setSelectedWord(word); onWordSelect(word); onViewChange("history"); }}>
+                          <span className="insights-word-rank">{i + 1}</span>
+                          <span className="insights-word-label">{word}</span>
+                          <span className="insights-word-count">{count}</span>
+                        </button>
+                        {alternatives.length > 0 && <div className="insights-word-synonyms">Try: {alternatives.join(" · ")}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+          <div className="insights-lower-stack">
+            <section className="insights-panel">
+              <SectionHead label="Practice focus" />
+              <div className="card insights-focus-card">
+                <div className="insights-focus-title">{practiceFocus.title}</div>
+                <p>{practiceFocus.detail}</p>
+                <div className="insights-focus-prompt">{practiceFocus.prompt}</div>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard.writeText(practiceFocus.prompt).then(() => { setFocusCopied(true); setTimeout(() => setFocusCopied(false), 1200); }).catch(() => {}); }}>
+                  {focusCopied ? "Copied" : "Copy practice prompt"}
+                </button>
+              </div>
+            </section>
+            <section className="insights-panel">
+              <SectionHead label="Filler Word Trend" />
+              <div className="card insights-trend-card">
+                <svg width="100%" height="60" viewBox={`0 0 ${fillerTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Filler word trend">
+                  {fillerTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxFiller) * 44} width={10} height={(v / maxFiller) * 44 + 2} rx={2} fill="rgba(251,191,36,0.4)" />)}
+                </svg>
+                <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — {fillerTrendData.reduce((a, b) => a + b, 0)} filler word{fillerTrendData.reduce((a, b) => a + b, 0) === 1 ? "" : "s"} caught</div>
+              </div>
+            </section>
+            <section className="insights-panel">
+              <SectionHead label="Speaking Pace Trend" />
+              <div className="card insights-trend-card">
+                <svg width="100%" height="60" viewBox={`0 0 ${wpmTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Speaking pace trend">
+                  {wpmTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxWpm) * 44} width={10} height={(v / maxWpm) * 44 + 2} rx={2} fill="rgba(125,211,252,0.4)" />)}
+                </svg>
+                <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — average words per minute per day</div>
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -2006,11 +2041,21 @@ function GeneralPanel() {
 }
 
 function AudioPanel() {
+  const lastError = useAppStore((state) => state.lastError);
+  const wakePhraseStatus = useAppStore((state) => state.wakePhraseStatus);
   const [device, setDevice] = useSetting("input_device", "default");
   const [gain, setGain] = useSetting("gain", "80");
   const [noise, setNoise] = useToggleSetting("noise_suppression", true);
   const [echo, setEcho] = useToggleSetting("echo_cancel", true);
   const [wakeVoice, setWakeVoice] = useToggleSetting("wake_on_voice", false);
+  const setWakePhrase = (enabled: boolean) => {
+    setWakePhraseEnabled(enabled)
+      .then(() => setWakeVoice(enabled))
+      .catch(() => setWakeVoice(false));
+  };
+  useEffect(() => {
+    if (lastError?.startsWith("Wake phrase")) setWakeVoice(false);
+  }, [lastError]);
 
   return (
     <div>
@@ -2071,10 +2116,11 @@ function AudioPanel() {
       </div>
       <div className="setting-row">
         <div className="setting-text">
-          <p className="t">Wake on voice</p>
-          <p className="d">Automatically start recording when speech is detected.</p>
+          <p className="t">Wake phrase</p>
+          <p className="d">Say “Verba dictate” to start one hands-free dictation.</p>
+          {wakeVoice && <p className="d" style={{ color: "var(--c-mint)", marginTop: 5 }}>Wake listener: {wakePhraseStatus === "hearing" ? "hearing speech" : wakePhraseStatus}</p>}
         </div>
-        <Toggle on={wakeVoice} onChange={setWakeVoice} />
+        <Toggle on={wakeVoice} onChange={setWakePhrase} />
       </div>
     </div>
   );
@@ -2082,7 +2128,7 @@ function AudioPanel() {
 
 function HotkeysPanel() {
   const hotkeys = [
-    { name: "Push-to-talk",      keys: ["Ctrl", "Shift", "F9"] },
+    { name: "Push-to-talk",      keys: ["Ctrl", "Alt"] },
     { name: "Hands-free toggle", keys: ["Ctrl", "Shift", "F10"] },
     { name: "Cancel recording",  keys: ["Escape"] },
     { name: "Open Verba",        keys: ["Ctrl", "Shift", "S"] },
@@ -2242,21 +2288,21 @@ function FillerSection() {
 }
 
 function DictPanel() {
-  const [entries, setEntries] = useState<DictEntry[]>(getDictionary);
+  const [entries, setEntries] = useState<VocabularyEntry[]>(getVocabulary);
   const [term, setTerm] = useState("");
   const [phonetic, setPhonetic] = useState("");
 
-  function syncToSidecar(updated: DictEntry[]) {
+  function syncToSidecar(updated: VocabularyEntry[]) {
     const words = updated.map((e) => e.phonetic ? `${e.term} (${e.phonetic})` : e.term);
     import("../lib/tauri").then(({ setDictionary }) => setDictionary(words).catch(() => {}));
   }
 
   function addEntry() {
     if (!term.trim()) return;
-    const entry: DictEntry = { id: `dict_${Date.now()}`, term: term.trim(), phonetic: phonetic.trim() };
+    const entry: VocabularyEntry = { id: `dict_${Date.now()}`, term: term.trim(), phonetic: phonetic.trim(), category: "general", proficiency: "familiar" };
     const updated = [...entries, entry];
     setEntries(updated);
-    saveDictionary(updated);
+    saveVocabulary(updated);
     syncToSidecar(updated);
     setTerm("");
     setPhonetic("");
@@ -2265,7 +2311,7 @@ function DictPanel() {
   function removeEntry(id: string) {
     const updated = entries.filter((e) => e.id !== id);
     setEntries(updated);
-    saveDictionary(updated);
+    saveVocabulary(updated);
     syncToSidecar(updated);
   }
 
@@ -2405,9 +2451,9 @@ function SettingsScreen({ tier, onViewChange }: { tier: string | null; onViewCha
         </div>
       </div>
 
-      <div className="main-body" style={{ display: "flex", gap: 28, alignItems: "flex-start" }}>
+      <div className="main-body settings-body" style={{ display: "flex", alignItems: "flex-start" }}>
         {/* Sub-nav */}
-        <div style={{ width: 200, flexShrink: 0, position: "sticky", top: 0 }}>
+        <div className="settings-nav" style={{ flexShrink: 0, position: "sticky", top: 0 }}>
           {tabs.map((t) => (
             <button
               key={t.key}
@@ -2524,7 +2570,7 @@ function AccountScreen({ userName, userEmail, tier }: AccountScreenProps) {
 
   const words   = parseInt(localStorage.getItem("verba_total_words") ?? "0");
   const sessions = parseInt(localStorage.getItem("verba_sessions") ?? "0");
-  const dictLen  = getDictionary().length;
+  const dictLen  = getVocabulary().length;
   const cmdLen   = getCommands().length;
 
   const usageItems = [
@@ -2729,6 +2775,107 @@ function AccountScreen({ userName, userEmail, tier }: AccountScreenProps) {
   );
 }
 
+// ─── Features ────────────────────────────────────────────
+
+type FeatureSection = "overview" | "vocabulary" | "corrections";
+
+function FeaturesScreen({ initialSection = "overview" }: { initialSection?: FeatureSection }) {
+  const [section, setSection] = useState<FeatureSection>(initialSection);
+  const [entries, setEntries] = useState(getVocabulary);
+  const [rules, setRules] = useState(getCorrectionRules);
+  const [term, setTerm] = useState("");
+  const [context, setContext] = useState("");
+  const [category, setCategory] = useState<VocabularyEntry["category"]>("general");
+  const [proficiency, setProficiency] = useState<VocabularyEntry["proficiency"]>("learning");
+
+  function addVocabulary() {
+    if (!term.trim()) return;
+    const next = [...entries, { id: `dict_${Date.now()}`, term: term.trim(), context: context.trim(), category, proficiency }];
+    setEntries(next);
+    saveVocabulary(next);
+    setDictionary(next.map((entry) => entry.phonetic ? `${entry.term} (${entry.phonetic})` : entry.term)).catch(() => {});
+    setTerm(""); setContext("");
+  }
+
+  function removeVocabulary(id: string) {
+    const next = entries.filter((entry) => entry.id !== id);
+    setEntries(next);
+    saveVocabulary(next);
+    setDictionary(next.map((entry) => entry.phonetic ? `${entry.term} (${entry.phonetic})` : entry.term)).catch(() => {});
+  }
+
+  function removeRule(id: string) {
+    const next = rules.filter((rule) => rule.id !== id);
+    setRules(next);
+    saveCorrectionRules(next);
+  }
+
+  return (
+    <div className="main features-screen">
+      <header className="features-header">
+        <div className="eyebrow">Workspace intelligence</div>
+        <h1 className="page-title"><em>Features</em></h1>
+        <p className="page-sub">Small, local tools that make Verba more accurate every time you use it.</p>
+      </header>
+
+      <div className="features-body">
+        <div className="features-grid">
+          <button className={`feature-card feature-card-live${section === "vocabulary" ? " active" : ""}`} onClick={() => setSection("vocabulary")}>
+            <span className="feature-card-icon"><Icons.FileText size={17} /></span>
+            <span><strong>Vocabulary</strong><small>{entries.length} terms · names · concepts</small></span>
+            <Icons.ChevronRight size={14} />
+          </button>
+          <button className={`feature-card feature-card-live${section === "corrections" ? " active" : ""}`} onClick={() => setSection("corrections")}>
+            <span className="feature-card-icon"><Icons.Edit size={17} /></span>
+            <span><strong>Corrections</strong><small>{rules.length} rules applied across your library</small></span>
+            <Icons.ChevronRight size={14} />
+          </button>
+          <div className="feature-card feature-card-live">
+            <span className="feature-card-icon"><Icons.Shield size={17} /></span>
+            <span><strong>Local data</strong><small>History and language profile stay on this device</small></span>
+            <span className="feature-status">LIVE</span>
+          </div>
+        </div>
+
+        {section === "overview" && (
+          <section className="features-overview card">
+            <div className="eyebrow">Built next</div>
+            <h2>Teach Verba once. Keep the benefit.</h2>
+            <p>Select a phrase in any transcript to add it to Vocabulary or create a correction rule. Rules update existing local history and future dictation.</p>
+            <div className="features-roadmap">
+              <div><Icons.Sparkles size={15} /><span><strong>Dialogue assistant</strong><small>Planned · local chat over your own context</small></span></div>
+              <div><Icons.Globe size={15} /><span><strong>Visual intelligence</strong><small>Planned · understand the active screen when requested</small></span></div>
+              <div><Icons.Bolt size={15} /><span><strong>Computer control</strong><small>Planned · explicit, user-approved actions only</small></span></div>
+            </div>
+          </section>
+        )}
+
+        {section === "vocabulary" && (
+          <section className="features-panel card">
+            <div className="features-panel-head"><div><div className="eyebrow">Personal vernacular</div><h2>Vocabulary library</h2></div><button className="btn btn-sm btn-ghost" onClick={() => setSection("overview")}>Overview</button></div>
+            <div className="features-form">
+              <div className="input"><input value={term} onChange={(event) => setTerm(event.target.value)} placeholder="Name, concept, or jargon" onKeyDown={(event) => event.key === "Enter" && addVocabulary()} /></div>
+              <div className="input"><input value={context} onChange={(event) => setContext(event.target.value)} placeholder="Context (optional)" /></div>
+              <select value={category} onChange={(event) => setCategory(event.target.value as VocabularyEntry["category"])}><option value="general">General</option><option value="name">Name</option><option value="concept">Concept</option><option value="term">Term</option></select>
+              <select value={proficiency} onChange={(event) => setProficiency(event.target.value as VocabularyEntry["proficiency"])}><option value="learning">Learning</option><option value="familiar">Familiar</option><option value="fluent">Fluent</option></select>
+              <button className="btn btn-primary" onClick={addVocabulary}><Icons.Plus size={13} /> Add</button>
+            </div>
+            <div className="feature-list">{entries.length === 0 ? <div className="empty"><h4>No terms yet</h4><p>Add the names and concepts Verba should never miss.</p></div> : entries.map((entry) => <div className="feature-list-row" key={entry.id}><div><strong>{entry.term}</strong><small>{entry.category ?? "general"} · {entry.proficiency ?? "familiar"}{entry.context ? ` · ${entry.context}` : ""}</small></div><button className="btn btn-ghost btn-sm" onClick={() => removeVocabulary(entry.id)} aria-label={`Remove ${entry.term}`}><Icons.Trash size={12} /></button></div>)}</div>
+          </section>
+        )}
+
+        {section === "corrections" && (
+          <section className="features-panel card">
+            <div className="features-panel-head"><div><div className="eyebrow">Library-wide rules</div><h2>Corrections</h2></div><button className="btn btn-sm btn-ghost" onClick={() => setSection("overview")}>Overview</button></div>
+            <p className="page-sub">Rules created from transcript selections are applied to existing history and to future dictation before it is pasted.</p>
+            <div className="feature-list">{rules.length === 0 ? <div className="empty"><h4>No correction rules yet</h4><p>Highlight a phrase in a transcript and choose Correct.</p></div> : rules.map((rule) => <div className="feature-list-row" key={rule.id}><div><strong>{rule.from} <span className="feature-arrow">→</span> {rule.to}</strong><small>All transcripts · {new Date(rule.created_at).toLocaleDateString()}</small></div><button className="btn btn-ghost btn-sm" onClick={() => removeRule(rule.id)} aria-label={`Remove correction ${rule.from}`}><Icons.Trash size={12} /></button></div>)}</div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Sidebar ──────────────────────────────────────────────
 
 interface SidebarProps {
@@ -2742,12 +2889,17 @@ function Sidebar({ view, onViewChange, userName, tier }: SidebarProps) {
   const initial = (userName || "U")[0].toUpperCase();
   const isPro = tier !== null && tier !== "tier1";
 
-  // v2 IA: three destinations (DESIGN.md §2). Insights lives inside History;
   // Commands/Account live inside Settings; Debug opens via Ctrl+Shift+D.
   const navItems: Array<{ key: View; label: string; icon: React.ReactNode }> = [
     { key: "home",     label: "Talk",     icon: <Icons.Mic size={16} /> },
     { key: "history",  label: "History",  icon: <Icons.Clock size={16} /> },
+    { key: "insights", label: "Insights", icon: <Icons.BarChart size={16} /> },
     { key: "settings", label: "Settings", icon: <Icons.Settings size={16} /> },
+  ];
+  const featureItems: Array<{ key: View; label: string; icon: React.ReactNode }> = [
+    { key: "features", label: "Features", icon: <Icons.Sparkles size={16} /> },
+    { key: "vocabulary", label: "Vocabulary", icon: <Icons.FileText size={16} /> },
+    { key: "corrections", label: "Corrections", icon: <Icons.Edit size={16} /> },
   ];
 
   return (
@@ -2770,7 +2922,18 @@ function Sidebar({ view, onViewChange, userName, tier }: SidebarProps) {
         </button>
       ))}
 
-      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className="sidebar-feature-shelf">
+        {featureItems.map((item) => (
+          <React.Fragment key={item.key}>
+            {item.key === "vocabulary" && <div className="sidebar-feature-divider" aria-hidden="true" />}
+            <button className="nav-item feature-nav-item" onClick={() => onViewChange(item.key)} title={item.label}>
+            <span className="nav-icon">{item.icon}</span><span className="nav-label">{item.label}</span>
+            </button>
+          </React.Fragment>
+        ))}
+      </div>
+
+      <div className="sidebar-account">
         <div className="sidebar-footer" onClick={() => onViewChange("account")}>
           <div className="avatar">{initial}</div>
           <div className="sidebar-footer-text">
@@ -2791,10 +2954,12 @@ export default function Home() {
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [transcriptions, setTranscriptions] = useState<Transcription[]>([]);
+  const [historySearch, setHistorySearch] = useState<string | undefined>();
   const [metrics, setMetrics] = useState<Metrics>(getMetrics());
   const [commands, setCommands] = useState<Command[]>(getCommands);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const historySearchRef = useRef<HTMLInputElement>(null);
 
   // Local mode — no auth
   useEffect(() => {
@@ -2816,12 +2981,17 @@ export default function Home() {
     }
   }, [view]);
 
-  // Ctrl+K → command palette
+  // Ctrl+K → Library search, command palette elsewhere
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setPaletteOpen((o) => !o);
+        if (view === "history") {
+          historySearchRef.current?.focus();
+          historySearchRef.current?.select();
+        } else {
+          setPaletteOpen((o) => !o);
+        }
       }
       // Debug is dev-only: hidden from nav, opened via Ctrl+Shift+D (DESIGN.md §2)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "d" || e.key === "D")) {
@@ -2835,11 +3005,16 @@ export default function Home() {
     };
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
-  }, []);
+  }, [view]);
 
   const handleSetCommands = (cmds: Command[]) => {
     setCommands(cmds);
     saveCommands(cmds);
+  };
+
+  const refreshTranscriptData = () => {
+    setTranscriptions(getTranscriptions(200));
+    setMetrics(getMetrics());
   };
 
   const installTemplate = (tpl: Template) => {
@@ -2879,11 +3054,14 @@ export default function Home() {
         />
       )}
       {view === "history" && (
-        <HistoryView transcriptions={transcriptions} metrics={metrics} />
+        <HistoryScreen transcriptions={transcriptions} onChanged={refreshTranscriptData} initialSearch={historySearch} onInitialSearchConsumed={() => setHistorySearch(undefined)} searchRef={historySearchRef} />
       )}
       {view === "insights" && (
-        <InsightsScreen transcriptions={transcriptions} metrics={metrics} />
+        <InsightsScreen transcriptions={transcriptions} onViewChange={setView} onWordSelect={(word) => setHistorySearch(word)} />
       )}
+      {view === "features" && <FeaturesScreen initialSection="overview" />}
+      {view === "vocabulary" && <FeaturesScreen initialSection="vocabulary" />}
+      {view === "corrections" && <FeaturesScreen initialSection="corrections" />}
       {view === "commands" && (
         <CommandsScreen
           commands={commands}

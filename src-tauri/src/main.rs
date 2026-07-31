@@ -1,11 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod context_bridge;
 mod focus;
 mod hotkeys;
 mod injection;
 mod sidecar;
 mod storage;
+mod tablet_posture;
 mod tray;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -13,6 +15,10 @@ use sidecar::SidecarState;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None::<Vec<&str>>,
+        ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .manage(SidecarState::new())
@@ -20,18 +26,23 @@ fn main() {
             commands::start_ptt,
             commands::stop_ptt,
             commands::toggle_handsfree,
+            commands::set_wake_phrase_enabled,
             commands::ping_sidecar,
             commands::detect_hardware,
             commands::set_model,
             commands::benchmark_model,
             commands::set_dictionary,
             commands::set_filler_config,
+            commands::load_local_data,
+            commands::save_local_data,
             commands::inject_text,
             commands::open_url,
             commands::open_path,
         ])
         .setup(|app| {
             sidecar::spawn_sidecar(&app.handle());
+            context_bridge::start_context_bridge(app.handle().clone());
+            tablet_posture::start_tablet_posture_bridge(app.handle().clone());
             tray::setup_tray(app)?;
             hotkeys::register_hotkeys(&app.handle());
 
@@ -47,7 +58,7 @@ fn main() {
                 .transparent(true)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .resizable(false)
+                .resizable(true)
                 .inner_size(60.0, 56.0)
                 .shadow(false)
                 .build()?;
@@ -79,6 +90,11 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error running Tauri application");
+        .build(tauri::generate_context!())
+        .expect("error building Verba")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                sidecar::shutdown_sidecar(app);
+            }
+        });
 }
