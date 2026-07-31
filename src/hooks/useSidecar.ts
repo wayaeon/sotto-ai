@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { onSidecarEvent, onFocusedApp, onExternalContext, injectText, type SidecarMessage } from "../lib/tauri";
 import { useAppStore, type ExternalContext, type FocusedApp, type RecordingState } from "../stores/appStore";
 import { insertTranscription, updateMetrics } from "../lib/db";
+import { scheduleTranscriptAnalysis } from "../lib/transcriptAnalysis";
 import { formatForContext, resolveContextProfile } from "../lib/contextFormatting";
 
 // Single source of truth for the default model.
@@ -114,11 +115,12 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
 
               injectText(finalText).catch((e) => console.warn("[inject_text]", e));
 
-              insertTranscription(
+              const saved = insertTranscription(
                 finalText, currentModel, currentTier, durationMs,
                 destination?.name ?? null, destination?.iconDataUri ?? null,
                 rawTextBeforeFilter
               );
+              scheduleTranscriptAnalysis(saved);
               updateMetrics(finalText.trim().split(/\s+/).length, durationMs);
             }
           };

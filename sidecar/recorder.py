@@ -38,7 +38,10 @@ _SAMPLE_WIDTH    = 2       # 16-bit PCM
 _CHUNK_SIZE      = 1024
 _WORKER_TIMEOUT  = 1800    # allow slow CPU models to finish without unloading
 _WORKER_INIT_S   = 120     # seconds to wait for model load (GPU can take ~30 s)
-_WORKER_IDLE_UNLOAD_S = 45
+# Keep the model warm between normal dictations. Reloading after 45 s made the
+# next utterance pay the full Parakeet startup cost; ten minutes still bounds
+# idle memory without turning ordinary pauses into multi-second cold starts.
+_WORKER_IDLE_UNLOAD_S = 10 * 60
 
 # ── hands-free VAD segmentation ──────────────────────────────────────────────
 _VAD_FRAME_MS           = 30

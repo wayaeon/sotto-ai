@@ -17,6 +17,7 @@ def test_windows_recorder_defaults_to_parakeet() -> None:
     assert "self._model_name = model_name or best_available_model(hw.model_name)" in source
 
 
-def test_windows_warmup_is_owned_by_sidecar() -> None:
+def test_windows_model_warmup_is_owned_by_sidecar() -> None:
     recorder = (ROOT / "sidecar" / "recorder.py").read_text(encoding="utf-8")
-    assert "def warmup(self)" in recorder
+    assert "def preload_worker(self)" in recorder
+    assert "self.preload_worker()" in recorder

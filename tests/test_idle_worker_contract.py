@@ -17,6 +17,7 @@ def test_first_dictation_preloads_and_idle_evicts_the_model_worker():
     start = source[source.index("def start_ptt"):source.index("def stop_ptt")]
     assert "self.preload_worker()" in start
     assert "self.schedule_worker_idle_unload()" in source[source.index("def _fetch_transcription"):]
+    assert "_WORKER_IDLE_UNLOAD_S = 10 * 60" in source
 
 
 def test_model_switch_does_not_eagerly_reload_parakeet():

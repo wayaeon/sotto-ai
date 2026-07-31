@@ -665,16 +665,6 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
   .history-meta-grid { grid-template-columns: 1fr 1fr; }
 }
 
-/* Library editing stays inside the reading surface instead of opening another view. */
-.transcript-editor {
-  width: 100%; min-height: 280px; resize: vertical; box-sizing: border-box;
-  padding: 14px; border-radius: 10px; border: 1px solid rgba(167,139,250,0.32);
-  background: rgba(255,255,255,0.025); color: var(--text-2);
-  font: 14px/1.7 var(--font-ui); outline: none;
-  transition: border-color 120ms ease, background-color 120ms ease;
-}
-.transcript-editor:focus { border-color: var(--c-violet); background: rgba(167,139,250,0.05); }
-
 /* ─── setup wizard ───────────────────────────────────────── */
 
 .plan-card:hover { border-color: var(--border-strong) !important; }

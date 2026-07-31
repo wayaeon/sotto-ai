@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppStore } from "../stores/appStore";
-import { deleteTranscription, getTranscriptions, type Transcription, updateTranscription } from "../lib/db";
+import { deleteTranscription, getTranscriptions, type Transcription } from "../lib/db";
+import { getTranscriptAnalyses } from "../lib/transcriptAnalysis";
 import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
 import { setWakePhraseEnabled } from "../lib/tauri";
@@ -457,8 +458,6 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [copied, setCopied] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const filtered = useMemo(() => {
@@ -475,34 +474,6 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
-  }
-
-  function handleDownload() {
-    if (!selected) return;
-    const blob = new Blob([selected.text], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `sotto-${selected.created_at.slice(0, 10)}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-
-  function startEdit() {
-    if (!selected) return;
-    setDraft(selected.text);
-    setEditing(true);
-  }
-
-  function saveEdit() {
-    if (!selected) return;
-    const updated = updateTranscription(selected.id, draft.trim());
-    if (!updated) return;
-    setSelected(updated);
-    setEditing(false);
-    onChanged();
   }
 
   function removeSelected() {
@@ -536,7 +507,6 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
   useEffect(() => {
     if (selected && !filtered.some((item) => item.id === selected.id)) {
       setSelected(null);
-      setEditing(false);
       setConfirmDelete(false);
     }
   }, [filtered, selected]);
@@ -657,27 +627,12 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
                       {copied ? <Icons.Check size={12} /> : <Icons.Copy size={12} />}
                       {copied ? "Copied" : "Copy"}
                 </button>
-                <button className="btn btn-ghost btn-sm" onClick={handleDownload}>
-                      <Icons.Download size={12} /> Download
-                </button>
-                {editing ? (
-                  <>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>Cancel</button>
-                    <button className="btn btn-sm" onClick={saveEdit}><Icons.Check size={12} /> Save</button>
-                  </>
-                ) : (
-                  <button className="btn btn-ghost btn-sm" onClick={startEdit}><Icons.Edit size={12} /> Edit</button>
-                )}
               </div>
               <div className="history-card history-transcript-card">
                 <div className="history-card-label">Transcript</div>
-                {editing ? (
-                  <textarea className="transcript-editor" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label="Edit transcript" />
-                ) : (
-                  <p className="history-transcript-text">
-                    {selected.text}
-                  </p>
-                )}
+                <p className="history-transcript-text">
+                  {selected.text}
+                </p>
               </div>
 
               {/* Meta */}
@@ -1130,6 +1085,16 @@ function InsightsScreen({ transcriptions }: InsightsScreenProps) {
   const contextTotal = contextBreakdown.reduce((s, [, c]) => s + c, 0) || 1;
   const CONTEXT_COLORS = ["var(--c-violet)", "var(--c-blue)", "var(--c-mint)", "var(--c-amber)", "var(--c-rose)", "var(--text-4)"];
   const CONTEXT_CHIP_TONES = ["violet", "blue", "mint", "amber", "rose"];
+  const analysisMetrics = useMemo(() => {
+    const ids = new Set(inRange.map((item) => item.id));
+    const analyses = getTranscriptAnalyses().filter((item) => ids.has(item.transcription_id));
+    const reviewFlags = analyses.reduce((sum, item) => sum + item.quality_flags.filter((flag) => flag !== "postprocessed").length, 0);
+    return {
+      analyzed: analyses.length,
+      postprocessed: analyses.filter((item) => item.quality_flags.includes("postprocessed")).length,
+      reviewFlags,
+    };
+  }, [inRange]);
 
   return (
     <div className="main fade-in">
@@ -1198,6 +1163,13 @@ function InsightsScreen({ transcriptions }: InsightsScreenProps) {
             deltaDown={richnessDelta?.startsWith("↓")}
             accent="violet"
           />
+        </div>
+
+        <SectionHead label="Accuracy signals" />
+        <div className="stat-grid">
+          <Stat value={analysisMetrics.analyzed} label="Analyzed" sub="local transcript signals" accent="mint" />
+          <Stat value={analysisMetrics.postprocessed} label="Postprocessed" sub="raw text differed" accent="amber" />
+          <Stat value={analysisMetrics.reviewFlags} label="Review flags" sub="repeated or short segments" accent="rose" />
         </div>
 
         <SectionHead label="Most-Used Words" />
