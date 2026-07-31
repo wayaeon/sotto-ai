@@ -1282,7 +1282,7 @@ function InsightsScreen({ transcriptions, onViewChange, onWordSelect }: Insights
           </section>
         </div>
 
-        <div className="insights-grid">
+        <div className="insights-grid insights-lower-grid">
           <section className="insights-panel">
             <SectionHead label="Most-Used Words" action={<span className="section-link">Select a word to search history</span>} />
             <div className="card insights-words-card">
@@ -1307,38 +1307,37 @@ function InsightsScreen({ transcriptions, onViewChange, onWordSelect }: Insights
               )}
             </div>
           </section>
-          <section className="insights-panel">
-            <SectionHead label="Practice focus" />
-            <div className="card insights-focus-card">
-              <div className="insights-focus-title">{practiceFocus.title}</div>
-              <p>{practiceFocus.detail}</p>
-              <div className="insights-focus-prompt">{practiceFocus.prompt}</div>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard.writeText(practiceFocus.prompt).then(() => { setFocusCopied(true); setTimeout(() => setFocusCopied(false), 1200); }).catch(() => {}); }}>
-                {focusCopied ? "Copied" : "Copy practice prompt"}
-              </button>
-            </div>
-          </section>
-        </div>
-
-        <div className="insights-grid">
-          <section className="insights-panel">
-            <SectionHead label="Filler Word Trend" />
-            <div className="card insights-trend-card">
-              <svg width="100%" height="60" viewBox={`0 0 ${fillerTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Filler word trend">
-                {fillerTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxFiller) * 44} width={10} height={(v / maxFiller) * 44 + 2} rx={2} fill="rgba(251,191,36,0.4)" />)}
-              </svg>
-              <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — {fillerTrendData.reduce((a, b) => a + b, 0)} filler word{fillerTrendData.reduce((a, b) => a + b, 0) === 1 ? "" : "s"} caught</div>
-            </div>
-          </section>
-          <section className="insights-panel">
-            <SectionHead label="Speaking Pace Trend" />
-            <div className="card insights-trend-card">
-              <svg width="100%" height="60" viewBox={`0 0 ${wpmTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Speaking pace trend">
-                {wpmTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxWpm) * 44} width={10} height={(v / maxWpm) * 44 + 2} rx={2} fill="rgba(125,211,252,0.4)" />)}
-              </svg>
-              <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — average words per minute per day</div>
-            </div>
-          </section>
+          <div className="insights-lower-stack">
+            <section className="insights-panel">
+              <SectionHead label="Practice focus" />
+              <div className="card insights-focus-card">
+                <div className="insights-focus-title">{practiceFocus.title}</div>
+                <p>{practiceFocus.detail}</p>
+                <div className="insights-focus-prompt">{practiceFocus.prompt}</div>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard.writeText(practiceFocus.prompt).then(() => { setFocusCopied(true); setTimeout(() => setFocusCopied(false), 1200); }).catch(() => {}); }}>
+                  {focusCopied ? "Copied" : "Copy practice prompt"}
+                </button>
+              </div>
+            </section>
+            <section className="insights-panel">
+              <SectionHead label="Filler Word Trend" />
+              <div className="card insights-trend-card">
+                <svg width="100%" height="60" viewBox={`0 0 ${fillerTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Filler word trend">
+                  {fillerTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxFiller) * 44} width={10} height={(v / maxFiller) * 44 + 2} rx={2} fill="rgba(251,191,36,0.4)" />)}
+                </svg>
+                <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — {fillerTrendData.reduce((a, b) => a + b, 0)} filler word{fillerTrendData.reduce((a, b) => a + b, 0) === 1 ? "" : "s"} caught</div>
+              </div>
+            </section>
+            <section className="insights-panel">
+              <SectionHead label="Speaking Pace Trend" />
+              <div className="card insights-trend-card">
+                <svg width="100%" height="60" viewBox={`0 0 ${wpmTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Speaking pace trend">
+                  {wpmTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxWpm) * 44} width={10} height={(v / maxWpm) * 44 + 2} rx={2} fill="rgba(125,211,252,0.4)" />)}
+                </svg>
+                <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — average words per minute per day</div>
+              </div>
+            </section>
+          </div>
         </div>
       </div>
     </div>

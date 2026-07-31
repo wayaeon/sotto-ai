@@ -515,6 +515,8 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 .insights-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .insights-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-card); align-items: start; margin-top: 8px; min-width: 0; }
 .insights-grid-wide { margin-top: 4px; }
+.insights-lower-grid { align-items: start; }
+.insights-lower-stack { display: flex; flex-direction: column; gap: 0; min-width: 0; }
 .insights-panel { min-width: 0; }
 .insights-panel .section-head { margin-top: 20px; }
 .insights-panel:first-child .section-head { margin-top: 20px; }
