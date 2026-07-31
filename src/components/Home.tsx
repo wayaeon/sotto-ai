@@ -460,17 +460,17 @@ interface HistoryScreenProps {
 function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSearchConsumed, searchRef }: HistoryScreenProps) {
   const [selected, setSelected] = useState<Transcription | null>(null);
   const [search, setSearch] = useState(initialSearch ?? "");
-  const [filter, setFilter] = useState("all");
+  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const filtered = useMemo(() => {
     return transcriptions.filter((t) => {
       if (search && !t.text.toLowerCase().includes(search.toLowerCase())) return false;
-      if (filter !== "all" && t.app_name !== filter) return false;
+      if (selectedFilters.length > 0 && (!t.app_name || !selectedFilters.includes(t.app_name))) return false;
       return true;
     });
-  }, [transcriptions, search, filter]);
+  }, [transcriptions, search, selectedFilters]);
 
   function handleCopy() {
     if (!selected) return;
@@ -507,10 +507,9 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
   }, [transcriptions]);
 
   useEffect(() => {
-    if (filter !== "all" && !contextFilters.some((item) => item.name === filter)) {
-      setFilter("all");
-    }
-  }, [filter, contextFilters]);
+    const available = new Set(contextFilters.slice(1).map((item) => item.name));
+    setSelectedFilters((current) => current.filter((name) => available.has(name)));
+  }, [contextFilters]);
 
   useEffect(() => {
     if (initialSearch === undefined) return;
@@ -548,10 +547,10 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
         </div>
         <div className="history-filter-anchor">
           <button
-            className={`history-filter${filter === "all" ? " active" : " has-filter"}`}
-            onClick={() => setFilter("all")}
-            title={filter === "all" ? "All apps" : `Clear filter: ${filter}`}
-            aria-label={filter === "all" ? "All apps" : `Clear filter: ${filter}`}
+            className={`history-filter${selectedFilters.length === 0 ? " active" : " has-filter"}`}
+            onClick={() => setSelectedFilters([])}
+            title={selectedFilters.length === 0 ? "All apps" : "Clear app filters"}
+            aria-label={selectedFilters.length === 0 ? "All apps" : "Clear app filters"}
           >
             <Icons.Filter size={14} />
           </button>
@@ -560,10 +559,11 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
           {contextFilters.slice(1).map(({ name, icon }) => (
             <button
               key={name}
-              className={`history-filter${filter === name ? " active" : ""}`}
-              onClick={() => setFilter(name)}
+              className={`history-filter${selectedFilters.includes(name) ? " active" : ""}`}
+              onClick={() => setSelectedFilters((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name])}
               title={name}
               aria-label={name}
+              aria-pressed={selectedFilters.includes(name)}
             >
               {icon ? <img src={icon} alt="" /> : <Icons.FileText size={14} />}
             </button>

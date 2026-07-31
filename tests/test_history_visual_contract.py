@@ -51,6 +51,7 @@ def test_library_toolbar_keeps_search_and_filter_geometry_stable():
     assert "historySearchRef" in source
     assert ".history-filter-anchor" in css
     assert ".history-app-rail" in css
+    assert "selectedFilters" in source
 
 
 def test_library_rows_use_semantic_text_and_readable_clamping():
