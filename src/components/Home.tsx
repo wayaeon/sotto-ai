@@ -542,17 +542,18 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
   }, [filtered, selected]);
 
   return (
-    <div className="main" style={{ overflow: "hidden" }}>
-      <div className="main-header">
+    <div className="main history-screen">
+      <header className="history-header">
         <div>
-          <div className="eyebrow">Library · {transcriptions.length} transcription{transcriptions.length !== 1 ? "s" : ""}</div>
+          <div className="eyebrow">Your voice, organized</div>
           <h1 className="page-title"><em>Library</em></h1>
+          <p className="history-subtitle">{transcriptions.length} transcription{transcriptions.length !== 1 ? "s" : ""} · ready when you are</p>
         </div>
-      </div>
+        <div className="history-header-mark" aria-hidden="true"><Icons.Waves size={22} /></div>
+      </header>
 
-      {/* Search + filters */}
-      <div style={{ padding: "12px 36px", display: "flex", gap: 10, alignItems: "center" }}>
-        <div className="input" style={{ flex: "0 1 240px", minWidth: 132, maxWidth: 280 }}>
+      <div className="history-toolbar">
+        <div className="input history-search">
           <Icons.Search size={14} style={{ color: "var(--text-4)", flexShrink: 0 }} />
           <input
             placeholder="Search transcriptions…"
@@ -560,31 +561,31 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div style={{ display: "flex", flex: "1 1 0", gap: 6, overflowX: "auto", padding: 2, minWidth: 36 }} aria-label="Filter by app">
+        <div className="history-filters" aria-label="Filter by app">
           {contextFilters.map(({ name, icon }) => (
             <button
               key={name}
-              className={`btn btn-sm${filter === name ? "" : " btn-ghost"}`}
-              style={{
-                width: 36, height: 36, padding: 0, flex: "0 0 36px", display: "grid", placeItems: "center",
-                ...(filter === name ? { background: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.25)", color: "var(--c-violet)" } : {}),
-              }}
+              className={`history-filter${filter === name ? " active" : ""}`}
               onClick={() => setFilter(name)}
               title={name === "all" ? "All apps" : name}
               aria-label={name === "all" ? "All apps" : name}
             >
-              {icon ? <img src={icon} alt="" style={{ width: 18, height: 18, objectFit: "contain" }} /> : <Icons.Filter size={14} />}
+              {icon ? <img src={icon} alt="" /> : <Icons.Filter size={14} />}
             </button>
           ))}
         </div>
+        {filter !== "all" && <button className="history-clear-filter" onClick={() => setFilter("all")}>Clear filter</button>}
       </div>
 
-      {/* Split pane */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden", borderTop: "1px solid var(--border)" }}>
-        {/* List */}
-        <div style={{ flex: 1, minWidth: 0, overflowY: "auto" }}>
+      <div className={`history-layout${selected ? " has-detail" : ""}`}>
+        <section className="history-list-pane" aria-label="Transcription history">
+          <div className="history-list-head">
+            <span>{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
+            <span>Most recent</span>
+          </div>
+          <div className="history-list">
           {filtered.length === 0 ? (
-            <div className="empty" style={{ margin: 24 }}>
+            <div className="empty history-empty">
               <div className="empty-icon"><Icons.Clock size={22} /></div>
               <h4>No transcriptions</h4>
               <p>Start dictating to build your library.</p>
@@ -599,95 +600,99 @@ function HistoryScreen({ transcriptions, onChanged }: HistoryScreenProps) {
               return (
                 <div
                   key={t.id}
-                  className={`list-row${isSelected ? " selected" : ""}`}
-                  style={{ gridTemplateColumns: "1fr" }}
+                  className={`history-row${isSelected ? " selected" : ""}`}
                   onClick={() => setSelected(t)}
                   title={t.text}
+                  aria-current={isSelected ? "true" : undefined}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(125,211,252,0.08)", border: "1px solid rgba(125,211,252,0.14)", display: "grid", placeItems: "center", color: "var(--c-blue)", flexShrink: 0, overflow: "hidden" }}>
-                      {t.app_icon ? <img src={t.app_icon} alt="" style={{ width: 16, height: 16 }} /> : <Icons.FileText size={13} />}
+                  <div className="history-row-main">
+                    <div className="history-row-icon">
+                      {t.app_icon ? <img src={t.app_icon} alt="" /> : <Icons.FileText size={13} />}
                     </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-                      <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</div>
+                    <div className="history-row-copy">
+                      <div className="history-row-title">{title}</div>
+                      <div className="history-row-preview">{preview}</div>
                     </div>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>
+                  <div className="history-row-footer">
+                    {t.app_name && <span className="history-row-app">{t.app_name}</span>}
                     <span>{dur}</span>
+                    <span aria-hidden="true">·</span>
                     <span>{when}</span>
                   </div>
                 </div>
               );
             })
           )}
-        </div>
+          </div>
+        </section>
 
         {/* Detail panel only opens after selecting a transcript. */}
         {selected && (
-          <aside style={{ width: "min(46%, 560px)", flexShrink: 0, overflowY: "auto", padding: 28, borderLeft: "1px solid var(--border)", background: "var(--surface)" }}>
-            <div>
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 400, margin: "0 0 8px" }}>
-                    {selected.text.slice(0, 60) || "Untitled"}
-                  </h2>
-                  <button className="btn btn-ghost btn-sm" style={{ minWidth: 36, padding: 0, height: 36 }} onClick={() => setSelected(null)} aria-label="Close transcript" title="Close transcript"><Icons.X size={14} /></button>
+          <aside className="history-detail" aria-label="Transcript detail">
+            <div className="history-detail-inner">
+              <div className="history-detail-head">
+                <div className="history-detail-source">
+                  <div className="history-detail-icon">
+                    {selected.app_icon ? <img src={selected.app_icon} alt="" /> : <Icons.FileText size={14} />}
+                  </div>
+                  <span>{selected.app_name || "Verba transcript"}</span>
                 </div>
-                <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
+                <button className="history-close" onClick={() => setSelected(null)} aria-label="Close transcript" title="Close transcript"><Icons.X size={15} /></button>
+              </div>
+              <h2 className="history-detail-title">
+                {selected.text.slice(0, 60) || "Untitled"}
+              </h2>
+              <div className="history-detail-meta">
                   <span>{new Date(selected.created_at).toLocaleString()}</span>
-                  <span>·</span>
-                  <span>{fmtDuration(selected.duration_ms)}</span>
-                  <span>·</span>
-                  <span>{wordCount(selected.text)} words</span>
-                  {selected.model && <><span>·</span><span>{selected.model}</span></>}
-                </div>
+                <span>·</span>
+                <span>{fmtDuration(selected.duration_ms)}</span>
+                <span>·</span>
+                <span>{wordCount(selected.text)} words</span>
               </div>
 
               {/* Text */}
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>Transcript</span>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button className="btn btn-ghost btn-sm" onClick={handleCopy}>
+              <div className="history-detail-actions">
+                <button className="btn btn-sm" onClick={handleCopy}>
                       {copied ? <Icons.Check size={12} /> : <Icons.Copy size={12} />}
                       {copied ? "Copied" : "Copy"}
-                    </button>
-                    <button className="btn btn-ghost btn-sm" onClick={handleDownload}>
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={handleDownload}>
                       <Icons.Download size={12} /> Download
-                    </button>
-                    {editing ? (
-                      <>
-                        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>Cancel</button>
-                        <button className="btn btn-sm" onClick={saveEdit}><Icons.Check size={12} /> Save</button>
-                      </>
-                    ) : (
-                      <button className="btn btn-ghost btn-sm" onClick={startEdit}><Icons.Edit size={12} /> Edit</button>
-                    )}
-                  </div>
-                </div>
+                </button>
+                {editing ? (
+                  <>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>Cancel</button>
+                    <button className="btn btn-sm" onClick={saveEdit}><Icons.Check size={12} /> Save</button>
+                  </>
+                ) : (
+                  <button className="btn btn-ghost btn-sm" onClick={startEdit}><Icons.Edit size={12} /> Edit</button>
+                )}
+              </div>
+              <div className="history-card history-transcript-card">
+                <div className="history-card-label">Transcript</div>
                 {editing ? (
                   <textarea className="transcript-editor" value={draft} onChange={(event) => setDraft(event.target.value)} aria-label="Edit transcript" />
                 ) : (
-                  <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text-2)", margin: 0, whiteSpace: "pre-wrap" }}>
+                  <p className="history-transcript-text">
                     {selected.text}
                   </p>
                 )}
               </div>
 
               {/* Meta */}
-              <div className="card" style={{ fontSize: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-4)", fontFamily: "var(--font-mono)", marginBottom: 12 }}>Details</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 24px", color: "var(--text-3)" }}>
-                  <div>Model: <span style={{ color: "var(--text-2)" }}>{selected.model || "—"}</span></div>
-                  <div>Tier: <span style={{ color: "var(--text-2)" }}>{selected.tier || "—"}</span></div>
-                  <div>Words: <span style={{ color: "var(--text-2)" }}>{wordCount(selected.text)}</span></div>
-                  <div>Duration: <span style={{ color: "var(--text-2)" }}>{fmtDuration(selected.duration_ms)}</span></div>
+              <div className="history-card history-meta-card">
+                <div className="history-card-label">Details</div>
+                <div className="history-meta-grid">
+                  <div>Model <strong>{selected.model || "Local Parakeet"}</strong></div>
+                  <div>Tier <strong>{selected.tier || "Local"}</strong></div>
+                  <div>Words <strong>{wordCount(selected.text)}</strong></div>
+                  <div>Duration <strong>{fmtDuration(selected.duration_ms)}</strong></div>
                 </div>
-                <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="history-delete-row">
                   {confirmDelete ? (
                     <>
-                      <span style={{ color: "var(--c-rose)", fontSize: 12 }}>Delete this transcript?</span>
+                      <span className="history-delete-warning">Delete this transcript?</span>
                       <button className="btn btn-sm" onClick={removeSelected}>Delete</button>
                       <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
                     </>
