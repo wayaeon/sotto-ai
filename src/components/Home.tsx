@@ -2812,7 +2812,7 @@ function FeaturesScreen({ initialSection = "overview" }: { initialSection?: Feat
 
   return (
     <div className="main features-screen">
-      <header className="features-header">
+      <header className="main-header features-header">
         <div className="eyebrow">Workspace intelligence</div>
         <h1 className="page-title"><em>Features</em></h1>
         <p className="page-sub">Small, local tools that make Verba more accurate every time you use it.</p>
@@ -3059,9 +3059,9 @@ export default function Home() {
       {view === "insights" && (
         <InsightsScreen transcriptions={transcriptions} onViewChange={setView} onWordSelect={(word) => setHistorySearch(word)} />
       )}
-      {view === "features" && <FeaturesScreen initialSection="overview" />}
-      {view === "vocabulary" && <FeaturesScreen initialSection="vocabulary" />}
-      {view === "corrections" && <FeaturesScreen initialSection="corrections" />}
+      {view === "features" && <FeaturesScreen key="features" initialSection="overview" />}
+      {view === "vocabulary" && <FeaturesScreen key="vocabulary" initialSection="vocabulary" />}
+      {view === "corrections" && <FeaturesScreen key="corrections" initialSection="corrections" />}
       {view === "commands" && (
         <CommandsScreen
           commands={commands}

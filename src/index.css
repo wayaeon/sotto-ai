@@ -719,8 +719,8 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 
 /* ─── Features workspace ───────────────────────────────── */
 .features-screen { background: radial-gradient(circle at 80% 0%, rgba(167,139,250,0.09), transparent 38%), var(--bg); }
-.features-header { padding: clamp(28px, 4vw, 52px) var(--pad-section) 18px; max-width: 980px; width: 100%; margin: 0 auto; }
-.features-body { width: 100%; max-width: 980px; margin: 0 auto; padding: 0 var(--pad-section) 56px; }
+.features-header, .features-body { width: 100%; max-width: 1500px; margin: 0 auto; }
+.features-body { padding: 24px var(--pad-section) var(--pad-section); }
 .features-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
 .feature-card { min-height: 104px; display: flex; align-items: flex-start; gap: 11px; padding: 17px; text-align: left; border: 1px solid var(--border); border-radius: 16px; background: linear-gradient(145deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015)); color: var(--text-2); transition: background 140ms ease, border-color 140ms ease, transform 140ms ease; }
 .feature-card:hover { background: rgba(167,139,250,0.08); border-color: rgba(167,139,250,0.24); transform: translateY(-1px); }
