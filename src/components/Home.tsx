@@ -1080,6 +1080,91 @@ function vocabularyRichness(transcriptions: Transcription[]): number {
   return new Set(words).size / words.length;
 }
 
+interface TrendLineChartProps {
+  id: string;
+  label: string;
+  values: number[];
+  max: number;
+  color: string;
+  valueFormatter: (value: number) => string;
+}
+
+function TrendLineChart({ id, label, values, max, color, valueFormatter }: TrendLineChartProps) {
+  const [activeIndex, setActiveIndex] = useState(Math.max(values.length - 1, 0));
+  useEffect(() => setActiveIndex(Math.max(values.length - 1, 0)), [values.length]);
+  const width = 600;
+  const height = 126;
+  const padX = 14;
+  const baseline = 96;
+  const plotHeight = 68;
+  const safeMax = Math.max(max, 1);
+  const step = values.length > 1 ? (width - padX * 2) / (values.length - 1) : 0;
+  const points = values.map((value, index) => ({
+    x: padX + index * step,
+    y: baseline - (value / safeMax) * plotHeight,
+  }));
+  const linePath = points.map(({ x, y }) => `${x},${y}`).join(" ");
+  const firstPoint = points[0] ?? { x: padX, y: baseline };
+  const lastPoint = points[points.length - 1] ?? firstPoint;
+  const areaPath = `M ${firstPoint.x} ${baseline} L ${points.map(({ x, y }) => `${x} ${y}`).join(" L ")} L ${lastPoint.x} ${baseline} Z`;
+  const selectedIndex = Math.min(Math.max(activeIndex, 0), Math.max(values.length - 1, 0));
+  const selectedValue = values[selectedIndex] ?? 0;
+  const selectedDate = new Date();
+  selectedDate.setHours(12, 0, 0, 0);
+  selectedDate.setDate(selectedDate.getDate() - (values.length - 1 - selectedIndex));
+  const selectedLabel = selectedDate.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const pointLabel = (index: number) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - (values.length - 1 - index));
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <div className="insights-trend-visual">
+      <div className="insights-trend-readout" aria-live="polite">
+        <span>{selectedLabel}</span>
+        <strong>{valueFormatter(selectedValue)}</strong>
+      </div>
+      <svg className="insights-trend-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={label}>
+        <title>{label}</title>
+        <line className="insights-trend-baseline" x1={padX} x2={width - padX} y1={baseline} y2={baseline} />
+        <path className="insights-trend-area" d={areaPath} fill={`url(#${id}-area)`} />
+        <polyline className="insights-trend-line" points={linePath} stroke={color} />
+        {points.map(({ x, y }, index) => (
+          <g key={index}>
+            <circle className={`insights-trend-point${index === selectedIndex ? " active" : ""}`} cx={x} cy={y} r={index === selectedIndex ? 4.5 : 2.5} fill={color} />
+            <circle
+              className="insights-trend-hit"
+              cx={x}
+              cy={y}
+              r={12}
+              tabIndex={0}
+              role="button"
+              aria-label={`${pointLabel(index)} · ${valueFormatter(values[index])}`}
+              onMouseEnter={() => setActiveIndex(index)}
+              onFocus={() => setActiveIndex(index)}
+              onClick={() => setActiveIndex(index)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                  event.preventDefault();
+                  setActiveIndex((current) => Math.min(Math.max(current + (event.key === "ArrowLeft" ? -1 : 1), 0), values.length - 1));
+                }
+              }}
+            />
+          </g>
+        ))}
+        <defs>
+          <linearGradient id={`${id}-area`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+  );
+}
+
 function InsightsScreen({ transcriptions, onViewChange, onWordSelect }: InsightsScreenProps) {
   const [range, setRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
   const [selectedContext, setSelectedContext] = useState<string | null>(null);
@@ -1322,18 +1407,14 @@ function InsightsScreen({ transcriptions, onViewChange, onWordSelect }: Insights
             <section className="insights-panel">
               <SectionHead label="Filler Word Trend" />
               <div className="card insights-trend-card">
-                <svg width="100%" height="60" viewBox={`0 0 ${fillerTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Filler word trend">
-                  {fillerTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxFiller) * 44} width={10} height={(v / maxFiller) * 44 + 2} rx={2} fill="rgba(251,191,36,0.4)" />)}
-                </svg>
+                <TrendLineChart id="filler" label="Filler word trend" values={fillerTrendData} max={maxFiller} color="var(--c-amber)" valueFormatter={(value) => `${value} filler word${value === 1 ? "" : "s"}`} />
                 <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — {fillerTrendData.reduce((a, b) => a + b, 0)} filler word{fillerTrendData.reduce((a, b) => a + b, 0) === 1 ? "" : "s"} caught</div>
               </div>
             </section>
             <section className="insights-panel">
               <SectionHead label="Speaking Pace Trend" />
               <div className="card insights-trend-card">
-                <svg width="100%" height="60" viewBox={`0 0 ${wpmTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Speaking pace trend">
-                  {wpmTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxWpm) * 44} width={10} height={(v / maxWpm) * 44 + 2} rx={2} fill="rgba(125,211,252,0.4)" />)}
-                </svg>
+                <TrendLineChart id="pace" label="Speaking pace trend" values={wpmTrendData} max={maxWpm} color="var(--c-blue)" valueFormatter={(value) => `${value} wpm`} />
                 <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — average words per minute per day</div>
               </div>
             </section>

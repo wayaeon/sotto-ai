@@ -549,7 +549,18 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 .insights-focus-title { color: var(--text); font: 400 24px/1.1 var(--font-display); }
 .insights-focus-card p { margin: 0; color: var(--text-3); font-size: 13px; line-height: 1.5; }
 .insights-focus-prompt { padding: 10px 12px; border-left: 2px solid var(--c-violet); background: rgba(167,139,250,0.07); color: var(--text-2); font-size: 12px; line-height: 1.45; }
-.insights-trend-card { min-height: 122px; }
+.insights-trend-card { min-height: 172px; }
+.insights-trend-visual { min-width: 0; }
+.insights-trend-readout { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-height: 18px; margin-bottom: 2px; color: var(--text-4); font: 10px var(--font-mono); font-variant-numeric: tabular-nums; }
+.insights-trend-readout strong { color: var(--text-2); font-weight: 500; }
+.insights-trend-chart { display: block; width: 100%; height: 112px; overflow: visible; }
+.insights-trend-baseline { stroke: rgba(255,255,255,0.09); stroke-width: 1; stroke-dasharray: 3 5; vector-effect: non-scaling-stroke; }
+.insights-trend-area { pointer-events: none; }
+.insights-trend-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.insights-trend-point { stroke: var(--surface-2); stroke-width: 1.5; vector-effect: non-scaling-stroke; transition: r 120ms ease, fill 120ms ease; pointer-events: none; }
+.insights-trend-point.active { stroke: var(--text); }
+.insights-trend-hit { fill: transparent; cursor: crosshair; outline: none; }
+.insights-trend-hit:focus-visible { fill: rgba(255,255,255,0.08); stroke: var(--text); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .insights-trend-caption { margin-top: 6px; color: var(--text-4); font: 10.5px var(--font-mono); }
 .insights-page .heatmap-cell { outline: none; }
 .insights-page .heatmap-cell:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--c-violet); }
