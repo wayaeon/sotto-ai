@@ -523,6 +523,28 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 .insights-heatmap-card { min-width: 0; overflow: hidden; }
 .insights-heatmap-scroll { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
 .insights-heatmap-scroll > * { min-width: 690px; }
+.activity-calendar { min-width: 780px; }
+.activity-calendar-months, .activity-calendar-body { display: flex; align-items: flex-start; gap: 8px; }
+.activity-calendar-months { margin-bottom: 5px; }
+.activity-calendar-label-spacer, .activity-calendar-days { width: 34px; flex: 0 0 34px; }
+.activity-calendar-grid { display: flex; flex: 1 1 auto; min-width: 0; gap: 3px; }
+.activity-calendar-months .activity-calendar-grid > span { flex: 1 1 0; min-width: 0; color: var(--text-4); font: 9px var(--font-mono); }
+.activity-calendar-days { display: flex; flex-direction: column; gap: 3px; }
+.activity-calendar-days span { height: 13px; color: var(--text-3); font: 9px/13px var(--font-mono); text-align: right; }
+.activity-calendar-days span.muted { color: transparent; }
+.activity-calendar-weeks { align-items: stretch; }
+.activity-calendar-week { display: flex; flex: 1 1 0; min-width: 0; flex-direction: column; gap: 3px; }
+.activity-heatmap-cell { width: 100%; aspect-ratio: 1; border: 1px solid rgba(255,255,255,0.035); border-radius: 3px; cursor: pointer; transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease; }
+.activity-level-0 { background: #161b22; }
+.activity-level-1 { background: rgba(52,211,153,0.18); }
+.activity-level-2 { background: rgba(52,211,153,0.36); }
+.activity-level-3 { background: rgba(52,211,153,0.58); }
+.activity-level-4 { background: rgba(52,211,153,0.86); }
+.activity-heatmap-cell.today { border-color: var(--c-violet); }
+.activity-heatmap-cell:hover, .activity-heatmap-cell:focus-visible { border-color: rgba(255,255,255,0.35); box-shadow: 0 0 0 2px rgba(52,211,153,0.18); }
+.activity-calendar-legend { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 13px; color: var(--text-3); font: 10.5px var(--font-mono); }
+.activity-calendar-legend-scale { display: flex; gap: 3px; }
+.activity-calendar-legend .activity-heatmap-cell { width: 12px; height: 12px; flex: 0 0 12px; }
 .insights-selection { margin-top: 10px; padding: 8px 10px; border-radius: 8px; color: var(--c-violet); background: rgba(167,139,250,0.08); font: 10.5px var(--font-mono); }
 .insights-context-card, .insights-words-card, .insights-focus-card, .insights-trend-card { min-width: 0; overflow: hidden; }
 .insights-context-list, .insights-word-list { display: flex; flex-direction: column; gap: 4px; }
