@@ -1,7 +1,7 @@
 {
   "name": "sotto",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,7 @@
     "build:app": "pnpm exec tauri build",
     "run:local": "powershell -NoProfile -ExecutionPolicy Bypass -File ./run-local.ps1",
     "preview": "vite preview",
-    "tauri": "cargo tauri"
+    "tauri": "pnpm exec tauri"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

@@ -34,7 +34,7 @@ jobs:
 
       - name: Install Python deps + build sidecar
         run: |
-          uv pip install -r sidecar/requirements.txt --python python
+          uv pip install --system -r sidecar/requirements.txt
           pip install pyinstaller
           pyinstaller --clean --noconfirm sidecar.spec --distpath src-tauri/binaries
           mv src-tauri/binaries/sidecar.exe src-tauri/binaries/sidecar-x86_64-pc-windows-msvc.exe
@@ -78,7 +78,7 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install uv pyinstaller
       - run: |
-          uv pip install -r sidecar/requirements.txt --python python
+          uv pip install --system -r sidecar/requirements.txt
           pyinstaller --clean --noconfirm sidecar.spec --distpath src-tauri/binaries
           mv src-tauri/binaries/sidecar src-tauri/binaries/sidecar-${{ matrix.target }}
       - run: pnpm install
