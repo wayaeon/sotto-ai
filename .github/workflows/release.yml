@@ -76,8 +76,12 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
+      - name: Install PortAudio
+        run: brew install portaudio
       - run: pip install uv pyinstaller
       - run: |
+          export CFLAGS="-I$(brew --prefix portaudio)/include"
+          export LDFLAGS="-L$(brew --prefix portaudio)/lib"
           uv pip install --system -r sidecar/requirements.txt
           pyinstaller --clean --noconfirm sidecar.spec --distpath src-tauri/binaries
           mv src-tauri/binaries/sidecar src-tauri/binaries/sidecar-${{ matrix.target }}
