@@ -9,6 +9,11 @@
 //! across updates), so any failure — including being offline — falls back to
 //! the browser's own icon instead of showing nothing.
 
+#[cfg(not(windows))]
+use tauri::AppHandle;
+
+#[cfg(windows)]
+mod windows_impl {
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use std::io::Cursor;
@@ -184,3 +189,10 @@ fn fetch_favicon(domain: &str) -> Option<String> {
     let img = image::load_from_memory(&bytes).ok()?.to_rgba8();
     rgba_to_data_uri(img.as_raw().clone(), img.width(), img.height())
 }
+}
+
+#[cfg(windows)]
+pub use windows_impl::emit_focused_app_async;
+
+#[cfg(not(windows))]
+pub fn emit_focused_app_async(_app: AppHandle) {}

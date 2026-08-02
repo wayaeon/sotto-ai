@@ -50,7 +50,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: "Wispr Local v__VERSION__"
+          releaseName: "Verba v__VERSION__"
           releaseBody: "See CHANGELOG.md for details."
           releaseDraft: true
           prerelease: false
@@ -89,7 +89,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: "Wispr Local v__VERSION__"
+          releaseName: "Verba v__VERSION__"
           releaseBody: "See CHANGELOG.md for details."
           releaseDraft: true
           prerelease: false

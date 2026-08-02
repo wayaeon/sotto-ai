@@ -5,6 +5,19 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use crate::focus::emit_focused_app_async;
 
+#[cfg(debug_assertions)]
+use std::path::{Path, PathBuf};
+
+#[cfg(debug_assertions)]
+fn dev_python_path(repo_root: &Path) -> PathBuf {
+    let interpreter = if cfg!(windows) {
+        "sidecar/.venv/Scripts/python.exe"
+    } else {
+        "sidecar/.venv/bin/python"
+    };
+    repo_root.join(interpreter)
+}
+
 pub struct SidecarState {
     pub child: Arc<Mutex<Option<CommandChild>>>,
     pub shutting_down: Arc<AtomicBool>,
@@ -31,8 +44,7 @@ pub fn spawn_sidecar(app: &AppHandle) {
                 .parent()
                 .expect("src-tauri should have a repo parent")
                 .to_path_buf();
-            let dev_python = repo_root
-                .join("sidecar").join(".venv").join("Scripts").join("python.exe");
+            let dev_python = dev_python_path(&repo_root);
 
             shell.command(dev_python)
                 .args(["-m", "sidecar.main"])
@@ -127,6 +139,24 @@ pub fn shutdown_sidecar(app: &AppHandle) {
     }
     #[cfg(not(windows))]
     let _ = child.kill();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dev_python_path;
+    use std::path::Path;
+
+    #[test]
+    fn dev_python_path_uses_the_platform_venv_layout() {
+        let path = dev_python_path(Path::new("repo"));
+        let expected = if cfg!(windows) {
+            "repo/sidecar/.venv/Scripts/python.exe"
+        } else {
+            "repo/sidecar/.venv/bin/python"
+        };
+
+        assert_eq!(path.to_string_lossy().replace('\\', "/"), expected);
+    }
 }
 
 pub fn send_command(app: &AppHandle, cmd: serde_json::Value) {
