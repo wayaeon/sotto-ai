@@ -52,15 +52,18 @@ fn main() {
             } else {
                 WebviewUrl::App("index.html#pill".into())
             };
-            WebviewWindowBuilder::new(app, "pill", pill_url)
+            let mut pill_builder = WebviewWindowBuilder::new(app, "pill", pill_url)
                 .title("")
-                .decorations(false)
-                .transparent(true)
+                .decorations(false);
+            #[cfg(windows)]
+            {
+                pill_builder = pill_builder.transparent(true).shadow(false);
+            }
+            pill_builder
                 .always_on_top(true)
                 .skip_taskbar(true)
                 .resizable(true)
                 .inner_size(60.0, 56.0)
-                .shadow(false)
                 .build()?;
 
             // Position pill window at bottom-center of primary monitor (collapsed width)
