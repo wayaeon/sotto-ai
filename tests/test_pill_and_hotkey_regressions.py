@@ -23,6 +23,12 @@ def test_ptt_starts_regardless_of_ctrl_and_alt_key_press_order():
     assert hotkeys.count("maybe_start_ptt") >= 3
 
 
+def test_macos_does_not_install_the_rdev_event_tap_used_by_windows_ptt():
+    hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
+    assert '#[cfg(not(target_os = "macos"))]' in hotkeys
+    assert "rdev::listen" in hotkeys
+
+
 def test_middle_mouse_button_remains_available_to_other_apps():
     hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
     assert "ButtonPress(Button::Middle)" not in hotkeys

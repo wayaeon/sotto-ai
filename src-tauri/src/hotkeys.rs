@@ -36,6 +36,10 @@ fn stop_ptt(app: &AppHandle, ptt_active: &AtomicBool) {
 pub fn register_hotkeys(app: &AppHandle) {
     let app = app.clone();
 
+    // ponytail: keep the raw event tap on Windows only; macOS Spotlight and
+    // rdev both install global event taps, and the overlap can terminate the
+    // WebView process. The macOS capsule/menu-bar controls remain available.
+    #[cfg(not(target_os = "macos"))]
     std::thread::spawn(move || {
         let ctrl_down  = Arc::new(AtomicBool::new(false));
         let alt_down   = Arc::new(AtomicBool::new(false));
@@ -73,4 +77,10 @@ pub fn register_hotkeys(app: &AppHandle) {
             eprintln!("[hotkey] global listener failed: {error:?}");
         }
     });
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        eprintln!("[hotkey] raw rdev listener disabled on macOS; use the native capsule/menu bar controls");
+    }
 }
