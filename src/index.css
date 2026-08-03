@@ -50,6 +50,32 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
 }
 
+.update-notice {
+  position: fixed;
+  z-index: 50;
+  top: 16px;
+  right: 18px;
+  width: min(420px, calc(100vw - 36px));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 14px 13px 16px;
+  border: 1px solid rgba(167,139,250,0.32);
+  border-radius: 14px;
+  background: rgba(19,19,24,0.96);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(18px);
+}
+.update-notice-copy { min-width: 0; display: grid; gap: 3px; flex: 1; }
+.update-notice-kicker { color: var(--c-violet); font: 10px var(--font-mono); letter-spacing: 0.14em; }
+.update-notice-copy strong { font-size: 13px; font-weight: 650; }
+.update-notice-copy span:last-child { overflow: hidden; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.update-notice-install { flex-shrink: 0; padding: 8px 11px; border: 1px solid rgba(167,139,250,0.4); border-radius: 9px; background: rgba(167,139,250,0.14); color: var(--text); font-size: 11px; font-weight: 650; }
+.update-notice-install:hover:not(:disabled) { background: rgba(167,139,250,0.24); }
+.update-notice-install:disabled { cursor: wait; opacity: 0.62; }
+.update-notice-dismiss { flex: 0 0 auto; color: var(--text-3); font-size: 20px; line-height: 1; }
+.update-notice-dismiss:hover { color: var(--text); }
+
 button { font-family: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
 input, textarea, select { font-family: inherit; color: inherit; background: none; border: none; outline: none; }
 

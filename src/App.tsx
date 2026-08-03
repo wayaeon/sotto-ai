@@ -4,12 +4,17 @@ import { useSidecar } from "./hooks/useSidecar";
 import SetupWizard from "./components/setup/SetupWizard";
 import Home from "./components/Home";
 import { hydrateLocalData } from "./lib/localData";
+import UpdateNotice from "./components/UpdateNotice";
+import { scheduleUpdateCheck, type AvailableUpdate } from "./lib/updater";
 
 export default function App() {
   const { setupComplete, setSetupComplete, setTier, setModel } = useAppStore();
   const [localDataReady, setLocalDataReady] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
 
   useSidecar();
+
+  useEffect(() => scheduleUpdateCheck(setAvailableUpdate), []);
 
   // Rehydrate persisted state
   useEffect(() => {
@@ -28,8 +33,18 @@ export default function App() {
     if (setupComplete) localStorage.setItem("verba_setup_complete", "true");
   }, [setupComplete]);
 
-  if (!localDataReady) return <div className="app-splash">Verba</div>;
-  if (!setupComplete) return <SetupWizard onComplete={() => setSetupComplete(true)} />;
+  const content = !localDataReady
+    ? <div className="app-splash">Verba</div>
+    : !setupComplete
+      ? <SetupWizard onComplete={() => setSetupComplete(true)} />
+      : <Home />;
 
-  return <Home />;
+  return (
+    <>
+      {availableUpdate && (
+        <UpdateNotice update={availableUpdate} onDismiss={() => setAvailableUpdate(null)} />
+      )}
+      {content}
+    </>
+  );
 }
