@@ -80,7 +80,35 @@ pub fn register_hotkeys(app: &AppHandle) {
 
     #[cfg(target_os = "macos")]
     {
-        let _ = app;
-        eprintln!("[hotkey] raw rdev listener disabled on macOS; use the native capsule/menu bar controls");
+        use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+        let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space);
+        let shortcut_for_handler = shortcut.clone();
+        let ptt_active = Arc::new(AtomicBool::new(false));
+        let ptt_for_handler = ptt_active.clone();
+        let app_for_handler = app.clone();
+
+        if let Err(error) = app.handle().plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(move |_, active_shortcut, event| {
+                    if active_shortcut != &shortcut_for_handler {
+                        return;
+                    }
+                    match event.state() {
+                        ShortcutState::Pressed => start_ptt(&app_for_handler, &ptt_for_handler),
+                        ShortcutState::Released => stop_ptt(&app_for_handler, &ptt_for_handler),
+                    }
+                })
+                .build(),
+        ) {
+            eprintln!("[hotkey] native macOS shortcut plugin failed: {error:?}");
+            return;
+        }
+
+        if let Err(error) = app.global_shortcut().register(shortcut) {
+            eprintln!("[hotkey] native macOS shortcut registration failed: {error:?}");
+        } else {
+            eprintln!("[hotkey] native macOS PTT registered: Control+Option+Space");
+        }
     }
 }
