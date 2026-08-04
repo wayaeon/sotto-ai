@@ -29,3 +29,4 @@ def test_sidecar_bundles_onnx_asr_distribution_metadata_for_frozen_worker():
     spec = (ROOT / "sidecar.spec").read_text(encoding="utf-8")
 
     assert 'copy_metadata("onnx-asr")' in spec
+    assert 'collect_data_files("onnx_asr")' in spec
