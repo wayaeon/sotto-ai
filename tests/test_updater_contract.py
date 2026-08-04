@@ -48,3 +48,13 @@ def test_runtime_update_flow_is_non_blocking_and_can_relaunch():
     assert "setTimeout" in updater
     assert "UpdateNotice" in app
     assert "Install update" in notice
+
+
+def test_update_status_is_visible_in_general_settings():
+    updater = (ROOT / "src" / "lib" / "updater.ts").read_text(encoding="utf-8")
+    home = (ROOT / "src" / "components" / "Home.tsx").read_text(encoding="utf-8")
+    assert "UpdateStatus" in updater
+    assert "readUpdateStatus" in updater
+    assert "lastUpdatedAt" in updater
+    assert "Update status" in home
+    assert "Pending update" in home

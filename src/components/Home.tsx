@@ -7,6 +7,7 @@ import { derivePracticeFocus, synonymsForWord } from "../lib/insights";
 import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
 import { setDictionary, setWakePhraseEnabled } from "../lib/tauri";
+import { readUpdateStatus, subscribeToUpdateStatus, type UpdateStatus } from "../lib/updater";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -1898,6 +1899,9 @@ function GeneralPanel() {
   const [appearance, setAppearance] = useSetting("appearance", "system");
   const [language, setLanguage] = useSetting("language", "en-US");
   const [autoDetect, setAutoDetect] = useToggleSetting("auto_detect_lang", false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(readUpdateStatus);
+
+  useEffect(() => subscribeToUpdateStatus(() => setUpdateStatus(readUpdateStatus())), []);
 
   return (
     <div>
@@ -1954,8 +1958,33 @@ function GeneralPanel() {
         </div>
         <Toggle on={autoDetect} onChange={setAutoDetect} />
       </div>
+      <div className="setting-row" style={{ alignItems: "flex-start" }}>
+        <div className="setting-text">
+          <p className="t">Update status</p>
+          <p className="d">
+            Version <strong style={{ color: "var(--text-2)" }}>v{updateStatus.currentVersion}</strong>
+            {updateStatus.lastUpdatedAt
+              ? ` · Last updated ${formatUpdateDate(updateStatus.lastUpdatedAt)}`
+              : " · Last updated not recorded on this device"}
+          </p>
+          <p className="d">
+            {updateStatus.availableVersion
+              ? `Pending update · v${updateStatus.availableVersion}`
+              : updateStatus.lastCheckedAt
+                ? `Up to date · checked ${formatUpdateDate(updateStatus.lastCheckedAt)}`
+                : "Checking for updates…"}
+          </p>
+        </div>
+        <span style={{ color: updateStatus.availableVersion ? "var(--c-amber)" : "var(--c-mint)", fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.12em", whiteSpace: "nowrap" }}>
+          {updateStatus.availableVersion ? "PENDING" : "CURRENT"}
+        </span>
+      </div>
     </div>
   );
+}
+
+function formatUpdateDate(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
 }
 
 function AudioPanel() {
