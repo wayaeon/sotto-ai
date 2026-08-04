@@ -14,6 +14,7 @@ class Command(str, Enum):
     DOWNLOAD_MODEL = "download_model"
     PAUSE_DOWNLOAD_MODEL = "pause_download_model"
     SET_MODEL = "set_model"
+    RETRY_WORKER = "retry_worker"
     BENCHMARK_MODEL = "benchmark_model"
     SET_DICTIONARY = "set_dictionary"
     SET_FILLER_CONFIG = "set_filler_config"

@@ -32,6 +32,7 @@ fn main() {
             commands::ping_sidecar,
             commands::detect_hardware,
             commands::set_model,
+            commands::retry_worker,
             commands::benchmark_model,
             commands::set_dictionary,
             commands::set_filler_config,

@@ -455,7 +455,10 @@ class Recorder:
                 return
 
             if not self._ensure_worker():
-                self._ipc.send(Event.ERROR, msg="Transcription worker unavailable")
+                self._ipc.send(
+                    Event.ERROR,
+                    msg=f"Transcription worker unavailable: {self._worker_error or 'unknown worker error'}",
+                )
                 return
 
             assert self._task_q is not None

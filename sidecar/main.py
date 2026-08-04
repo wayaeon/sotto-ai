@@ -108,6 +108,9 @@ def main() -> None:
             elif not model_name:
                 ipc.send(Event.ERROR, msg="set_model requires a 'model' field")
 
+        elif cmd == Command.RETRY_WORKER:
+            recorder.preload_worker()
+
         elif cmd == Command.BENCHMARK_MODEL:
             model_name = payload.get("model", "")
             audio_path = payload.get("audio_path") or payload.get("audioPath") or ""
