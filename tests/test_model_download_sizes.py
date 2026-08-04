@@ -186,7 +186,9 @@ def test_optimized_parakeet_snapshot_download_uses_int8_onnx_only():
     repo_id = "istupakov/parakeet-tdt-0.6b-v3-onnx"
 
     assert models._should_ignore_snapshot_file("encoder-model.onnx", repo_id) is True
+    assert models._should_ignore_snapshot_file("encoder-model.onnx.data", repo_id) is True
     assert models._should_ignore_snapshot_file("decoder_joint-model.onnx", repo_id) is True
+    assert models._should_ignore_snapshot_file("nemo128.onnx", repo_id) is True
     assert models._should_ignore_snapshot_file("encoder-model.int8.onnx", repo_id) is False
     assert models._should_ignore_snapshot_file("decoder_joint-model.int8.onnx", repo_id) is False
 

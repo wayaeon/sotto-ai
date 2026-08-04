@@ -397,7 +397,9 @@ _REPO_SNAPSHOT_IGNORE_PATTERNS = {
     # Parakeet's int8 ONNX export is dramatically faster and half the size.
     "istupakov/parakeet-tdt-0.6b-v3-onnx": [
         "encoder-model.onnx",
+        "*.onnx.data",
         "decoder_joint-model.onnx",
+        "nemo128.onnx",
         "*.nemo",
         "model*.safetensors",
         "pytorch_model*.bin",
