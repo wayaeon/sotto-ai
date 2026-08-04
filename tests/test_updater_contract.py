@@ -58,3 +58,17 @@ def test_update_status_is_visible_in_general_settings():
     assert "lastUpdatedAt" in updater
     assert "Update status" in home
     assert "Pending update" in home
+
+
+def test_update_status_exposes_manual_check_and_failures():
+    updater = (ROOT / "src" / "lib" / "updater.ts").read_text(encoding="utf-8")
+    home = (ROOT / "src" / "components" / "Home.tsx").read_text(encoding="utf-8")
+    assert "checkError" in updater
+    assert "Checking for updates" in home
+    assert "Check for updates" in home
+
+
+def test_update_checks_repeat_while_app_is_open():
+    updater = (ROOT / "src" / "lib" / "updater.ts").read_text(encoding="utf-8")
+    assert "setInterval" in updater
+    assert "clearInterval" in updater

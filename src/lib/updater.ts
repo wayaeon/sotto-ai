@@ -5,12 +5,14 @@ import { check } from "@tauri-apps/plugin-updater";
 
 const STATUS_KEY = "verba_update_status";
 const STATUS_EVENT = "verba:update-status";
+const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 
 export interface UpdateStatus {
   currentVersion: string;
   lastCheckedAt: number | null;
   lastUpdatedAt: number | null;
   availableVersion: string | null;
+  checkError: string | null;
 }
 
 export interface AvailableUpdate {
@@ -25,6 +27,7 @@ const DEFAULT_STATUS: UpdateStatus = {
   lastCheckedAt: null,
   lastUpdatedAt: null,
   availableVersion: null,
+  checkError: null,
 };
 
 export function readUpdateStatus(): UpdateStatus {
@@ -36,6 +39,7 @@ export function readUpdateStatus(): UpdateStatus {
       lastCheckedAt: typeof stored?.lastCheckedAt === "number" ? stored.lastCheckedAt : null,
       lastUpdatedAt: typeof stored?.lastUpdatedAt === "number" ? stored.lastUpdatedAt : null,
       availableVersion: typeof stored?.availableVersion === "string" ? stored.availableVersion : null,
+      checkError: typeof stored?.checkError === "string" ? stored.checkError : null,
     };
   } catch {
     return DEFAULT_STATUS;
@@ -72,23 +76,40 @@ export async function checkForUpdate(): Promise<Awaited<ReturnType<typeof check>
     : previous.lastUpdatedAt;
   localStorage.setItem("verba_update_current_version", currentVersion);
 
-  const update = await check({ timeout: 10_000 });
-  writeUpdateStatus({
-    currentVersion,
-    lastCheckedAt: Date.now(),
-    lastUpdatedAt,
-    availableVersion: update?.version ?? null,
-  });
-  return update;
+  try {
+    const update = await check({ timeout: 10_000 });
+    writeUpdateStatus({
+      currentVersion,
+      lastCheckedAt: Date.now(),
+      lastUpdatedAt,
+      availableVersion: update?.version ?? null,
+      checkError: null,
+    });
+    return update;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    writeUpdateStatus({
+      ...previous,
+      currentVersion,
+      lastCheckedAt: Date.now(),
+      lastUpdatedAt,
+      checkError: message.slice(0, 180),
+    });
+    throw error;
+  }
 }
 
 export function scheduleUpdateCheck(onUpdate: (update: AvailableUpdate) => void): () => void {
   let cancelled = false;
-  const timer = window.setTimeout(async () => {
-    if (!isTauri()) return;
+  let notifiedVersion: string | null = null;
+  let interval: number | null = null;
+
+  async function runCheck() {
+    if (cancelled || !isTauri()) return;
     try {
       const update = await checkForUpdate();
-      if (!update || cancelled) return;
+      if (!update || cancelled || notifiedVersion === update.version) return;
+      notifiedVersion = update.version;
       const status = readUpdateStatus();
       onUpdate({
         currentVersion: status.currentVersion,
@@ -97,7 +118,7 @@ export function scheduleUpdateCheck(onUpdate: (update: AvailableUpdate) => void)
         install: async () => {
           await update.downloadAndInstall();
           const latest = readUpdateStatus();
-          writeUpdateStatus({ ...latest, currentVersion: update.version, lastUpdatedAt: Date.now(), availableVersion: null });
+          writeUpdateStatus({ ...latest, currentVersion: update.version, lastUpdatedAt: Date.now(), availableVersion: null, checkError: null });
           await relaunch();
         },
       });
@@ -105,10 +126,16 @@ export function scheduleUpdateCheck(onUpdate: (update: AvailableUpdate) => void)
       // Update checks are opportunistic; a missing network or release must not
       // delay startup or affect local dictation.
     }
+  }
+
+  const timer = window.setTimeout(async () => {
+    await runCheck();
+    if (!cancelled && isTauri()) interval = window.setInterval(runCheck, UPDATE_CHECK_INTERVAL_MS);
   }, 2_500);
 
   return () => {
     cancelled = true;
     window.clearTimeout(timer);
+    if (interval !== null) window.clearInterval(interval);
   };
 }

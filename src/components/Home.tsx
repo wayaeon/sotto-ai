@@ -7,7 +7,7 @@ import { derivePracticeFocus, synonymsForWord } from "../lib/insights";
 import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
 import { setDictionary, setWakePhraseEnabled } from "../lib/tauri";
-import { readUpdateStatus, subscribeToUpdateStatus, type UpdateStatus } from "../lib/updater";
+import { checkForUpdate, readUpdateStatus, subscribeToUpdateStatus, type UpdateStatus } from "../lib/updater";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -1900,11 +1900,46 @@ function GeneralPanel() {
   const [language, setLanguage] = useSetting("language", "en-US");
   const [autoDetect, setAutoDetect] = useToggleSetting("auto_detect_lang", false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(readUpdateStatus);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => subscribeToUpdateStatus(() => setUpdateStatus(readUpdateStatus())), []);
 
+  async function checkNow() {
+    setChecking(true);
+    try {
+      await checkForUpdate();
+    } catch {
+      // The row renders the persisted error from the failed check.
+    } finally {
+      setChecking(false);
+    }
+  }
+
   return (
     <div>
+      <div className="setting-row" style={{ alignItems: "flex-start" }}>
+        <div className="setting-text">
+          <p className="t">Update status</p>
+          <p className="d">
+            Version <strong style={{ color: "var(--text-2)" }}>v{updateStatus.currentVersion}</strong>
+            {updateStatus.lastUpdatedAt
+              ? ` · Last updated ${formatUpdateDate(updateStatus.lastUpdatedAt)}`
+              : " · Last updated not recorded on this device"}
+          </p>
+          <p className="d">
+            {updateStatus.availableVersion
+              ? `Pending update · v${updateStatus.availableVersion}`
+              : updateStatus.checkError
+                ? `Could not check for updates · ${updateStatus.checkError}`
+                : updateStatus.lastCheckedAt
+                  ? `Up to date · checked ${formatUpdateDate(updateStatus.lastCheckedAt)}`
+                  : "Checking for updates…"}
+          </p>
+        </div>
+        <button className="btn btn-sm" type="button" onClick={checkNow} disabled={checking}>
+          {checking ? "Checking…" : "Check for updates"}
+        </button>
+      </div>
       <div className="setting-row">
         <div className="setting-text">
           <p className="t">Launch at login</p>
@@ -1957,27 +1992,6 @@ function GeneralPanel() {
           <p className="d">Automatically detect the spoken language each session.</p>
         </div>
         <Toggle on={autoDetect} onChange={setAutoDetect} />
-      </div>
-      <div className="setting-row" style={{ alignItems: "flex-start" }}>
-        <div className="setting-text">
-          <p className="t">Update status</p>
-          <p className="d">
-            Version <strong style={{ color: "var(--text-2)" }}>v{updateStatus.currentVersion}</strong>
-            {updateStatus.lastUpdatedAt
-              ? ` · Last updated ${formatUpdateDate(updateStatus.lastUpdatedAt)}`
-              : " · Last updated not recorded on this device"}
-          </p>
-          <p className="d">
-            {updateStatus.availableVersion
-              ? `Pending update · v${updateStatus.availableVersion}`
-              : updateStatus.lastCheckedAt
-                ? `Up to date · checked ${formatUpdateDate(updateStatus.lastCheckedAt)}`
-                : "Checking for updates…"}
-          </p>
-        </div>
-        <span style={{ color: updateStatus.availableVersion ? "var(--c-amber)" : "var(--c-mint)", fontSize: 10, fontFamily: "var(--font-mono)", letterSpacing: "0.12em", whiteSpace: "nowrap" }}>
-          {updateStatus.availableVersion ? "PENDING" : "CURRENT"}
-        </span>
       </div>
     </div>
   );

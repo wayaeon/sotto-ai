@@ -88,7 +88,7 @@ pub fn register_hotkeys(app: &AppHandle) {
         let ptt_for_handler = ptt_active.clone();
         let app_for_handler = app.clone();
 
-        if let Err(error) = app.handle().plugin(
+        if let Err(error) = app.plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |_, active_shortcut, event| {
                     if active_shortcut != &shortcut_for_handler {

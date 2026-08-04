@@ -38,6 +38,12 @@ def test_macos_registers_a_native_shortcut_instead_of_the_raw_event_tap():
     assert "tauri-plugin-global-shortcut" in cargo
 
 
+def test_macos_registers_the_plugin_on_the_app_handle():
+    hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
+    assert "app.plugin(" in hotkeys
+    assert "app.handle().plugin(" not in hotkeys
+
+
 def test_middle_mouse_button_remains_available_to_other_apps():
     hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
     assert "ButtonPress(Button::Middle)" not in hotkeys
