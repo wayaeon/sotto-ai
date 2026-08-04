@@ -5,7 +5,7 @@ import { check } from "@tauri-apps/plugin-updater";
 
 const STATUS_KEY = "verba_update_status";
 const STATUS_EVENT = "verba:update-status";
-const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 export interface UpdateStatus {
   currentVersion: string;
@@ -101,11 +101,13 @@ export async function checkForUpdate(): Promise<Awaited<ReturnType<typeof check>
 
 export function scheduleUpdateCheck(onUpdate: (update: AvailableUpdate) => void): () => void {
   let cancelled = false;
+  let checking = false;
   let notifiedVersion: string | null = null;
   let interval: number | null = null;
 
   async function runCheck() {
-    if (cancelled || !isTauri()) return;
+    if (cancelled || checking || !isTauri()) return;
+    checking = true;
     try {
       const update = await checkForUpdate();
       if (!update || cancelled || notifiedVersion === update.version) return;
@@ -125,6 +127,8 @@ export function scheduleUpdateCheck(onUpdate: (update: AvailableUpdate) => void)
     } catch {
       // Update checks are opportunistic; a missing network or release must not
       // delay startup or affect local dictation.
+    } finally {
+      checking = false;
     }
   }
 
@@ -132,10 +136,17 @@ export function scheduleUpdateCheck(onUpdate: (update: AvailableUpdate) => void)
     await runCheck();
     if (!cancelled && isTauri()) interval = window.setInterval(runCheck, UPDATE_CHECK_INTERVAL_MS);
   }, 2_500);
+  const retryWhenReady = () => {
+    if (document.visibilityState !== "hidden") void runCheck();
+  };
+  window.addEventListener("visibilitychange", retryWhenReady);
+  window.addEventListener("online", retryWhenReady);
 
   return () => {
     cancelled = true;
     window.clearTimeout(timer);
     if (interval !== null) window.clearInterval(interval);
+    window.removeEventListener("visibilitychange", retryWhenReady);
+    window.removeEventListener("online", retryWhenReady);
   };
 }

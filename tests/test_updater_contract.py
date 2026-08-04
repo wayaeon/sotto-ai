@@ -72,3 +72,13 @@ def test_update_checks_repeat_while_app_is_open():
     updater = (ROOT / "src" / "lib" / "updater.ts").read_text(encoding="utf-8")
     assert "setInterval" in updater
     assert "clearInterval" in updater
+
+
+def test_update_checks_retry_after_startup_and_resume():
+    updater = (ROOT / "src" / "lib" / "updater.ts").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    assert "visibilitychange" in updater
+    assert "online" in updater
+    assert "checking" in updater
+    assert "macos-15-intel" in workflow
+    assert "macos-13" not in workflow
