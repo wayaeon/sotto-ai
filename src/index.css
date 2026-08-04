@@ -669,7 +669,22 @@ input, textarea, select { font-family: inherit; color: inherit; background: none
 
 /* ─── settings ───────────────────────────────────────────── */
 
-.settings-body { padding-top: 4px; padding-right: 20px; gap: 20px; }
+.settings-main { overflow: hidden; }
+.settings-main .main-header { padding-bottom: 0; }
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 0;
+  padding-right: 20px;
+  gap: 20px;
+}
+.settings-body > .card {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .settings-nav { width: 176px; }
 .setting-row { display: flex; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); }
 .setting-row:last-child { border-bottom: none; }

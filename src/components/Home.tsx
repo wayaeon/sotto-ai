@@ -374,7 +374,7 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
   if (metrics.streak > 0) ambient.push(`streak ${metrics.streak}d`);
 
   return (
-    <div className="main fade-in settings-main">
+    <div className="main fade-in">
       <div className="main-header talk-header">
         <div>
           <div className="eyebrow">
@@ -2404,7 +2404,7 @@ function SettingsScreen({ tier, onViewChange }: { tier: string | null; onViewCha
   }
 
   return (
-    <div className="main fade-in">
+    <div className="main fade-in settings-main">
       <div className="main-header">
         <div>
           <div className="eyebrow">Preferences</div>
