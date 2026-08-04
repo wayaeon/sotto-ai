@@ -1,6 +1,6 @@
 [package]
 name = "sotto"
-version = "0.1.0"
+version = "0.1.14"
 description = "Sotto — offline-first AI dictation"
 authors = []
 edition = "2021"
@@ -26,6 +26,13 @@ arboard = "3"
 tokio = { version = "1", features = ["full"] }
 rdev = "0.5"
 tauri-plugin-autostart = "2.5.1"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-global-shortcut = "2.3.1"
 
 [target.'cfg(windows)'.dependencies]
 uiautomation = "0.15"

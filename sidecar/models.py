@@ -212,6 +212,11 @@ def is_downloaded(model_name: str) -> bool:
     elif runtime == "nemo":
         return _has_complete_file(d, "*.nemo")
     elif runtime in ("onnx", "onnx-asr"):
+        if model_name == "nvidia/parakeet-tdt-0.6b-v3":
+            return all(
+                _has_complete_file(d, filename)
+                for filename in ("encoder-model.int8.onnx", "decoder_joint-model.int8.onnx")
+            )
         return _has_complete_file(d, "*.onnx")
     elif runtime == "transformers":
         return (
@@ -392,7 +397,9 @@ _REPO_SNAPSHOT_IGNORE_PATTERNS = {
     # Parakeet's int8 ONNX export is dramatically faster and half the size.
     "istupakov/parakeet-tdt-0.6b-v3-onnx": [
         "encoder-model.onnx",
+        "*.onnx.data",
         "decoder_joint-model.onnx",
+        "nemo128.onnx",
         "*.nemo",
         "model*.safetensors",
         "pytorch_model*.bin",

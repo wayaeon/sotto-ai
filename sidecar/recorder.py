@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import multiprocessing
 import queue
+import sys
 import threading
 import time
 import wave
@@ -73,6 +74,32 @@ def _pcm16_level(data: bytes) -> float:
         total += sample * sample
     rms = (total / sample_count) ** 0.5
     return min(1.0, rms / 32768.0)
+
+
+def _input_device_candidates(pa, direct_sound_type: int) -> list[int | None]:
+    """Prefer a physical DirectSound mic over Windows' silent MME default."""
+    if sys.platform != "win32":
+        return [None]
+    try:
+        direct_sound_api = pa.get_host_api_info_by_type(direct_sound_type)["index"]
+    except Exception:
+        return [None]
+
+    preferred: list[int] = []
+    fallback: list[int] = []
+    blocked = ("primary sound capture driver", "microsoft sound mapper", "stereo mix")
+    for index in range(pa.get_device_count()):
+        try:
+            info = pa.get_device_info_by_index(index)
+            if info.get("hostApi") != direct_sound_api or info.get("maxInputChannels", 0) < 1:
+                continue
+            name = str(info.get("name", "")).lower()
+            if any(alias in name for alias in blocked):
+                continue
+            (preferred if "microphone" in name or "mic" in name else fallback).append(index)
+        except Exception:
+            continue
+    return preferred + fallback + [None]
 
 
 # ── Module-level worker loop ─────────────────────────────────────────────────
@@ -152,6 +179,7 @@ class Recorder:
         self._loaded_model_name: str | None = None
         self._transcription_active = False
         self._worker_idle_timer: threading.Timer | None = None
+        self._model_download_lock = threading.Lock()
 
         # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────
         self._handsfree       = False
@@ -179,6 +207,7 @@ class Recorder:
             # Wait for mic device to open (usually <500 ms)
             if not self._pump_ready.wait(timeout=8.0):
                 self._ipc.send(Event.ERROR, msg="Audio device did not open within 8 s")
+            self._register_model()
         except Exception as e:
             self._ipc.send(Event.ERROR, msg=f"Preload failed: {e}")
 
@@ -192,16 +221,25 @@ class Recorder:
         """
         import pyaudio
         pa = pyaudio.PyAudio()
-        try:
-            stream = pa.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=_SAMPLE_RATE,
-                input=True,
-                frames_per_buffer=_CHUNK_SIZE,
-            )
-        except Exception as e:
-            self._ipc.send(Event.ERROR, msg=f"Audio device open failed: {e}")
+        stream = None
+        last_error: Exception | None = None
+        for device_index in _input_device_candidates(pa, getattr(pyaudio, "paDirectSound", 1)):
+            try:
+                options = {
+                    "format": pyaudio.paInt16,
+                    "channels": 1,
+                    "rate": _SAMPLE_RATE,
+                    "input": True,
+                    "frames_per_buffer": _CHUNK_SIZE,
+                }
+                if device_index is not None:
+                    options["input_device_index"] = device_index
+                stream = pa.open(**options)
+                break
+            except Exception as exc:
+                last_error = exc
+        if stream is None:
+            self._ipc.send(Event.ERROR, msg=f"Audio device open failed: {last_error}")
             pa.terminate()
             return
 
@@ -246,6 +284,20 @@ class Recorder:
         spec = MODEL_CATALOG.get(self._model_name)
         return spec.runtime if spec else "faster-whisper"
 
+    def _register_model(self) -> None:
+        """Download/check the selected model without loading an inference worker."""
+        from .models import _download_model, is_downloaded
+
+        with self._model_download_lock:
+            self._ipc.send(Event.STATUS, msg=f"model_registering model={self._model_name}")
+            try:
+                if not is_downloaded(self._model_name):
+                    _download_model(self._model_name, self._ipc)
+                if is_downloaded(self._model_name):
+                    self._ipc.send(Event.STATUS, msg=f"model_registered model={self._model_name}")
+            except Exception as exc:
+                self._ipc.send(Event.ERROR, msg=f"Model registration failed for {self._model_name}: {exc}")
+
     def _postprocess_transcript(self, text: str) -> tuple[str, str | None]:
         if self._runtime() == "onnx":
             from .cleanup import restore_readable_transcript
@@ -264,9 +316,10 @@ class Recorder:
 
     def _ensure_model_downloaded(self) -> None:
         from .models import is_downloaded, _download_model
-        if not is_downloaded(self._model_name):
-            self._ipc.send(Event.STATUS, msg="loading_model")
-            _download_model(self._model_name, self._ipc)
+        with self._model_download_lock:
+            if not is_downloaded(self._model_name):
+                self._ipc.send(Event.STATUS, msg="loading_model")
+                _download_model(self._model_name, self._ipc)
 
     def _start_worker(self) -> None:
         self._worker_error = None
@@ -438,7 +491,10 @@ class Recorder:
                 return
 
             if not self._ensure_worker():
-                self._ipc.send(Event.ERROR, msg="Transcription worker unavailable")
+                self._ipc.send(
+                    Event.ERROR,
+                    msg=f"Transcription worker unavailable: {self._worker_error or 'unknown worker error'}",
+                )
                 return
 
             assert self._task_q is not None

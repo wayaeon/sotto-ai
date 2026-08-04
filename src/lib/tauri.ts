@@ -8,6 +8,7 @@ export const setWakePhraseEnabled = (enabled: boolean) => invoke("set_wake_phras
 export const pingSidecar = () => invoke("ping_sidecar");
 export const detectHardware = () => invoke("detect_hardware");
 export const setModel = (model: string) => invoke("set_model", { model });
+export const retryWorker = () => invoke("retry_worker");
 export const benchmarkModel = (model: string, audioPath?: string | null) => invoke("benchmark_model", { model, audioPath });
 export const setDictionary = (words: string[]) => invoke("set_dictionary", { words });
 export const setFillerConfig = (enabled: boolean, words: string[]) => invoke("set_filler_config", { enabled, words });

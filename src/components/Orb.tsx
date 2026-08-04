@@ -1,5 +1,5 @@
 import { useAppStore } from "../stores/appStore";
-import { setModel as setModelIpc, setWakePhraseEnabled, toggleHandsfree } from "../lib/tauri";
+import { retryWorker, setWakePhraseEnabled, toggleHandsfree } from "../lib/tauri";
 
 /**
  * The Orb — the single hero of the Talk surface (DESIGN.md §3).
@@ -43,14 +43,14 @@ function shortModel(model: string | null): string {
 export default function Orb() {
   const { state, detail } = useOrbState();
   const setLastError = useAppStore((s) => s.setLastError);
-  const model = useAppStore((s) => s.model);
   const wakePhraseActive = useAppStore((s) => s.wakePhraseActive);
 
   const onClick = () => {
     if (state === "error") {
-      // Retry: clear the error and re-request the current model
+      // Retry the worker directly without changing the selected model or
+      // eagerly loading it during normal startup.
       setLastError(null);
-      if (model) setModelIpc(model).catch(console.error);
+      retryWorker().catch(console.error);
       return;
     }
     if (state === "ready" || state === "listening" || state === "recording") {

@@ -19,6 +19,8 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None::<Vec<&str>>,
         ))
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .manage(SidecarState::new())
@@ -30,6 +32,7 @@ fn main() {
             commands::ping_sidecar,
             commands::detect_hardware,
             commands::set_model,
+            commands::retry_worker,
             commands::benchmark_model,
             commands::set_dictionary,
             commands::set_filler_config,
@@ -52,15 +55,18 @@ fn main() {
             } else {
                 WebviewUrl::App("index.html#pill".into())
             };
-            WebviewWindowBuilder::new(app, "pill", pill_url)
+            let mut pill_builder = WebviewWindowBuilder::new(app, "pill", pill_url)
                 .title("")
-                .decorations(false)
-                .transparent(true)
+                .decorations(false);
+            #[cfg(windows)]
+            {
+                pill_builder = pill_builder.transparent(true).shadow(false);
+            }
+            pill_builder
                 .always_on_top(true)
                 .skip_taskbar(true)
                 .resizable(true)
                 .inner_size(60.0, 56.0)
-                .shadow(false)
                 .build()?;
 
             // Position pill window at bottom-center of primary monitor (collapsed width)

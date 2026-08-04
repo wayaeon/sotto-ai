@@ -198,6 +198,24 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           // Track model load lifecycle
           if (msg.msg === "idle") setModelReady(true);
           else if (msg.msg === "loading_model") setModelReady(false);
+          else if (msg.msg.startsWith("model_registering")) {
+            const parts = Object.fromEntries(
+              msg.msg.split(" ").slice(1).map((p) => p.split("="))
+            );
+            if (parts.model) setModel(parts.model);
+            setModelReady(false);
+          }
+          else if (msg.msg.startsWith("model_registered")) {
+            const parts = Object.fromEntries(
+              msg.msg.split(" ").slice(1).map((p) => p.split("="))
+            );
+            if (parts.model) {
+              setModel(parts.model);
+              localStorage.setItem("verba_model", parts.model);
+            }
+            setModelReady(true);
+            setModelDownload(null);
+          }
           else if (msg.msg.startsWith("worker_ready")) {
             const parts = Object.fromEntries(
               msg.msg.split(" ").slice(1).map((p) => p.split("="))

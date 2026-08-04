@@ -23,6 +23,27 @@ def test_ptt_starts_regardless_of_ctrl_and_alt_key_press_order():
     assert hotkeys.count("maybe_start_ptt") >= 3
 
 
+def test_macos_does_not_install_the_rdev_event_tap_used_by_windows_ptt():
+    hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
+    assert '#[cfg(not(target_os = "macos"))]' in hotkeys
+    assert "rdev::listen" in hotkeys
+
+
+def test_macos_registers_a_native_shortcut_instead_of_the_raw_event_tap():
+    hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
+    cargo = (ROOT / "src-tauri" / "Cargo.toml").read_text(encoding="utf-8")
+    assert '#[cfg(target_os = "macos")]' in hotkeys
+    assert "tauri_plugin_global_shortcut" in hotkeys
+    assert "Code::Space" in hotkeys
+    assert "tauri-plugin-global-shortcut" in cargo
+
+
+def test_macos_registers_the_plugin_on_the_app_handle():
+    hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
+    assert "app.plugin(" in hotkeys
+    assert "app.handle().plugin(" not in hotkeys
+
+
 def test_middle_mouse_button_remains_available_to_other_apps():
     hotkeys = (ROOT / "src-tauri" / "src" / "hotkeys.rs").read_text(encoding="utf-8")
     assert "ButtonPress(Button::Middle)" not in hotkeys

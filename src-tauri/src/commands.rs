@@ -87,6 +87,11 @@ pub fn set_model(app: AppHandle, model: String) {
 }
 
 #[tauri::command]
+pub fn retry_worker(app: AppHandle) {
+    send_command(&app, json!({"cmd": "retry_worker"}));
+}
+
+#[tauri::command]
 pub fn benchmark_model(app: AppHandle, model: String, audio_path: Option<String>) {
     send_command(&app, json!({"cmd": "benchmark_model", "model": model, "audio_path": audio_path}));
 }

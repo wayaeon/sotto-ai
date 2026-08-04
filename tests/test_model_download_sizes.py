@@ -186,7 +186,9 @@ def test_optimized_parakeet_snapshot_download_uses_int8_onnx_only():
     repo_id = "istupakov/parakeet-tdt-0.6b-v3-onnx"
 
     assert models._should_ignore_snapshot_file("encoder-model.onnx", repo_id) is True
+    assert models._should_ignore_snapshot_file("encoder-model.onnx.data", repo_id) is True
     assert models._should_ignore_snapshot_file("decoder_joint-model.onnx", repo_id) is True
+    assert models._should_ignore_snapshot_file("nemo128.onnx", repo_id) is True
     assert models._should_ignore_snapshot_file("encoder-model.int8.onnx", repo_id) is False
     assert models._should_ignore_snapshot_file("decoder_joint-model.int8.onnx", repo_id) is False
 
@@ -293,6 +295,15 @@ def test_download_status_for_optimized_parakeet_counts_onnx_weights(tmp_path, mo
 
     assert payload["downloaded"] is True
     assert payload["bytes_downloaded"] == 1100
+
+
+def test_optimized_parakeet_partial_weights_are_not_registered(tmp_path, monkeypatch):
+    monkeypatch.setattr(models, "MODELS_DIR", tmp_path)
+    model_path = tmp_path / "nvidia" / "parakeet-tdt-0.6b-v3"
+    model_path.mkdir(parents=True)
+    (model_path / "encoder-model.int8.onnx").write_bytes(b"0" * 1000)
+
+    assert models.is_downloaded("nvidia/parakeet-tdt-0.6b-v3") is False
 
 
 def test_download_status_payload_marks_missing_model_not_downloaded(tmp_path, monkeypatch):
