@@ -82,3 +82,6 @@ def test_update_checks_retry_after_startup_and_resume():
     assert "checking" in updater
     assert "macos-15-intel" in workflow
     assert "macos-13" not in workflow
+    assert "fail-fast: false" in workflow
+    assert "onnx-asr[hub]" in workflow
+    assert "torch>=2.3" not in workflow

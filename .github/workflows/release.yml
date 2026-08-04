@@ -60,6 +60,7 @@ jobs:
 
   build-macos:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runner: macos-15-intel
@@ -85,7 +86,12 @@ jobs:
       - run: |
           export CFLAGS="-I$(brew --prefix portaudio)/include"
           export LDFLAGS="-L$(brew --prefix portaudio)/lib"
-          uv pip install --system -r sidecar/requirements.txt
+          # Parakeet uses the ONNX path on macOS. The legacy Torch/NeMo stack
+          # has no Intel macOS wheels and is not bundled into the desktop app.
+          uv pip install --system \
+            "psutil>=5.9" "huggingface_hub>=0.23" "requests>=2.32" \
+            "pyaudio>=0.2.14" "webrtcvad-wheels>=2.0.14" "sherpa-onnx>=1.13,<2" \
+            "onnx-asr[hub]>=0.11" "onnxruntime>=1.18"
           pyinstaller --clean --noconfirm sidecar.spec --distpath src-tauri/binaries
           mv src-tauri/binaries/sidecar src-tauri/binaries/sidecar-${{ matrix.target }}
       - run: pnpm install
