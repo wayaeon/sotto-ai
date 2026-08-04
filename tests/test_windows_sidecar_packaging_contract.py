@@ -23,3 +23,9 @@ def test_windows_dependencies_only_install_the_onnx_parakeet_stack():
     for package in ("faster-whisper", "torch", "torchaudio", "nemo_toolkit", "transformers", "accelerate", "funasr", "mistral-common"):
         line = next(line for line in requirements.splitlines() if line.startswith(package))
         assert 'sys_platform != "win32"' in line
+
+
+def test_sidecar_bundles_onnx_asr_distribution_metadata_for_frozen_worker():
+    spec = (ROOT / "sidecar.spec").read_text(encoding="utf-8")
+
+    assert 'copy_metadata("onnx-asr")' in spec

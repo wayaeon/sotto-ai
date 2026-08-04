@@ -20,7 +20,7 @@ export default function ModelStep({ onNext }: Props) {
     <div style={shell}>
       <div style={eyebrow}>Transcription model</div>
       <h2 style={heading}>Parakeet is your Windows engine</h2>
-      <p style={sub}>Sotto keeps this model warm in the background so your first dictation is ready when you are.</p>
+      <p style={sub}>Verba keeps Parakeet downloaded locally. It loads the worker only when you dictate, keeping idle memory use low.</p>
 
       <div style={card}>
         <div style={modelIcon}>◈</div>

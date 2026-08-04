@@ -295,6 +295,15 @@ def test_download_status_for_optimized_parakeet_counts_onnx_weights(tmp_path, mo
     assert payload["bytes_downloaded"] == 1100
 
 
+def test_optimized_parakeet_partial_weights_are_not_registered(tmp_path, monkeypatch):
+    monkeypatch.setattr(models, "MODELS_DIR", tmp_path)
+    model_path = tmp_path / "nvidia" / "parakeet-tdt-0.6b-v3"
+    model_path.mkdir(parents=True)
+    (model_path / "encoder-model.int8.onnx").write_bytes(b"0" * 1000)
+
+    assert models.is_downloaded("nvidia/parakeet-tdt-0.6b-v3") is False
+
+
 def test_download_status_payload_marks_missing_model_not_downloaded(tmp_path, monkeypatch):
     monkeypatch.setattr(models, "MODELS_DIR", tmp_path)
     monkeypatch.setattr(models, "_module_available", lambda _name: True)

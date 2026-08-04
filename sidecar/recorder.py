@@ -152,6 +152,7 @@ class Recorder:
         self._loaded_model_name: str | None = None
         self._transcription_active = False
         self._worker_idle_timer: threading.Timer | None = None
+        self._model_download_lock = threading.Lock()
 
         # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────
         self._handsfree       = False
@@ -179,6 +180,7 @@ class Recorder:
             # Wait for mic device to open (usually <500 ms)
             if not self._pump_ready.wait(timeout=8.0):
                 self._ipc.send(Event.ERROR, msg="Audio device did not open within 8 s")
+            self._register_model()
         except Exception as e:
             self._ipc.send(Event.ERROR, msg=f"Preload failed: {e}")
 
@@ -246,6 +248,20 @@ class Recorder:
         spec = MODEL_CATALOG.get(self._model_name)
         return spec.runtime if spec else "faster-whisper"
 
+    def _register_model(self) -> None:
+        """Download/check the selected model without loading an inference worker."""
+        from .models import _download_model, is_downloaded
+
+        with self._model_download_lock:
+            self._ipc.send(Event.STATUS, msg=f"model_registering model={self._model_name}")
+            try:
+                if not is_downloaded(self._model_name):
+                    _download_model(self._model_name, self._ipc)
+                if is_downloaded(self._model_name):
+                    self._ipc.send(Event.STATUS, msg=f"model_registered model={self._model_name}")
+            except Exception as exc:
+                self._ipc.send(Event.ERROR, msg=f"Model registration failed for {self._model_name}: {exc}")
+
     def _postprocess_transcript(self, text: str) -> tuple[str, str | None]:
         if self._runtime() == "onnx":
             from .cleanup import restore_readable_transcript
@@ -264,9 +280,10 @@ class Recorder:
 
     def _ensure_model_downloaded(self) -> None:
         from .models import is_downloaded, _download_model
-        if not is_downloaded(self._model_name):
-            self._ipc.send(Event.STATUS, msg="loading_model")
-            _download_model(self._model_name, self._ipc)
+        with self._model_download_lock:
+            if not is_downloaded(self._model_name):
+                self._ipc.send(Event.STATUS, msg="loading_model")
+                _download_model(self._model_name, self._ipc)
 
     def _start_worker(self) -> None:
         self._worker_error = None

@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys
+from PyInstaller.utils.hooks import copy_metadata
 
 
 # Windows ships one transcription engine: int8 ONNX Parakeet.  The source tree
@@ -36,7 +37,9 @@ a = Analysis(
     ['sidecar/main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    # onnx-asr reads its own version with importlib.metadata at worker startup.
+    # Frozen apps do not include dist-info unless it is copied explicitly.
+    datas=copy_metadata("onnx-asr"),
     hiddenimports=[],
     hookspath=['sidecar/hooks'],
     hooksconfig={},
