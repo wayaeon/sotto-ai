@@ -60,11 +60,13 @@ pub fn spawn_sidecar(app: &AppHandle) {
 
     match result {
         Ok((mut rx, child)) => {
-            app.state::<SidecarState>()
-                .child
-                .lock()
-                .unwrap()
-                .replace(child);
+            // Kill any existing sidecar before replacing it to prevent zombie processes
+            let mut lock = app.state::<SidecarState>().child.lock().unwrap();
+            if let Some(mut old_child) = lock.take() {
+                let _ = old_child.kill();
+            }
+            lock.replace(child);
+            drop(lock);  // Release lock before spawning async task
 
             let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
