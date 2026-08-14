@@ -11,7 +11,7 @@ if (Test-Path $vcvarsall) {
     }
 }
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
-$env:CARGO_TARGET_DIR = Join-Path $env:TEMP "sotto-target"
+$env:CARGO_TARGET_DIR = Join-Path $env:TEMP "verba-target"
 
 Write-Host "Building the local Verba installer..."
 # NSIS is the self-contained Windows installer and does not require WiX's MSI linker.

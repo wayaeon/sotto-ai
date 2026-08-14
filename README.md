@@ -1,23 +1,23 @@
-# Sotto
+# Verba
 
 **Local-first, offline voice dictation for Windows.**  
-Press and hold `Ctrl + Win`, speak, release — your words appear instantly in whatever you're typing.  
+Press and hold `Ctrl + Alt`, speak, release — your words appear instantly in whatever you're typing.  
 No cloud. No subscription. No audio leaving your machine.
 
 ---
 
 ## What it does
 
-Sotto is a push-to-talk dictation app that runs entirely on your computer. It captures your voice, transcribes it with Parakeet on Windows, optionally cleans it up with a local LLM (Ollama), and pastes the result directly into your active text field — all without touching the internet.
+Verba is a push-to-talk dictation app that runs entirely on your computer. It captures your voice, transcribes it with Parakeet on Windows, optionally cleans it up with a local LLM (Ollama), and pastes the result directly into your active text field — all without touching the internet.
 
 | Stage | What happens |
 |-------|-------------|
-| 1 · Record | Hold `Ctrl + Win` → mic opens instantly (pre-warmed) |
+| 1 · Record | Hold `Ctrl + Alt` → mic opens instantly (pre-warmed) |
 | 2 · Transcribe | Release → Parakeet processes the audio locally |
 | 3 · Polish *(optional)* | Local Ollama model fixes punctuation and speech errors |
 | 4 · Output | Text is pasted via clipboard into whatever you're typing |
 
-Recordings are saved to `~/.sotto/recordings/` as timestamped WAV files.
+Recordings are saved to `~/.verba/recordings/` as timestamped WAV files.
 
 ---
 
@@ -40,7 +40,7 @@ Recordings are saved to `~/.sotto/recordings/` as timestamped WAV files.
 
 Windows uses Parakeet TDT 0.6B v3 as the fixed transcription model. The sidecar loads it when dictation starts, keeps it warm briefly for follow-up dictation, then unloads it while idle.
 
-Models are downloaded on first run to `~/.sotto/models/`.
+Models are downloaded on first run to `~/.verba/models/`.
 
 ---
 
@@ -58,8 +58,8 @@ Models are downloaded on first run to `~/.sotto/models/`.
 
 ```powershell
 # 1. Clone
-git clone https://github.com/your-username/sotto.git
-cd sotto
+git clone https://github.com/wayaeon/sotto-ai.git
+cd sotto-ai
 
 # 2. Install JS deps
 pnpm install
@@ -101,7 +101,7 @@ Copy-Item C:\Temp\sidecar_dist\sidecar.exe `
 .\run-local.ps1
 ```
 
-The installer is written to `%TEMP%\sotto-target\release\bundle\nsis\`. Windows local builds produce an NSIS installer. macOS Intel and Apple Silicon installers are produced by the tag workflow in `.github\workflows\release.yml`.
+The installer is written to `%TEMP%\verba-target\release\bundle\nsis\`. Windows local builds produce an NSIS installer. macOS Intel and Apple Silicon installers are produced by the tag workflow in `.github\workflows\release.yml`.
 
 ---
 
@@ -109,8 +109,8 @@ The installer is written to `%TEMP%\sotto-target\release\bundle\nsis\`. Windows 
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl + Win` (hold) | Start recording |
-| `Ctrl + Win` (release) | Stop and transcribe |
+| `Ctrl + Alt` (hold) | Start recording |
+| `Ctrl + Alt` (release) | Stop and transcribe |
 
 ---
 
@@ -129,7 +129,7 @@ The default prompt strips filler words, fixes capitalisation, and cleans punctua
 ## Project structure
 
 ```
-sotto/
+verba/
 ├── src/                        # React frontend
 │   ├── components/
 │   │   ├── Pill.tsx            # Floating dictation pill (separate Tauri window)
@@ -175,7 +175,7 @@ sotto/
 ┌───────────────────────────────────────────────────────┐
 │  Python Sidecar (PyInstaller .exe)                    │
 │                                                       │
-│  PyAudio ──► WAV file (~/.sotto/recordings/)          │
+│  PyAudio ──► WAV file (~/.verba/recordings/)          │
 │      │                                                │
 │      └──► feed_audio() ──► RealtimeSTT/Whisper        │
 │                                 │                     │

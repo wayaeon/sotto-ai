@@ -1,14 +1,14 @@
 [package]
-name = "sotto"
+name = "verba"
 version = "0.1.14"
-description = "Sotto — offline-first AI dictation"
+description = "Verba — offline-first AI dictation"
 authors = []
 edition = "2021"
 
 [package.metadata.tauri]
 
 [[bin]]
-name = "sotto"
+name = "verba"
 path = "src/main.rs"
 
 [build-dependencies]

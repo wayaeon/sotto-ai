@@ -12,7 +12,7 @@ foreach ($line in $envOutput) {
     }
 }
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
-$env:CARGO_TARGET_DIR = Join-Path $env:TEMP "sotto-target"
+$env:CARGO_TARGET_DIR = Join-Path $env:TEMP "verba-target"
 
 # Stop only this checkout's stale debug app/sidecar before starting one session.
 $debugRoots = @(
@@ -20,7 +20,7 @@ $debugRoots = @(
     (Join-Path $PSScriptRoot "src-tauri\target\debug")
 )
 foreach ($debugRoot in $debugRoots) {
-    foreach ($name in @("sotto", "sidecar")) {
+    foreach ($name in @("verba", "sidecar")) {
         $path = Join-Path $debugRoot "$name.exe"
         Get-Process -Name $name -ErrorAction SilentlyContinue |
             Where-Object { $_.Path -eq $path } |

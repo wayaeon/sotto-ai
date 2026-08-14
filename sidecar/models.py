@@ -17,8 +17,17 @@ from .hardware import ModelTier
 if TYPE_CHECKING:
     from .ipc import IPC
 
-# Models are stored in ~/.verba
-_DATA_DIR = Path(os.environ.get("WISPR_DATA_DIR", Path.home() / ".verba"))
+# Models are stored in ~/.verba (with fallback to legacy ~/.sotto for existing installs)
+_VERBA_DATA_DIR = Path(os.environ.get("VERBA_DATA_DIR", Path.home() / ".verba"))
+_LEGACY_SOTTO_DATA_DIR = Path.home() / ".sotto"
+
+# Use ~/.verba if it exists, or if ~/.sotto doesn't exist (new installs).
+# Otherwise, keep using ~/.sotto for backward compatibility with existing installs.
+if _VERBA_DATA_DIR.exists() or not _LEGACY_SOTTO_DATA_DIR.exists():
+    _DATA_DIR = _VERBA_DATA_DIR
+else:
+    _DATA_DIR = _LEGACY_SOTTO_DATA_DIR
+
 MODELS_DIR = _DATA_DIR / "models"
 WAKE_WORD_MODEL_NAME = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 WAKE_WORD_DIR = MODELS_DIR / WAKE_WORD_MODEL_NAME
