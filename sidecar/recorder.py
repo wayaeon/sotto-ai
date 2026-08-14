@@ -553,49 +553,34 @@ class Recorder:
 
     # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────────
 
-    def toggle_handsfree(self) -> None:
-        # DISABLED: hands-free mode has false-trigger issues (creates flood of
-        # handsfree_*.wav files with no transcription). Force it OFF until fixed.
+    def _force_handsfree_off(self) -> None:
         with self._lock:
-            if self._wake_mode != "off":
-                self._wake_mode = "off"
-                detector, self._wake_detector = self._wake_detector, None
-                if detector is not None:
-                    detector.close()
-                self._ipc.send(Event.STATUS, msg="wake_off")
-            
-            # Always turn OFF if somehow enabled
-            if self._handsfree:
-                self._handsfree = False
-                self._handsfree_queue = None
-                self._ipc.send(Event.STATUS, msg="handsfree_off")
-            
-            # Don't allow re-enabling: send error message
-            self._ipc.send(Event.ERROR, msg="Hands-free mode temporarily disabled (false-trigger issue)")
-            self._ipc.send(Event.STATUS, msg="idle")
+            self._handsfree = False
+            self._handsfree_queue = None
+            self._wake_mode = "off"
+            detector, self._wake_detector = self._wake_detector, None
+        if detector is not None:
+            detector.close()
+        self._ipc.send(Event.STATUS, msg="handsfree_off")
+        self._ipc.send(Event.STATUS, msg="wake_off")
+        self._ipc.send(Event.STATUS, msg="idle")
+
+    def toggle_handsfree(self) -> None:
+        # Clicking the orb/pill used to flip this on and flood handsfree_*.wav
+        # files with no transcript. PTT (Ctrl+Alt hold/release) is the only path.
+        self._force_handsfree_off()
+        self._ipc.send(Event.ERROR, msg="Hands-free is off. Hold Ctrl+Alt to dictate.")
 
     def set_wake_phrase_enabled(self, enabled: bool) -> bool:
-        """DISABLED: wake phrase has same false-trigger issues as hands-free."""
-        with self._lock:
-            # Always turn OFF if somehow enabled
-            if self._wake_mode != "off":
-                self._wake_mode = "off"
-                detector, self._wake_detector = self._wake_detector, None
-                if detector is not None:
-                    detector.close()
-            if self._handsfree:
-                self._handsfree = False
-                self._handsfree_queue = None
-                self._ipc.send(Event.STATUS, msg="handsfree_off")
-            self._handsfree_queue = None
-            self._ipc.send(Event.STATUS, msg="wake_off")
-            
-            # Don't allow enabling
-            if enabled:
-                self._ipc.send(Event.ERROR, msg="Wake phrase temporarily disabled (false-trigger issue)")
-            return False
+        """Wake phrase stays off. Same false-trigger loop as hands-free."""
+        self._force_handsfree_off()
+        if enabled:
+            self._ipc.send(Event.ERROR, msg="Wake phrase is off. Hold Ctrl+Alt to dictate.")
+        return False
 
     def _arm_wake_phrase(self) -> None:
+        self._force_handsfree_off()
+        return
         try:
             from .models import download_wake_word_model, wake_word_model_ready
             from .wakeword import WakeWordDetector
@@ -623,6 +608,7 @@ class Recorder:
 
     def _wake_phrase_loop(self) -> None:
         """VAD-gate the KWS model, then collect only audio after the phrase."""
+        return
         vad = webrtcvad.Vad(_VAD_AGGRESSIVENESS)
         with self._lock:
             audio_q = self._handsfree_queue
@@ -711,6 +697,7 @@ class Recorder:
         consecutive frames have all classified as speech; anything shorter is
         discarded as noise without ever reaching the worker.
         """
+        return
         vad = webrtcvad.Vad(_VAD_AGGRESSIVENESS)
         audio_q = self._handsfree_queue
         frame_buf   = bytearray()
@@ -775,6 +762,8 @@ class Recorder:
                             silence_frames = 0
 
     def _transcribe_handsfree_utterance(self, pcm: bytes) -> None:
+        del pcm
+        return
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         wav_path = _RECORDINGS_DIR / f"handsfree_{ts}.wav"
         with wave.open(str(wav_path), "wb") as wf:

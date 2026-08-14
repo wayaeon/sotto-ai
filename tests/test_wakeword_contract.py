@@ -53,6 +53,20 @@ def test_recorder_keeps_wake_phrase_out_of_the_transcribed_audio():
     assert "wake_phrase_buf and detector is not None" in source
 
 
+def test_handsfree_and_wake_cannot_start_or_write_wavs():
+    recorder = (ROOT / "sidecar/recorder.py").read_text(encoding="utf-8")
+    toggle = recorder[recorder.index("def toggle_handsfree"):recorder.index("def set_wake_phrase_enabled")]
+    start = recorder.index("def _transcribe_handsfree_utterance")
+    transcribe_head = recorder[start:start + 280]
+    assert "self._handsfree = not self._handsfree" not in toggle
+    assert "target=self._handsfree_loop" not in recorder
+    assert "\n        return\n" in transcribe_head
+    orb = (ROOT / "src/components/Orb.tsx").read_text(encoding="utf-8")
+    pill = (ROOT / "src/components/Pill.tsx").read_text(encoding="utf-8")
+    assert "toggleHandsfree" not in orb
+    assert "toggleHandsfree" not in pill
+
+
 def test_wake_phrase_has_a_real_ipc_and_settings_bridge():
     ipc = (ROOT / "sidecar/ipc.py").read_text(encoding="utf-8")
     main = (ROOT / "sidecar/main.py").read_text(encoding="utf-8")

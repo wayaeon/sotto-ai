@@ -1,5 +1,5 @@
 import { useAppStore } from "../stores/appStore";
-import { retryWorker, setWakePhraseEnabled, toggleHandsfree } from "../lib/tauri";
+import { retryWorker } from "../lib/tauri";
 
 /**
  * The Orb — the single hero of the Talk surface (DESIGN.md §3).
@@ -43,7 +43,6 @@ function shortModel(model: string | null): string {
 export default function Orb() {
   const { state, detail } = useOrbState();
   const setLastError = useAppStore((s) => s.setLastError);
-  const wakePhraseActive = useAppStore((s) => s.wakePhraseActive);
 
   const onClick = () => {
     if (state === "error") {
@@ -51,15 +50,9 @@ export default function Orb() {
       // eagerly loading it during normal startup.
       setLastError(null);
       retryWorker().catch(console.error);
-      return;
     }
-    if (state === "ready" || state === "listening" || state === "recording") {
-      if (wakePhraseActive) {
-        setWakePhraseEnabled(false).catch(console.error);
-        return;
-      }
-      toggleHandsfree().catch(console.error);
-    }
+    // Dictation is Ctrl+Alt hold/release only. The orb used to toggle
+    // hands-free, which flooded handsfree_*.wav files and never pasted.
   };
 
   return (
@@ -68,7 +61,7 @@ export default function Orb() {
         className="orb"
         data-state={state}
         onClick={onClick}
-        aria-label={state === "error" ? "Retry model load" : "Toggle hands-free dictation"}
+        aria-label={state === "error" ? "Retry model load" : "Hold Ctrl+Alt to dictate"}
       >
         <span className="orb-ring" />
         <span className="orb-core">
@@ -96,7 +89,7 @@ export default function Orb() {
         </div>
       )}
       {state === "listening" && (
-        <div className="orb-hint">{wakePhraseActive ? "say Verba dictate — click to stop" : "still listening between utterances — click to stop"}</div>
+        <div className="orb-hint">hold Ctrl+Alt to dictate</div>
       )}
       {state === "error" && (
         <div className="orb-hint">click to retry</div>
