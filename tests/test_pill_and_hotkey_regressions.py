@@ -21,6 +21,8 @@ def test_ptt_starts_regardless_of_ctrl_and_alt_key_press_order():
     assert "alt_down" in hotkeys
     assert "MetaLeft" not in hotkeys
     assert hotkeys.count("maybe_start_ptt") >= 3
+    assert "GetAsyncKeyState" in hotkeys
+    assert "ctrl_alt_physically_down" in hotkeys
 
 
 def test_macos_does_not_install_the_rdev_event_tap_used_by_windows_ptt():
@@ -95,7 +97,8 @@ def test_sidecar_metadata_status_does_not_reset_the_live_audio_visual():
 def test_model_loading_status_cannot_demote_an_active_recording_visual():
     hook = (ROOT / "src" / "hooks" / "useSidecar.ts").read_text(encoding="utf-8")
     assert "const preserveActiveCapture" in hook
-    assert 'state === "loading" || state === "idle"' in hook
+    assert 'state === "loading"' in hook
+    assert 'state === "loading" || state === "idle"' not in hook
 
 
 def test_recording_controls_use_the_compact_action_style():

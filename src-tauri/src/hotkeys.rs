@@ -33,6 +33,16 @@ fn stop_ptt(app: &AppHandle, ptt_active: &AtomicBool) {
     }
 }
 
+#[cfg(windows)]
+fn ctrl_alt_physically_down() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_MENU};
+    unsafe {
+        let ctrl = GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000 != 0;
+        let alt = GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000 != 0;
+        ctrl && alt
+    }
+}
+
 pub fn register_hotkeys(app: &AppHandle) {
     let app = app.clone();
 
@@ -49,6 +59,25 @@ pub fn register_hotkeys(app: &AppHandle) {
         let alt1  = alt_down.clone();
         let ptt1  = ptt_active.clone();
         let app1  = app.clone();
+
+        #[cfg(windows)]
+        {
+            // rdev often misses Alt KeyRelease on Windows, which leaves PTT
+            // stuck in "listening". Poll the real key state so release always
+            // sends stop_ptt.
+            let ptt_poll = ptt_active.clone();
+            let app_poll = app.clone();
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    if ctrl_alt_physically_down() {
+                        start_ptt(&app_poll, &ptt_poll);
+                    } else {
+                        stop_ptt(&app_poll, &ptt_poll);
+                    }
+                }
+            });
+        }
 
         if let Err(error) = rdev::listen(move |event| {
             use rdev::EventType::*;

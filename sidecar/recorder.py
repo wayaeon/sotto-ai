@@ -37,7 +37,7 @@ _RECORDINGS_DIR  = Path.home() / ".verba" / "recordings"
 _SAMPLE_RATE     = 16000
 _SAMPLE_WIDTH    = 2       # 16-bit PCM
 _CHUNK_SIZE      = 1024
-_WORKER_TIMEOUT  = 1800    # allow slow CPU models to finish without unloading
+_WORKER_TIMEOUT  = 45     # PTT must not sit on "listening" for half an hour
 _WORKER_INIT_S   = 120     # seconds to wait for model load (GPU can take ~30 s)
 # Keep the model warm between normal dictations. Reloading after 45 s made the
 # next utterance pay the full Parakeet startup cost; ten minutes still bounds
@@ -449,6 +449,9 @@ class Recorder:
     def stop_ptt(self) -> None:
         with self._lock:
             if not self._recording_active:
+                # Rust already flipped the UI to recording on key-down. If the
+                # WAV never opened, still leave that state on key-up.
+                self._ipc.send(Event.STATUS, msg="processing")
                 self._ipc.send(Event.STATUS, msg="idle")
                 return
             t_capture_end_ms       = time.time() * 1000

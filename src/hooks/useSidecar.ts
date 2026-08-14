@@ -178,10 +178,11 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             idle:           "idle",
           };
           const state = statusMap[msg.msg];
-          // Worker loading is deliberately overlapped with capture. Its lifecycle
-          // statuses must never make a live recording look idle or loading.
+          // Worker loading is overlapped with capture. Never let loading_model
+          // hide a live hold. processing/idle from key-up must always win so
+          // release cannot get stuck on "Listening…".
           const preserveActiveCapture = useAppStore.getState().recordingState === "recording"
-            && (state === "loading" || state === "idle");
+            && state === "loading";
           if (state && !preserveActiveCapture) {
             if (state === "recording" && dictationStartMs.current === null) {
               dictationStartMs.current = Date.now();
