@@ -554,6 +554,8 @@ class Recorder:
     # ── hands-free (VAD-segmented, shares the PTT worker) ─────────────────────
 
     def toggle_handsfree(self) -> None:
+        # DISABLED: hands-free mode has false-trigger issues (creates flood of
+        # handsfree_*.wav files with no transcription). Force it OFF until fixed.
         with self._lock:
             if self._wake_mode != "off":
                 self._wake_mode = "off"
@@ -561,37 +563,37 @@ class Recorder:
                 if detector is not None:
                     detector.close()
                 self._ipc.send(Event.STATUS, msg="wake_off")
-            self._handsfree = not self._handsfree
-            if self._handsfree:
-                self._handsfree_queue = queue.Queue(maxsize=_HANDSFREE_QUEUE_MAXLEN)
-                threading.Thread(target=self._handsfree_loop, daemon=True).start()
-                self.preload_worker()
-                self._ipc.send(Event.STATUS, msg="handsfree_on")
-            else:
-                self._handsfree_queue = None
-                self._ipc.send(Event.STATUS, msg="handsfree_off")
-
-    def set_wake_phrase_enabled(self, enabled: bool) -> bool:
-        """Arm local keyword detection without ever loading the ASR worker."""
-        with self._lock:
-            if not enabled:
-                self._wake_mode = "off"
-                detector, self._wake_detector = self._wake_detector, None
-                if not self._handsfree:
-                    self._handsfree_queue = None
-                if detector is not None:
-                    detector.close()
-                self._ipc.send(Event.STATUS, msg="wake_off")
-                return True
-            if self._wake_mode != "off":
-                return True
+            
+            # Always turn OFF if somehow enabled
             if self._handsfree:
                 self._handsfree = False
                 self._handsfree_queue = None
                 self._ipc.send(Event.STATUS, msg="handsfree_off")
-            self._wake_mode = "arming"
-        threading.Thread(target=self._arm_wake_phrase, name="verba-wake-word", daemon=True).start()
-        return True
+            
+            # Don't allow re-enabling: send error message
+            self._ipc.send(Event.ERROR, msg="Hands-free mode temporarily disabled (false-trigger issue)")
+            self._ipc.send(Event.STATUS, msg="idle")
+
+    def set_wake_phrase_enabled(self, enabled: bool) -> bool:
+        """DISABLED: wake phrase has same false-trigger issues as hands-free."""
+        with self._lock:
+            # Always turn OFF if somehow enabled
+            if self._wake_mode != "off":
+                self._wake_mode = "off"
+                detector, self._wake_detector = self._wake_detector, None
+                if detector is not None:
+                    detector.close()
+            if self._handsfree:
+                self._handsfree = False
+                self._handsfree_queue = None
+                self._ipc.send(Event.STATUS, msg="handsfree_off")
+            self._handsfree_queue = None
+            self._ipc.send(Event.STATUS, msg="wake_off")
+            
+            # Don't allow enabling
+            if enabled:
+                self._ipc.send(Event.ERROR, msg="Wake phrase temporarily disabled (false-trigger issue)")
+            return False
 
     def _arm_wake_phrase(self) -> None:
         try:
