@@ -61,8 +61,9 @@ pub fn spawn_sidecar(app: &AppHandle) {
     match result {
         Ok((mut rx, child)) => {
             // Kill any existing sidecar before replacing it to prevent zombie processes
-            let mut lock = app.state::<SidecarState>().child.lock().unwrap();
-            if let Some(mut old_child) = lock.take() {
+            let state = app.state::<SidecarState>();
+            let mut lock = state.child.lock().unwrap();
+            if let Some(old_child) = lock.take() {
                 let _ = old_child.kill();
             }
             lock.replace(child);
