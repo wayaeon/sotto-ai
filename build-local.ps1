@@ -13,7 +13,11 @@ if (Test-Path $vcvarsall) {
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "verba-target"
 
-Write-Host "Building the local Verba installer..."
+# Local builds skip updater signing (unsigned). GitHub release workflow signs.
+# Without this, tauri fails if TAURI_SIGNING_PRIVATE_KEY is unset.
+$env:TAURI_SIGNING_PRIVATE_KEY = ""
+
+Write-Host "Building the local Verba installer (unsigned)..."
 # NSIS is the self-contained Windows installer and does not require WiX's MSI linker.
 & pnpm run build:app -- --bundles nsis
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

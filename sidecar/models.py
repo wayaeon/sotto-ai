@@ -501,10 +501,18 @@ def prune_unused_model_files(model_name: str, local_dir: Path) -> int:
     if cache.exists():
         shutil.rmtree(cache)
         removed += 1
+    
+    # Aggressive cleanup: remove ANY file that matches the ignore patterns.
+    # This catches full-precision encoder-model.onnx (11 GB allocations) and
+    # decoder_joint-model.onnx that might have been downloaded before int8-only.
     for candidate in local_dir.rglob("*"):
         if candidate.is_file() and _should_ignore_snapshot_file(str(candidate.relative_to(local_dir)), spec.repo_id):
-            candidate.unlink()
-            removed += 1
+            try:
+                candidate.unlink()
+                removed += 1
+            except Exception:
+                pass
+    
     return removed
 
 
