@@ -6,6 +6,7 @@ webrtcvad-wheels>=2.0.14
 sherpa-onnx>=1.13,<2
 onnx-asr[hub]==0.11.0
 onnxruntime>=1.18
+numpy>=1.22
 
 # Legacy model adapters are retained for non-Windows builds.  Windows uses
 # Parakeet's ONNX runtime only, so these frameworks must not enter its wheel.

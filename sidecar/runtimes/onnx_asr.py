@@ -1,90 +1,71 @@
 """Optimized ONNX runtime adapter for Parakeet TDT."""
 from __future__ import annotations
 
+import wave
+from pathlib import Path
 from typing import Any
+
+_PARAKEET_MODEL_ID = "nemo-parakeet-tdt-0.6b-v3"
+_MAX_AUDIO_SECONDS = 30
+_MIN_AUDIO_SECONDS = 0.05
 
 
 def load_model(model_path: str, device: str, compute_type: str) -> Any:
     import onnx_asr
-    from pathlib import Path
 
-    # CRITICAL: Verify only int8 ONNX files exist for Parakeet.
-    # Full-precision encoder-model.onnx causes 11 GB allocations and OOMs.
-    model_dir = Path(model_path)
-    bad_files = []
-    for pattern in ["encoder-model.onnx", "decoder_joint-model.onnx", "*.onnx.data"]:
-        bad_files.extend(model_dir.glob(pattern))
-    
-    if bad_files:
-        import os
-        for f in bad_files:
-            try:
-                os.unlink(f)
-            except Exception:
-                pass
-        raise RuntimeError(
-            f"Parakeet model directory contained non-int8 files that cause OOM. "
-            f"Cleaned {len(bad_files)} file(s). Re-download the model to get int8 weights."
-        )
-
-    providers = ["CPUExecutionProvider"]
-    if device in ("cuda", "directml"):
-        try:
-            import onnxruntime
-
-            provider = "CUDAExecutionProvider" if device == "cuda" else "DmlExecutionProvider"
-            if provider in onnxruntime.get_available_providers():
-                providers.insert(0, provider)
-        except Exception:
-            pass
-
+    # Int8 Parakeet is the Windows dictation path. After macOS support landed,
+    # generic onnxruntime + GPU/DirectML providers + onnx-asr's later conv
+    # preprocessor started feeding the encoder a bad shape (11 GB Cast, then
+    # self-attn broadcast mismatches). Force the stack that used to work:
+    # CPU EP, numpy log-mel, int8 weights from the local snapshot.
+    del device, compute_type
     return onnx_asr.load_model(
-        "nemo-parakeet-tdt-0.6b-v3",
+        _PARAKEET_MODEL_ID,
         path=model_path,
         quantization="int8",
-        providers=providers,
+        providers=["CPUExecutionProvider"],
+        preprocessor_config={"use_numpy_preprocessors": True},
     )
 
 
-def transcribe(model: Any, audio_path: str) -> str:
-    import wave
-    from pathlib import Path
-    
-    # Validate audio file before passing to onnx_asr
-    audio_file = Path(audio_path)
-    if not audio_file.exists():
+def _load_mono_float32(audio_path: str) -> tuple[Any, int]:
+    import numpy as np
+
+    path = Path(audio_path)
+    if not path.exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
-    
-    try:
-        with wave.open(str(audio_path), "rb") as wf:
-            channels = wf.getnchannels()
-            sample_width = wf.getsampwidth()
-            framerate = wf.getframerate()
-            n_frames = wf.getnframes()
-            duration_s = n_frames / framerate if framerate > 0 else 0
-            
-            # Verify format: 16kHz mono 16-bit PCM
-            if channels != 1:
-                raise ValueError(f"Expected mono audio (1 channel), got {channels} channels")
-            if sample_width != 2:
-                raise ValueError(f"Expected 16-bit PCM (sample width 2), got {sample_width}")
-            if framerate != 16000:
-                raise ValueError(f"Expected 16kHz sample rate, got {framerate}Hz")
-            if duration_s < 0.1:
-                return ""  # Empty/too-short audio
-            if duration_s > 300:
-                raise ValueError(f"Audio too long: {duration_s:.1f}s (max 300s)")
-    except wave.Error as e:
-        raise ValueError(f"Invalid WAV file: {e}")
-    
-    try:
-        result = model.recognize(str(audio_path))
-        return str(result).strip()
-    except Exception as e:
-        # Provide detailed error info for debugging ONNX shape mismatches
-        import traceback
-        error_detail = traceback.format_exc()
-        raise RuntimeError(
-            f"onnx_asr transcription failed for {audio_file.name} "
-            f"(duration={duration_s:.2f}s, frames={n_frames}): {e}\n{error_detail}"
-        )
+
+    with wave.open(str(path), "rb") as wav_file:
+        channel_count = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        sample_rate = wav_file.getframerate()
+        frame_count = wav_file.getnframes()
+        pcm = wav_file.readframes(frame_count)
+
+    if sample_width != 2:
+        raise ValueError(f"Expected 16-bit PCM, got sample width {sample_width}")
+    if channel_count < 1:
+        raise ValueError("WAV file has no channels")
+    if sample_rate <= 0:
+        raise ValueError(f"Invalid sample rate: {sample_rate}")
+
+    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    if channel_count > 1:
+        usable = (samples.size // channel_count) * channel_count
+        samples = samples[:usable].reshape(-1, channel_count).mean(axis=1)
+    samples = np.ascontiguousarray(samples.reshape(-1), dtype=np.float32)
+
+    max_samples = int(_MAX_AUDIO_SECONDS * sample_rate)
+    if samples.size > max_samples:
+        samples = samples[:max_samples]
+    return samples, sample_rate
+
+
+def transcribe(model: Any, audio_path: str) -> str:
+    samples, sample_rate = _load_mono_float32(audio_path)
+    min_samples = int(_MIN_AUDIO_SECONDS * sample_rate)
+    if samples.size < min_samples:
+        return ""
+    return str(
+        model.recognize(samples, sample_rate=sample_rate, channel="mean")
+    ).strip()

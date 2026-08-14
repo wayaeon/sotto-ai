@@ -13,13 +13,38 @@ if (Test-Path $vcvarsall) {
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "verba-target"
 
-# Local builds skip updater signing (unsigned). GitHub release workflow signs.
-# Without this, tauri fails if TAURI_SIGNING_PRIVATE_KEY is unset.
-$env:TAURI_SIGNING_PRIVATE_KEY = ""
+$venvPython = Join-Path $PSScriptRoot "sidecar\.venv\Scripts\python.exe"
+$pyinstaller = Join-Path $PSScriptRoot "sidecar\.venv\Scripts\pyinstaller.exe"
+if (-not (Test-Path $venvPython)) {
+    throw "sidecar\.venv is missing. From sidecar\: python -m venv .venv ; .\.venv\Scripts\pip install -r requirements.txt pyinstaller"
+}
+
+Write-Host "Installing pinned sidecar deps (onnx-asr 0.11.0)..."
+& $venvPython -m pip install -r (Join-Path $PSScriptRoot "sidecar\requirements.txt")
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if (-not (Test-Path $pyinstaller)) {
+    & $venvPython -m pip install pyinstaller
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+$binDir = Join-Path $PSScriptRoot "src-tauri\binaries"
+New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+$sidecarWork = Join-Path $env:TEMP "verba-sidecar-build"
+$sidecarDist = Join-Path $env:TEMP "verba-sidecar-dist"
+
+Write-Host "Rebuilding the Parakeet sidecar..."
+& $pyinstaller --clean --noconfirm --distpath $sidecarDist --workpath $sidecarWork (Join-Path $PSScriptRoot "sidecar.spec")
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Copy-Item (Join-Path $sidecarDist "sidecar.exe") (Join-Path $binDir "sidecar-x86_64-pc-windows-msvc.exe") -Force
+
+# Local installers must not require TAURI_SIGNING_PRIVATE_KEY. GitHub releases
+# still sign because release.yml leaves createUpdaterArtifacts true in tauri.conf.json.
+$localTauriConfig = Join-Path $env:TEMP "verba-local-tauri.json"
+Set-Content -Path $localTauriConfig -Value '{"bundle":{"createUpdaterArtifacts":false}}' -Encoding ascii
 
 Write-Host "Building the local Verba installer (unsigned)..."
 # NSIS is the self-contained Windows installer and does not require WiX's MSI linker.
-& pnpm run build:app -- --bundles nsis
+& pnpm run build:app -- --bundles nsis --config $localTauriConfig
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
