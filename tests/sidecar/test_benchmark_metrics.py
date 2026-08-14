@@ -19,8 +19,8 @@ def test_word_error_rate_counts_substitution_insertion_and_deletion():
 
 def test_character_error_rate_uses_normalized_text():
     result = benchmark.score_transcript(
-        reference="Sotto writes clean text.",
-        hypothesis="sotto writes clean texts",
+        reference="Verba writes clean text.",
+        hypothesis="verba writes clean texts",
     )
 
     assert result["cer"] > 0
