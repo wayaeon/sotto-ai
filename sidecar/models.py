@@ -325,6 +325,21 @@ def tier_to_model(tier: ModelTier) -> str:
     return best_available_model(preferred)
 
 
+def download_states() -> dict[str, dict[str, bool]]:
+    """Snapshot of per-catalog-model download state for CHECK_DOWNLOADS."""
+    with _DOWNLOAD_LOCK:
+        active = set(_ACTIVE_DOWNLOADS)
+        paused = {name for name, ev in _DOWNLOAD_PAUSES.items() if ev.is_set()}
+    return {
+        name: {
+            "downloaded": is_downloaded(name),
+            "active": name in active,
+            "paused": name in paused,
+        }
+        for name in MODEL_CATALOG
+    }
+
+
 def download_model_async(model_name: str, ipc: "IPC", token: str | None = None) -> None:
     """Start model download in a background thread, emitting progress events."""
     from .ipc import Event

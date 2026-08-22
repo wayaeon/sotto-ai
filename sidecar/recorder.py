@@ -426,6 +426,12 @@ class Recorder:
         retries the worker via _ensure_worker, so the app self-heals instead of
         staying dead until restart.
         """
+        # Hold-to-talk and hands-free are exclusive capture paths — starting a
+        # hold always disarms VAD segmentation first.
+        with self._lock:
+            was_handsfree = self._handsfree
+        if was_handsfree:
+            self._force_handsfree_off()
         if self._transcription_active:
             self._ipc.send(Event.ERROR, msg=f"{self._model_name} is still transcribing the previous recording")
             return
@@ -566,10 +572,34 @@ class Recorder:
         self._ipc.send(Event.STATUS, msg="idle")
 
     def toggle_handsfree(self) -> None:
-        # Clicking the orb/pill used to flip this on and flood handsfree_*.wav
-        # files with no transcript. PTT (Ctrl+Alt hold/release) is the only path.
-        self._force_handsfree_off()
-        self._ipc.send(Event.ERROR, msg="Hands-free is off. Hold Ctrl+Alt to dictate.")
+        """Arm/disarm VAD-segmented hands-free dictation (Ctrl+Alt+Space).
+
+        Only the deliberate hotkey reaches this — orb/pill clicks never call
+        it (clicking used to silently arm this mode and flood handsfree_*.wav
+        files with recordings that were never transcribed).
+        """
+        with self._lock:
+            active = self._handsfree or self._wake_mode != "off"
+        if active:
+            self._force_handsfree_off()
+            return
+        self._arm_handsfree()
+
+    def _arm_handsfree(self) -> None:
+        if self._transcription_active:
+            self._ipc.send(Event.ERROR, msg="Still transcribing — try again in a moment")
+            return
+        with self._lock:
+            if self._handsfree:
+                return
+            self._handsfree = True
+            self._wake_mode = "off"
+            self._handsfree_queue = queue.Queue(maxsize=_HANDSFREE_QUEUE_MAXLEN)
+        # Pre-warm the worker so the first spoken utterance doesn't sit through
+        # a cold model load.
+        self.preload_worker()
+        self._ipc.send(Event.STATUS, msg="handsfree_on")
+        threading.Thread(target=self._handsfree_loop, name="verba-handsfree-vad", daemon=True).start()
 
     def set_wake_phrase_enabled(self, enabled: bool) -> bool:
         """Wake phrase stays off. Same false-trigger loop as hands-free."""
@@ -697,7 +727,6 @@ class Recorder:
         consecutive frames have all classified as speech; anything shorter is
         discarded as noise without ever reaching the worker.
         """
-        return
         vad = webrtcvad.Vad(_VAD_AGGRESSIVENESS)
         audio_q = self._handsfree_queue
         frame_buf   = bytearray()
@@ -762,20 +791,26 @@ class Recorder:
                             silence_frames = 0
 
     def _transcribe_handsfree_utterance(self, pcm: bytes) -> None:
-        del pcm
-        return
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         wav_path = _RECORDINGS_DIR / f"handsfree_{ts}.wav"
+
+        # Guard BEFORE writing so a busy transcription never litters the
+        # recordings folder with audio that will never be transcribed.
+        if self._transcription_active:
+            self._ipc.send(Event.ERROR, msg="Skipped hands-free utterance — a transcription is already in flight")
+            return
         with wave.open(str(wav_path), "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(_SAMPLE_WIDTH)
             wf.setframerate(_SAMPLE_RATE)
             wf.writeframes(pcm)
 
-        if self._transcription_active:
-            return  # a PTT/handsfree transcription is already in flight
         self._transcription_active = True
-        self._fetch_transcription(str(wav_path))
+        threading.Thread(
+            target=self._fetch_transcription,
+            args=(str(wav_path),),
+            daemon=True,
+        ).start()
 
     # ── model/dictionary swap ─────────────────────────────────────────────────
 

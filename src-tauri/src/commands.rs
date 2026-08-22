@@ -87,6 +87,21 @@ pub fn set_model(app: AppHandle, model: String) {
 }
 
 #[tauri::command]
+pub fn download_model(app: AppHandle, model: String) {
+    send_command(&app, json!({"cmd": "download_model", "model": model}));
+}
+
+#[tauri::command]
+pub fn pause_download_model(app: AppHandle, model: String) {
+    send_command(&app, json!({"cmd": "pause_download_model", "model": model}));
+}
+
+#[tauri::command]
+pub fn check_downloads(app: AppHandle) {
+    send_command(&app, json!({"cmd": "check_downloads"}));
+}
+
+#[tauri::command]
 pub fn retry_worker(app: AppHandle) {
     send_command(&app, json!({"cmd": "retry_worker"}));
 }

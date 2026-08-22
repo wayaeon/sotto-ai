@@ -53,18 +53,40 @@ def test_recorder_keeps_wake_phrase_out_of_the_transcribed_audio():
     assert "wake_phrase_buf and detector is not None" in source
 
 
-def test_handsfree_and_wake_cannot_start_or_write_wavs():
+def test_handsfree_arms_only_through_the_deliberate_hotkey_toggle():
     recorder = (ROOT / "sidecar/recorder.py").read_text(encoding="utf-8")
-    toggle = recorder[recorder.index("def toggle_handsfree"):recorder.index("def set_wake_phrase_enabled")]
-    start = recorder.index("def _transcribe_handsfree_utterance")
-    transcribe_head = recorder[start:start + 280]
-    assert "self._handsfree = not self._handsfree" not in toggle
-    assert "target=self._handsfree_loop" not in recorder
-    assert "\n        return\n" in transcribe_head
+    # Accidental UI triggers stay impossible.
     orb = (ROOT / "src/components/Orb.tsx").read_text(encoding="utf-8")
     pill = (ROOT / "src/components/Pill.tsx").read_text(encoding="utf-8")
     assert "toggleHandsfree" not in orb
     assert "toggleHandsfree" not in pill
+    # Ctrl+Alt+Space arms real VAD segmentation and announces it to the UI.
+    assert "target=self._handsfree_loop" in recorder
+    assert 'msg="handsfree_on"' in recorder
+    toggle = recorder[recorder.index("def toggle_handsfree"):recorder.index("def set_wake_phrase_enabled")]
+    assert "_force_handsfree_off()" in toggle
+
+
+def test_handsfree_utterances_are_guarded_before_a_wav_is_written():
+    recorder = (ROOT / "sidecar/recorder.py").read_text(encoding="utf-8")
+    start = recorder.index("def _transcribe_handsfree_utterance")
+    body = recorder[start:recorder.index("def set_model")]
+    guard = body.index("self._transcription_active")
+    wav = body.index("wave.open")
+    assert guard < wav
+
+
+def test_starting_ptt_disarms_handsfree_so_capture_paths_stay_exclusive():
+    recorder = (ROOT / "sidecar/recorder.py").read_text(encoding="utf-8")
+    start = recorder.index("def start_ptt")
+    body = recorder[start:recorder.index("def stop_ptt")]
+    assert "_force_handsfree_off()" in body
+
+
+def test_ctrl_alt_space_toggles_handsfree_on_windows_without_touching_ptt():
+    hotkeys = (ROOT / "src-tauri/src/hotkeys.rs").read_text(encoding="utf-8")
+    assert "KeyPress(Space)" in hotkeys
+    assert '"cmd": "toggle_handsfree"' in hotkeys
 
 
 def test_wake_phrase_has_a_real_ipc_and_settings_bridge():

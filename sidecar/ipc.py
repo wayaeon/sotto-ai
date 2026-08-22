@@ -32,6 +32,7 @@ class Event(str, Enum):
     STATUS = "status"
     HARDWARE = "hardware"
     DOWNLOAD_PROGRESS = "download_progress"
+    DOWNLOADS_STATE = "downloads_state"
     BENCHMARK_RESULT = "benchmark_result"
     AUDIO_RECORDED = "audio_recorded"
     AUDIO_LEVEL = "audio_level"

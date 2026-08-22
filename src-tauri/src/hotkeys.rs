@@ -71,6 +71,18 @@ pub fn register_hotkeys(app: &AppHandle) {
                     alt1.store(false, Ordering::SeqCst);
                     stop_ptt(&app1, &ptt1);
                 }
+                KeyPress(Space) => {
+                    // Deliberate hands-free arm/disarm (advertised as
+                    // Ctrl+Alt+Space). Only meaningful outside an active PTT
+                    // hold — starting a hold disarms hands-free on the
+                    // sidecar side, so never toggle mid-recording.
+                    if ctrl1.load(Ordering::SeqCst)
+                        && alt1.load(Ordering::SeqCst)
+                        && !ptt_active.load(Ordering::SeqCst)
+                    {
+                        send_command(&app1, json!({"cmd": "toggle_handsfree"}));
+                    }
+                }
                 _ => {}
             }
         }) {

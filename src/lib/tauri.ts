@@ -8,6 +8,9 @@ export const setWakePhraseEnabled = (enabled: boolean) => invoke("set_wake_phras
 export const pingSidecar = () => invoke("ping_sidecar");
 export const detectHardware = () => invoke("detect_hardware");
 export const setModel = (model: string) => invoke("set_model", { model });
+export const downloadModel = (model: string) => invoke("download_model", { model });
+export const pauseDownloadModel = (model: string) => invoke("pause_download_model", { model });
+export const checkDownloads = () => invoke("check_downloads");
 export const retryWorker = () => invoke("retry_worker");
 export const benchmarkModel = (model: string, audioPath?: string | null) => invoke("benchmark_model", { model, audioPath });
 export const setDictionary = (words: string[]) => invoke("set_dictionary", { words });
@@ -71,7 +74,8 @@ export type SidecarMessage =
   | { event: "word"; text: string; partial: boolean }
   | { event: "segment_done"; text: string; raw_text?: string | null; audio_path?: string; timing?: StageTiming }
   | { event: "audio_recorded"; audio_path: string }
-  | { event: "download_progress"; model: string; percent: number; bytes_downloaded: number; bytes_total: number; downloaded_label: string; total_label: string }
+  | { event: "download_progress"; model: string; percent: number; bytes_downloaded: number; bytes_total: number; downloaded_label: string; total_label: string; paused?: boolean }
+  | { event: "downloads_state"; states: Record<string, { downloaded: boolean; active: boolean; paused: boolean }> }
   | { event: "error"; msg: string }
   | { event: "pong" }
   | { event: "status"; msg: string }
