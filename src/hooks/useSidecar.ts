@@ -5,6 +5,7 @@ import { applyCorrectionRules, insertTranscription, updateMetrics } from "../lib
 import { getVocabulary } from "../lib/localData";
 import { scheduleTranscriptAnalysis } from "../lib/transcriptAnalysis";
 import { formatForContext, resolveContextProfile } from "../lib/contextFormatting";
+import { cleanupTranscript, isLlmCleanupEnabled } from "../lib/llmCleanup";
 
 // Single source of truth for the default model.
 // Always parakeet TDT v3 — ONNX runtime, works on any hardware.
@@ -42,6 +43,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     setTier,
     setModel,
     setModelDownload,
+    setDownloadStates,
     setHandsFreeActive,
     setWakePhraseActive,
     setWakePhraseStatus,
@@ -150,7 +152,18 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
             break;
           }
 
-          finish(formatted);
+          // Optional AI Cleanup (OpenRouter) — polish the transcript before it
+          // is injected or saved. Falls back to the raw text on any failure so
+          // dictation never stalls on a network problem.
+          const cleanupAndFinish = async () => {
+            let finalText = formatted;
+            if (isLlmCleanupEnabled()) {
+              const cleaned = await cleanupTranscript(formatted);
+              if (cleaned) finalText = cleaned;
+            }
+            finish(finalText);
+          };
+          cleanupAndFinish();
           break;
         }
 
@@ -198,6 +211,24 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           // Track model load lifecycle
           if (msg.msg === "idle") setModelReady(true);
           else if (msg.msg === "loading_model") setModelReady(false);
+          else if (msg.msg.startsWith("model_registering")) {
+            const parts = Object.fromEntries(
+              msg.msg.split(" ").slice(1).map((p) => p.split("="))
+            );
+            if (parts.model) setModel(parts.model);
+            setModelReady(false);
+          }
+          else if (msg.msg.startsWith("model_registered")) {
+            const parts = Object.fromEntries(
+              msg.msg.split(" ").slice(1).map((p) => p.split("="))
+            );
+            if (parts.model) {
+              setModel(parts.model);
+              localStorage.setItem("verba_model", parts.model);
+            }
+            setModelReady(true);
+            setModelDownload(null);
+          }
           else if (msg.msg.startsWith("worker_ready")) {
             const parts = Object.fromEntries(
               msg.msg.split(" ").slice(1).map((p) => p.split("="))
@@ -225,7 +256,7 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
           break;
         }
 
-        case "download_progress":
+        case "download_progress": {
           if (msg.model === DEFAULT_MODEL) {
             setModelDownload({
               percent: msg.percent,
@@ -235,6 +266,26 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
               totalLabel: msg.total_label,
             });
           }
+          // Mirror live progress into the per-model state map the Models tab renders.
+          {
+            const states = useAppStore.getState().downloadStates;
+            const done = msg.percent >= 100;
+            const paused = Boolean(msg.paused) && !done;
+            setDownloadStates({
+              ...states,
+              [msg.model]: {
+                downloaded: done || (states[msg.model]?.downloaded ?? false),
+                active: !done && !paused,
+                paused,
+                percent: msg.percent,
+              },
+            });
+          }
+          break;
+        }
+
+        case "downloads_state":
+          setDownloadStates(msg.states);
           break;
 
         case "hardware":
@@ -268,5 +319,5 @@ export function useSidecar({ primary = false }: { primary?: boolean } = {}) {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setSidecarReady, setModelReady, setRecordingState, setAudioLevel, appendWord, commitSegment, setTier, setModel, setModelDownload, setHandsFreeActive, setWakePhraseActive, setWakePhraseStatus, setTabletPosture, setLastDictationApp, setLastDictationStats]);
+  }, [setSidecarReady, setModelReady, setRecordingState, setAudioLevel, appendWord, commitSegment, setTier, setModel, setModelDownload, setDownloadStates, setHandsFreeActive, setWakePhraseActive, setWakePhraseStatus, setTabletPosture, setLastDictationApp, setLastDictationStats]);
 }

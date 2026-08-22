@@ -17,8 +17,17 @@ from .hardware import ModelTier
 if TYPE_CHECKING:
     from .ipc import IPC
 
-# Models are stored in ~/.verba
-_DATA_DIR = Path(os.environ.get("WISPR_DATA_DIR", Path.home() / ".verba"))
+# Models are stored in ~/.verba (with fallback to legacy ~/.sotto for existing installs)
+_VERBA_DATA_DIR = Path(os.environ.get("VERBA_DATA_DIR", Path.home() / ".verba"))
+_LEGACY_SOTTO_DATA_DIR = Path.home() / ".sotto"
+
+# Use ~/.verba if it exists, or if ~/.sotto doesn't exist (new installs).
+# Otherwise, keep using ~/.sotto for backward compatibility with existing installs.
+if _VERBA_DATA_DIR.exists() or not _LEGACY_SOTTO_DATA_DIR.exists():
+    _DATA_DIR = _VERBA_DATA_DIR
+else:
+    _DATA_DIR = _LEGACY_SOTTO_DATA_DIR
+
 MODELS_DIR = _DATA_DIR / "models"
 WAKE_WORD_MODEL_NAME = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 WAKE_WORD_DIR = MODELS_DIR / WAKE_WORD_MODEL_NAME
@@ -212,6 +221,11 @@ def is_downloaded(model_name: str) -> bool:
     elif runtime == "nemo":
         return _has_complete_file(d, "*.nemo")
     elif runtime in ("onnx", "onnx-asr"):
+        if model_name == "nvidia/parakeet-tdt-0.6b-v3":
+            return all(
+                _has_complete_file(d, filename)
+                for filename in ("encoder-model.int8.onnx", "decoder_joint-model.int8.onnx")
+            )
         return _has_complete_file(d, "*.onnx")
     elif runtime == "transformers":
         return (
@@ -311,6 +325,21 @@ def tier_to_model(tier: ModelTier) -> str:
     return best_available_model(preferred)
 
 
+def download_states() -> dict[str, dict[str, bool]]:
+    """Snapshot of per-catalog-model download state for CHECK_DOWNLOADS."""
+    with _DOWNLOAD_LOCK:
+        active = set(_ACTIVE_DOWNLOADS)
+        paused = {name for name, ev in _DOWNLOAD_PAUSES.items() if ev.is_set()}
+    return {
+        name: {
+            "downloaded": is_downloaded(name),
+            "active": name in active,
+            "paused": name in paused,
+        }
+        for name in MODEL_CATALOG
+    }
+
+
 def download_model_async(model_name: str, ipc: "IPC", token: str | None = None) -> None:
     """Start model download in a background thread, emitting progress events."""
     from .ipc import Event
@@ -392,7 +421,9 @@ _REPO_SNAPSHOT_IGNORE_PATTERNS = {
     # Parakeet's int8 ONNX export is dramatically faster and half the size.
     "istupakov/parakeet-tdt-0.6b-v3-onnx": [
         "encoder-model.onnx",
+        "*.onnx.data",
         "decoder_joint-model.onnx",
+        "nemo128.onnx",
         "*.nemo",
         "model*.safetensors",
         "pytorch_model*.bin",
@@ -485,10 +516,18 @@ def prune_unused_model_files(model_name: str, local_dir: Path) -> int:
     if cache.exists():
         shutil.rmtree(cache)
         removed += 1
+    
+    # Aggressive cleanup: remove ANY file that matches the ignore patterns.
+    # This catches full-precision encoder-model.onnx (11 GB allocations) and
+    # decoder_joint-model.onnx that might have been downloaded before int8-only.
     for candidate in local_dir.rglob("*"):
         if candidate.is_file() and _should_ignore_snapshot_file(str(candidate.relative_to(local_dir)), spec.repo_id):
-            candidate.unlink()
-            removed += 1
+            try:
+                candidate.unlink()
+                removed += 1
+            except Exception:
+                pass
+    
     return removed
 
 

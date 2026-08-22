@@ -6,7 +6,13 @@ import threading
 from sidecar.ipc import IPC, Command, Event
 from sidecar.hardware import DEFAULT_MODEL, detect as detect_hardware, detect_fast_device
 from sidecar.recorder import Recorder
-from sidecar.models import benchmark_model_async, MODEL_CATALOG
+from sidecar.models import (
+    benchmark_model_async,
+    download_model_async,
+    download_states,
+    pause_download_model,
+    MODEL_CATALOG,
+)
 
 
 def _iter_stdin_lines():
@@ -108,6 +114,9 @@ def main() -> None:
             elif not model_name:
                 ipc.send(Event.ERROR, msg="set_model requires a 'model' field")
 
+        elif cmd == Command.RETRY_WORKER:
+            recorder.preload_worker()
+
         elif cmd == Command.BENCHMARK_MODEL:
             model_name = payload.get("model", "")
             audio_path = payload.get("audio_path") or payload.get("audioPath") or ""
@@ -140,6 +149,25 @@ def main() -> None:
 
         elif cmd == Command.SET_WAKE_PHRASE_ENABLED:
             recorder.set_wake_phrase_enabled(bool(payload.get("enabled", False)))
+
+        elif cmd == Command.DOWNLOAD_MODEL:
+            model_name = payload.get("model", "")
+            if not model_name:
+                ipc.send(Event.ERROR, msg="download_model requires a 'model' field")
+            elif model_name not in MODEL_CATALOG:
+                ipc.send(Event.ERROR, msg=f"Unknown model: {model_name}")
+            else:
+                download_model_async(model_name, ipc)
+
+        elif cmd == Command.PAUSE_DOWNLOAD_MODEL:
+            model_name = payload.get("model", "")
+            if not model_name:
+                ipc.send(Event.ERROR, msg="pause_download_model requires a 'model' field")
+            else:
+                pause_download_model(model_name, ipc)
+
+        elif cmd == Command.CHECK_DOWNLOADS:
+            ipc.send(Event.DOWNLOADS_STATE, states=download_states())
 
         elif cmd == Command.QUIT:
             recorder.shutdown()

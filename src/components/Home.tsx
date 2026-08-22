@@ -7,6 +7,7 @@ import { derivePracticeFocus, synonymsForWord } from "../lib/insights";
 import Orb from "./Orb";
 import PipelineDebug from "./PipelineDebug";
 import { setDictionary, setWakePhraseEnabled } from "../lib/tauri";
+import { checkForUpdate, readUpdateStatus, subscribeToUpdateStatus, type UpdateStatus } from "../lib/updater";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -373,7 +374,7 @@ function HomeScreen({ transcriptions, metrics, userName, onViewChange }: HomeScr
   if (metrics.streak > 0) ambient.push(`streak ${metrics.streak}d`);
 
   return (
-    <div className="main fade-in settings-main">
+    <div className="main fade-in">
       <div className="main-header talk-header">
         <div>
           <div className="eyebrow">
@@ -741,20 +742,28 @@ function HistoryScreen({ transcriptions, onChanged, initialSearch, onInitialSear
 
 // ─── Activity Heatmap ────────────────────────────────────
 
-type HeatmapMode = "24h" | "30d" | "365d";
-
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-function heatCell(t: number, hue: number): string {
-  if (t <= 0) return "rgba(255,255,255,0.03)";
-  const L = 40 + t * 38;
-  const C = 0.08 + t * 0.20;
-  return `oklch(${L.toFixed(1)}% ${C.toFixed(3)} ${hue.toFixed(0)})`;
+interface ActivityDay { date: Date; count: number; }
+
+function mondayFor(date: Date): Date {
+  const monday = new Date(date);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  return monday;
+}
+
+function dateKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function activityLevel(count: number, max: number): number {
+  if (count <= 0) return 0;
+  return Math.min(4, Math.max(1, Math.ceil((count / max) * 4)));
 }
 
 function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }) {
-  const mode: HeatmapMode = "24h";
   const [selectedCell, setSelectedCell] = useState<string | null>(null);
   const selectCell = (label: string) => setSelectedCell((current) => current === label ? null : label);
   const cellInteraction = (label: string) => ({
@@ -769,232 +778,63 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
     },
   });
 
-  // ── 24h: day-of-week × hour ──────────────────────────────
-  const grid24h = useMemo(() => {
-    // [0=Mon..6=Sun][0..23]
-    const g: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
-    transcriptions.forEach((t) => {
-      const d = new Date(t.created_at);
-      const dow = (d.getDay() + 6) % 7; // convert Sun=0 → Mon=0
-      const hr = d.getHours();
-      g[dow][hr]++;
+  const { weeks, maxCount, totalSessions } = useMemo(() => {
+    const today = new Date();
+    const currentWeek = mondayFor(today);
+    const start = new Date(currentWeek);
+    start.setDate(start.getDate() - (52 * 7));
+    const counts = new Map<string, number>();
+    transcriptions.forEach((transcription) => {
+      const date = new Date(transcription.created_at);
+      counts.set(dateKey(date), (counts.get(dateKey(date)) ?? 0) + 1);
     });
-    return g;
+    const nextWeeks: ActivityDay[][] = Array.from({ length: 53 }, (_, weekIndex) =>
+      Array.from({ length: 7 }, (_, dayIndex) => {
+        const date = new Date(start);
+        date.setDate(date.getDate() + weekIndex * 7 + dayIndex);
+        return { date, count: counts.get(dateKey(date)) ?? 0 };
+      })
+    );
+    const allDays = nextWeeks.flat();
+    return {
+      weeks: nextWeeks,
+      maxCount: Math.max(...allDays.map((day) => day.count), 1),
+      totalSessions: allDays.reduce((sum, day) => sum + day.count, 0),
+    };
   }, [transcriptions]);
-
-  const max24h = Math.max(...grid24h.flat(), 1);
-
-  // ── 30d: last 30 calendar days ───────────────────────────
-  const cells30d = useMemo(() => {
-    const now = new Date();
-    const result: { date: Date; count: number }[] = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now);
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-      result.push({ date: d, count: 0 });
-    }
-    transcriptions.forEach((t) => {
-      const d = new Date(t.created_at);
-      d.setHours(0, 0, 0, 0);
-      const idx = result.findIndex((r) => r.date.getTime() === d.getTime());
-      if (idx >= 0) result[idx].count++;
-    });
-    return result;
-  }, [transcriptions]);
-  const max30d = Math.max(...cells30d.map((c) => c.count), 1);
-
-  // Grid: 5 rows × 7 cols (calendar weeks). Pad to start on Monday.
-  const startDow30d = (cells30d[0].date.getDay() + 6) % 7; // Mon=0
-  const padded30d = [...Array(startDow30d).fill(null), ...cells30d];
-
-  // ── 365d: GitHub-style 52 weeks ──────────────────────────
-  const cells365d = useMemo(() => {
-    const now = new Date();
-    const result: { date: Date; count: number }[] = [];
-    for (let i = 364; i >= 0; i--) {
-      const d = new Date(now);
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-      result.push({ date: d, count: 0 });
-    }
-    transcriptions.forEach((t) => {
-      const d = new Date(t.created_at);
-      d.setHours(0, 0, 0, 0);
-      const idx = result.findIndex((r) => r.date.getTime() === d.getTime());
-      if (idx >= 0) result[idx].count++;
-    });
-    return result;
-  }, [transcriptions]);
-  const max365d = Math.max(...cells365d.map((c) => c.count), 1);
-
-  // Pad to week boundary (Mon), then chunk into weeks (columns)
-  const startDow365d = (cells365d[0].date.getDay() + 6) % 7;
-  const padded365d = [...Array(startDow365d).fill(null), ...cells365d];
-  // chunk into weeks of 7
-  const weeks365d: (typeof cells365d[0] | null)[][] = [];
-  for (let i = 0; i < padded365d.length; i += 7) {
-    weeks365d.push(padded365d.slice(i, i + 7));
-  }
-  // month labels: find first day of each month in weeks
-  const monthLabels365d: { weekIdx: number; label: string }[] = [];
-  weeks365d.forEach((week, wi) => {
-    const first = week.find((c) => c !== null);
-    if (first && first.date.getDate() <= 7) {
-      const prev = wi > 0 ? weeks365d[wi - 1].find((c) => c !== null) : null;
-      if (!prev || prev.date.getMonth() !== first.date.getMonth()) {
-        monthLabels365d.push({ weekIdx: wi, label: MONTH_NAMES[first.date.getMonth()] });
-      }
-    }
-  });
-
-  const CELL_365 = 13; // px per cell including gap
-  const CELL_GAP = 3;
-  const CELL_SZ  = CELL_365 - CELL_GAP;
-
-  const modeLabel = mode === "24h" ? "Mon–Sun · 24h" : mode === "30d" ? "Last 30 days" : "Last 365 days";
 
   return (
     <>
-      <SectionHead label="When You Dictate" action={<span className="chip"><span className="chip-dot" style={{ background: "var(--c-violet)" }} />{modeLabel}</span>} />
+      <SectionHead label="Dictation activity" action={<span className="chip"><span className="chip-dot" style={{ background: "var(--c-mint)" }} />Last 12 months · {totalSessions} session{totalSessions === 1 ? "" : "s"}</span>} />
       <div className="card insights-heatmap-card">
-        {transcriptions.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-4)", fontSize: 13 }}>
-            No data yet — start dictating to see when you're most productive.
-          </div>
-        ) : mode === "24h" ? (
-          /* ── 24h view ── */
-          <div>
-            {/* hour labels */}
-            <div style={{ display: "flex", paddingLeft: 38, marginBottom: 6 }}>
-              {Array.from({ length: 24 }, (_, i) => (
-                <div key={i} style={{ flex: 1, fontSize: 9, color: "var(--text-4)", fontFamily: "var(--font-mono)", textAlign: "center" }}>
-                  {i % 4 === 0 ? String(i).padStart(2, "0") : ""}
-                </div>
-              ))}
-            </div>
-            {grid24h.map((hours, dayIdx) => (
-              <div key={dayIdx} style={{ display: "flex", alignItems: "center", gap: 3, marginBottom: 3 }}>
-                <span style={{ width: 32, fontSize: 10, color: "var(--text-3)", fontFamily: "var(--font-mono)", textAlign: "right", paddingRight: 6, flexShrink: 0 }}>
-                  {DAY_LABELS[dayIdx]}
-                </span>
-                {hours.map((count, hourIdx) => {
-                  const t = count / max24h;
-                  const hue = 290 + (hourIdx / 23) * 70; // violet → pink across the day
-                  return (
-                    <div
-                      key={hourIdx}
-                      className="heatmap-cell"
-                      {...cellInteraction(`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 · ${count} session${count !== 1 ? "s" : ""}`)}
-                      data-tooltip={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 · ${count} session${count !== 1 ? "s" : ""}`}
-                      aria-label={`${DAY_LABELS[dayIdx]} ${String(hourIdx).padStart(2,"0")}:00 — ${count} session${count !== 1 ? "s" : ""}`}
-                      style={{ flex: 1, minWidth: 0, aspectRatio: "1", borderRadius: 4, background: heatCell(t, hue), border: "1px solid rgba(255,255,255,0.02)", transition: "background 0.15s" }}
-                    />
-                  );
+        <div className="insights-heatmap-scroll">
+          <div className="activity-calendar">
+            <div className="activity-calendar-months" aria-hidden="true">
+              <span className="activity-calendar-label-spacer" />
+              <div className="activity-calendar-grid">
+                {weeks.map((week, weekIndex) => {
+                  const monthDay = week.find((day) => day.date.getDate() <= 7);
+                  return <span key={weekIndex}>{monthDay ? MONTH_NAMES[monthDay.date.getMonth()] : ""}</span>;
                 })}
               </div>
-            ))}
-            {/* legend */}
-            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginTop: 12, fontSize: 10.5, color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
-              <span>less</span>
-              <div style={{ display: "flex", gap: 3 }}>
-                {[0.1, 0.3, 0.55, 0.75, 0.95].map((v, i) => (
-                  <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: heatCell(v, 290 + i * 17) }} />
-                ))}
+            </div>
+            <div className="activity-calendar-body">
+              <div className="activity-calendar-days" aria-hidden="true">
+                {DAY_LABELS.map((day, index) => <span key={day} className={index % 2 === 1 ? "muted" : ""}>{day}</span>)}
               </div>
-              <span>more</span>
-            </div>
-          </div>
-        ) : mode === "30d" ? (
-          /* ── 30d calendar view ── */
-          <div>
-            {/* day-of-week header */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
-              {DAY_LABELS.map((d) => (
-                <div key={d} style={{ fontSize: 9, color: "var(--text-4)", fontFamily: "var(--font-mono)", textAlign: "center" }}>{d}</div>
-              ))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
-              {padded30d.map((cell, i) => {
-                if (!cell) return <div key={i} />;
-                const t = cell.count / max30d;
-                const isToday = cell.date.toDateString() === new Date().toDateString();
-                return (
-                  <div
-                    key={i}
-                    className="heatmap-cell"
-                    {...cellInteraction(`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`)}
-                    data-tooltip={`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
-                    aria-label={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
-                    style={{
-                      aspectRatio: "1",
-                      borderRadius: 6,
-                      background: heatCell(t, 290),
-                      border: isToday ? "1px solid var(--c-violet)" : "1px solid rgba(255,255,255,0.02)",
-                      display: "flex", alignItems: "flex-end", justifyContent: "flex-end",
-                      padding: 3, fontSize: 9, color: t > 0.4 ? "rgba(255,255,255,0.7)" : "var(--text-4)",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  >
-                    {cell.date.getDate()}
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginTop: 12, fontSize: 10.5, color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
-              <span>less</span>
-              <div style={{ display: "flex", gap: 3 }}>
-                {[0.1, 0.3, 0.55, 0.75, 0.95].map((v, i) => (
-                  <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: heatCell(v, 290) }} />
-                ))}
-              </div>
-              <span>more</span>
-            </div>
-          </div>
-        ) : (
-          /* ── 365d GitHub-style ── */
-          <div className="insights-heatmap-scroll">
-            {/* month labels row */}
-            <div style={{ display: "flex", marginBottom: 4, paddingLeft: 28 }}>
-              {weeks365d.map((_, wi) => {
-                const label = monthLabels365d.find((m) => m.weekIdx === wi);
-                return (
-                  <div key={wi} style={{ width: CELL_365, flexShrink: 0, fontSize: 9, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>
-                    {label ? label.label : ""}
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ display: "flex", gap: 0 }}>
-              {/* day labels column */}
-              <div style={{ display: "flex", flexDirection: "column", gap: CELL_GAP, marginRight: 4, width: 24 }}>
-                {DAY_LABELS.map((d, i) => (
-                  <div key={d} style={{ height: CELL_SZ, fontSize: 9, color: i % 2 === 0 ? "var(--text-4)" : "transparent", fontFamily: "var(--font-mono)", display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 2 }}>
-                    {d.slice(0, 2)}
-                  </div>
-                ))}
-              </div>
-              {/* week columns */}
-              <div style={{ display: "flex", gap: CELL_GAP, overflowX: "auto" }}>
-                {weeks365d.map((week, wi) => (
-                  <div key={wi} style={{ display: "flex", flexDirection: "column", gap: CELL_GAP }}>
-                    {Array.from({ length: 7 }, (_, di) => {
-                      const cell = week[di] ?? null;
-                      if (!cell) return <div key={di} style={{ width: CELL_SZ, height: CELL_SZ }} />;
-                      const t = cell.count / max365d;
+              <div className="activity-calendar-grid activity-calendar-weeks">
+                {weeks.map((week, weekIndex) => (
+                  <div className="activity-calendar-week" key={weekIndex}>
+                    {week.map((cell) => {
+                      const label = `${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count === 1 ? "" : "s"}`;
                       const isToday = cell.date.toDateString() === new Date().toDateString();
                       return (
                         <div
-                          key={di}
-                          className="heatmap-cell"
-                          {...cellInteraction(`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`)}
-                          data-tooltip={`${cell.date.toLocaleDateString()} · ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
-                          aria-label={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count !== 1 ? "s" : ""}`}
-                          style={{
-                            width: CELL_SZ, height: CELL_SZ, borderRadius: 2,
-                            background: heatCell(t, 290),
-                            border: isToday ? "1px solid var(--c-violet)" : "1px solid rgba(255,255,255,0.02)",
-                          }}
+                          key={dateKey(cell.date)}
+                          className={`heatmap-cell activity-heatmap-cell activity-level-${activityLevel(cell.count, maxCount)}${isToday ? " today" : ""}`}
+                          {...cellInteraction(label)}
+                          data-tooltip={label}
+                          aria-label={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count === 1 ? "" : "s"}`}
                         />
                       );
                     })}
@@ -1002,17 +842,15 @@ function ActivityHeatmap({ transcriptions }: { transcriptions: Transcription[] }
                 ))}
               </div>
             </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginTop: 12, fontSize: 10.5, color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
-              <span>less</span>
-              <div style={{ display: "flex", gap: 3 }}>
-                {[0.1, 0.3, 0.55, 0.75, 0.95].map((v, i) => (
-                  <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: heatCell(v, 290) }} />
-                ))}
+            <div className="activity-calendar-legend" aria-label="Activity intensity legend">
+              <span>Less</span>
+              <div className="activity-calendar-legend-scale" aria-hidden="true">
+                {[0, 1, 2, 3, 4].map((level) => <span key={level} className={`activity-heatmap-cell activity-level-${level}`} />)}
               </div>
-              <span>more</span>
+              <span>More</span>
             </div>
           </div>
-        )}
+        </div>
         {selectedCell && <div className="insights-selection">Selected: {selectedCell}</div>}
       </div>
     </>
@@ -1078,6 +916,91 @@ function vocabularyRichness(transcriptions: Transcription[]): number {
   const words = transcriptions.flatMap((t) => tokenizeForInsights(t.text));
   if (words.length === 0) return 0;
   return new Set(words).size / words.length;
+}
+
+interface TrendLineChartProps {
+  id: string;
+  label: string;
+  values: number[];
+  max: number;
+  color: string;
+  valueFormatter: (value: number) => string;
+}
+
+function TrendLineChart({ id, label, values, max, color, valueFormatter }: TrendLineChartProps) {
+  const [activeIndex, setActiveIndex] = useState(Math.max(values.length - 1, 0));
+  useEffect(() => setActiveIndex(Math.max(values.length - 1, 0)), [values.length]);
+  const width = 600;
+  const height = 126;
+  const padX = 14;
+  const baseline = 96;
+  const plotHeight = 68;
+  const safeMax = Math.max(max, 1);
+  const step = values.length > 1 ? (width - padX * 2) / (values.length - 1) : 0;
+  const points = values.map((value, index) => ({
+    x: padX + index * step,
+    y: baseline - (value / safeMax) * plotHeight,
+  }));
+  const linePath = points.map(({ x, y }) => `${x},${y}`).join(" ");
+  const firstPoint = points[0] ?? { x: padX, y: baseline };
+  const lastPoint = points[points.length - 1] ?? firstPoint;
+  const areaPath = `M ${firstPoint.x} ${baseline} L ${points.map(({ x, y }) => `${x} ${y}`).join(" L ")} L ${lastPoint.x} ${baseline} Z`;
+  const selectedIndex = Math.min(Math.max(activeIndex, 0), Math.max(values.length - 1, 0));
+  const selectedValue = values[selectedIndex] ?? 0;
+  const selectedDate = new Date();
+  selectedDate.setHours(12, 0, 0, 0);
+  selectedDate.setDate(selectedDate.getDate() - (values.length - 1 - selectedIndex));
+  const selectedLabel = selectedDate.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const pointLabel = (index: number) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - (values.length - 1 - index));
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <div className="insights-trend-visual">
+      <div className="insights-trend-readout" aria-live="polite">
+        <span>{selectedLabel}</span>
+        <strong>{valueFormatter(selectedValue)}</strong>
+      </div>
+      <svg className="insights-trend-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={label}>
+        <title>{label}</title>
+        <line className="insights-trend-baseline" x1={padX} x2={width - padX} y1={baseline} y2={baseline} />
+        <path className="insights-trend-area" d={areaPath} fill={`url(#${id}-area)`} />
+        <polyline className="insights-trend-line" points={linePath} stroke={color} />
+        {points.map(({ x, y }, index) => (
+          <g key={index}>
+            <circle className={`insights-trend-point${index === selectedIndex ? " active" : ""}`} cx={x} cy={y} r={index === selectedIndex ? 4.5 : 2.5} fill={color} />
+            <circle
+              className="insights-trend-hit"
+              cx={x}
+              cy={y}
+              r={12}
+              tabIndex={0}
+              role="button"
+              aria-label={`${pointLabel(index)} · ${valueFormatter(values[index])}`}
+              onMouseEnter={() => setActiveIndex(index)}
+              onFocus={() => setActiveIndex(index)}
+              onClick={() => setActiveIndex(index)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                  event.preventDefault();
+                  setActiveIndex((current) => Math.min(Math.max(current + (event.key === "ArrowLeft" ? -1 : 1), 0), values.length - 1));
+                }
+              }}
+            />
+          </g>
+        ))}
+        <defs>
+          <linearGradient id={`${id}-area`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+  );
 }
 
 function InsightsScreen({ transcriptions, onViewChange, onWordSelect }: InsightsScreenProps) {
@@ -1322,18 +1245,14 @@ function InsightsScreen({ transcriptions, onViewChange, onWordSelect }: Insights
             <section className="insights-panel">
               <SectionHead label="Filler Word Trend" />
               <div className="card insights-trend-card">
-                <svg width="100%" height="60" viewBox={`0 0 ${fillerTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Filler word trend">
-                  {fillerTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxFiller) * 44} width={10} height={(v / maxFiller) * 44 + 2} rx={2} fill="rgba(251,191,36,0.4)" />)}
-                </svg>
+                <TrendLineChart id="filler" label="Filler word trend" values={fillerTrendData} max={maxFiller} color="var(--c-amber)" valueFormatter={(value) => `${value} filler word${value === 1 ? "" : "s"}`} />
                 <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — {fillerTrendData.reduce((a, b) => a + b, 0)} filler word{fillerTrendData.reduce((a, b) => a + b, 0) === 1 ? "" : "s"} caught</div>
               </div>
             </section>
             <section className="insights-panel">
               <SectionHead label="Speaking Pace Trend" />
               <div className="card insights-trend-card">
-                <svg width="100%" height="60" viewBox={`0 0 ${wpmTrendData.length * 12} 60`} preserveAspectRatio="none" aria-label="Speaking pace trend">
-                  {wpmTrendData.map((v, i) => <rect key={i} x={i * 12} y={54 - (v / maxWpm) * 44} width={10} height={(v / maxWpm) * 44 + 2} rx={2} fill="rgba(125,211,252,0.4)" />)}
-                </svg>
+                <TrendLineChart id="pace" label="Speaking pace trend" values={wpmTrendData} max={maxWpm} color="var(--c-blue)" valueFormatter={(value) => `${value} wpm`} />
                 <div className="insights-trend-caption">Last {range === "all" ? "period" : range} — average words per minute per day</div>
               </div>
             </section>
@@ -1980,9 +1899,47 @@ function GeneralPanel() {
   const [appearance, setAppearance] = useSetting("appearance", "system");
   const [language, setLanguage] = useSetting("language", "en-US");
   const [autoDetect, setAutoDetect] = useToggleSetting("auto_detect_lang", false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(readUpdateStatus);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => subscribeToUpdateStatus(() => setUpdateStatus(readUpdateStatus())), []);
+
+  async function checkNow() {
+    setChecking(true);
+    try {
+      await checkForUpdate();
+    } catch {
+      // The row renders the persisted error from the failed check.
+    } finally {
+      setChecking(false);
+    }
+  }
 
   return (
     <div>
+      <div className="setting-row" style={{ alignItems: "flex-start" }}>
+        <div className="setting-text">
+          <p className="t">Update status</p>
+          <p className="d">
+            Version <strong style={{ color: "var(--text-2)" }}>v{updateStatus.currentVersion}</strong>
+            {updateStatus.lastUpdatedAt
+              ? ` · Last updated ${formatUpdateDate(updateStatus.lastUpdatedAt)}`
+              : " · Last updated not recorded on this device"}
+          </p>
+          <p className="d">
+            {updateStatus.availableVersion
+              ? `Pending update · v${updateStatus.availableVersion}`
+              : updateStatus.checkError
+                ? `Could not check for updates · ${updateStatus.checkError}`
+                : updateStatus.lastCheckedAt
+                  ? `Up to date · checked ${formatUpdateDate(updateStatus.lastCheckedAt)}`
+                  : "Checking for updates…"}
+          </p>
+        </div>
+        <button className="btn btn-sm" type="button" onClick={checkNow} disabled={checking}>
+          {checking ? "Checking…" : "Check for updates"}
+        </button>
+      </div>
       <div className="setting-row">
         <div className="setting-text">
           <p className="t">Launch at login</p>
@@ -2038,6 +1995,10 @@ function GeneralPanel() {
       </div>
     </div>
   );
+}
+
+function formatUpdateDate(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
 }
 
 function AudioPanel() {
@@ -2443,7 +2404,7 @@ function SettingsScreen({ tier, onViewChange }: { tier: string | null; onViewCha
   }
 
   return (
-    <div className="main fade-in">
+    <div className="main fade-in settings-main">
       <div className="main-header">
         <div>
           <div className="eyebrow">Preferences</div>
@@ -2812,7 +2773,7 @@ function FeaturesScreen({ initialSection = "overview" }: { initialSection?: Feat
 
   return (
     <div className="main features-screen">
-      <header className="features-header">
+      <header className="main-header features-header">
         <div className="eyebrow">Workspace intelligence</div>
         <h1 className="page-title"><em>Features</em></h1>
         <p className="page-sub">Small, local tools that make Verba more accurate every time you use it.</p>
@@ -3059,9 +3020,9 @@ export default function Home() {
       {view === "insights" && (
         <InsightsScreen transcriptions={transcriptions} onViewChange={setView} onWordSelect={(word) => setHistorySearch(word)} />
       )}
-      {view === "features" && <FeaturesScreen initialSection="overview" />}
-      {view === "vocabulary" && <FeaturesScreen initialSection="vocabulary" />}
-      {view === "corrections" && <FeaturesScreen initialSection="corrections" />}
+      {view === "features" && <FeaturesScreen key="features" initialSection="overview" />}
+      {view === "vocabulary" && <FeaturesScreen key="vocabulary" initialSection="vocabulary" />}
+      {view === "corrections" && <FeaturesScreen key="corrections" initialSection="corrections" />}
       {view === "commands" && (
         <CommandsScreen
           commands={commands}

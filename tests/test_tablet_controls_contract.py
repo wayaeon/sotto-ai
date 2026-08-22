@@ -17,5 +17,5 @@ def test_touch_control_reuses_ptt_and_has_a_manual_fallback():
     settings = (ROOT / "src/components/settings/GeneralTab.tsx").read_text(encoding="utf-8")
     assert "tabletPosture" in pill
     assert "always_show_touch_control" in pill
-    assert "toggleHandsfree" in pill
+    assert "toggleHandsfree" not in pill
     assert "always_show_touch_control" in settings

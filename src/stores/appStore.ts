@@ -25,6 +25,13 @@ export interface ModelDownload {
   totalLabel: string;
 }
 
+export interface DownloadState {
+  downloaded: boolean;
+  active: boolean;
+  paused: boolean;
+  percent?: number;
+}
+
 interface AppState {
   recordingState: RecordingState;
   audioLevel: number;
@@ -35,6 +42,7 @@ interface AppState {
   tier: ModelTier | null;
   model: string | null;
   modelDownload: ModelDownload | null;
+  downloadStates: Record<string, DownloadState>;
   setupComplete: boolean;
   lastError: string | null;   // last sidecar error — drives the orb's error state
   handsFreeActive: boolean;   // true while hands-free is armed, even between utterances
@@ -55,6 +63,7 @@ interface AppState {
   setTier: (tier: ModelTier) => void;
   setModel: (model: string) => void;
   setModelDownload: (download: ModelDownload | null) => void;
+  setDownloadStates: (states: Record<string, DownloadState>) => void;
   setSetupComplete: (done: boolean) => void;
   setLastError: (msg: string | null) => void;
   setHandsFreeActive: (active: boolean) => void;
@@ -77,6 +86,7 @@ export const useAppStore = create<AppState>((set) => ({
   tier: null,
   model: null,
   modelDownload: null,
+  downloadStates: {},
   setupComplete: false,
   lastError: null,
   handsFreeActive: false,
@@ -101,6 +111,7 @@ export const useAppStore = create<AppState>((set) => ({
   setTier: (tier) => set({ tier }),
   setModel: (model) => set({ model }),
   setModelDownload: (modelDownload) => set({ modelDownload }),
+  setDownloadStates: (downloadStates) => set({ downloadStates }),
   setSetupComplete: (done) => set({ setupComplete: done }),
   setLastError: (msg) => set({ lastError: msg }),
   setHandsFreeActive: (active) => set({ handsFreeActive: active }),

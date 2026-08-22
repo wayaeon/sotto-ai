@@ -6,7 +6,7 @@ use tauri::{
 };
 
 pub fn setup_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    let quit     = MenuItem::with_id(app, "quit",     "Quit Sotto",  true, None::<&str>)?;
+    let quit     = MenuItem::with_id(app, "quit",     "Quit Verba",  true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…",  true, None::<&str>)?;
     let menu     = Menu::with_items(app, &[&settings, &quit])?;
 

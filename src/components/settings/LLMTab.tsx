@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROMPT } from "../../lib/llmCleanup";
+import { openUrl } from "../../lib/tauri";
 
 function get(key: string, def: string) {
   return localStorage.getItem(key) ?? def;
@@ -6,19 +8,9 @@ function get(key: string, def: string) {
 
 export default function LLMTab() {
   const [enabled, setEnabled] = useState(() => get("verba_llm_enabled", "false") === "true");
-  const [url, setUrl]         = useState(() => get("verba_llm_url", "http://localhost:11434"));
-  const [model, setModel]     = useState(() => get("verba_llm_model", "qwen3:7b"));
-  const [prompt, setPrompt]   = useState(() =>
-    get("verba_llm_prompt",
-      "Clean up the following voice transcription. Fix punctuation, capitalisation, and obvious speech errors. Return only the corrected text, nothing else.")
-  );
-
-  const save = () => {
-    localStorage.setItem("verba_llm_enabled", String(enabled));
-    localStorage.setItem("verba_llm_url", url);
-    localStorage.setItem("verba_llm_model", model);
-    localStorage.setItem("verba_llm_prompt", prompt);
-  };
+  const [apiKey, setApiKey]   = useState(() => get("verba_llm_api_key", ""));
+  const [model, setModel]     = useState(() => get("verba_llm_model", DEFAULT_LLM_MODEL));
+  const [prompt, setPrompt]   = useState(() => get("verba_llm_prompt", DEFAULT_LLM_PROMPT));
 
   const toggle = () => {
     const next = !enabled;
@@ -30,29 +22,30 @@ export default function LLMTab() {
     <div>
       <h2 style={s.heading}>AI Cleanup</h2>
       <p style={s.desc}>
-        Run transcriptions through a local LLM via Ollama to fix punctuation and speech errors.
+        Run transcriptions through OpenRouter to fix punctuation and speech errors before
+        they are typed. If a request fails, the raw transcript is used instead.
       </p>
 
       {/* Enable toggle */}
       <div style={s.row} onClick={toggle}>
         <div>
-          <div style={s.label}>Enable LLM cleanup</div>
-          <div style={s.sub}>Passes each segment through Ollama before injecting text</div>
+          <div style={s.label}>Enable AI cleanup</div>
+          <div style={s.sub}>Passes each segment through OpenRouter before injecting text</div>
         </div>
         <Toggle on={enabled} />
       </div>
 
       {enabled && (
         <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 14 }}>
-          <Field label="Ollama URL" value={url} onChange={v => { setUrl(v); save(); }}
-            placeholder="http://localhost:11434" mono />
-          <Field label="Model" value={model} onChange={v => { setModel(v); save(); }}
-            placeholder="qwen3:7b" mono />
+          <Field label="OpenRouter API key" value={apiKey} onChange={v => { setApiKey(v); localStorage.setItem("verba_llm_api_key", v); }}
+            placeholder="sk-or-v1-…" mono password />
+          <Field label="Model" value={model} onChange={v => { setModel(v); saveModel(v); }}
+            placeholder={DEFAULT_LLM_MODEL} mono />
           <div>
             <div style={s.fieldLabel}>System prompt</div>
             <textarea
               value={prompt}
-              onChange={e => { setPrompt(e.target.value); save(); }}
+              onChange={e => { setPrompt(e.target.value); localStorage.setItem("verba_llm_prompt", e.target.value); }}
               rows={4}
               style={s.textarea}
             />
@@ -61,16 +54,23 @@ export default function LLMTab() {
       )}
 
       <div style={{ marginTop: 24, color: "#555", fontSize: 12 }}>
-        Install Ollama from <span style={{ color: "#6366f1" }}>ollama.com</span> and run{" "}
-        <code style={s.code}>ollama pull {model}</code> to get started.
+        Create a key at{" "}
+        <span style={{ color: "#6366f1", cursor: "pointer" }} onClick={() => openUrl("https://openrouter.ai/keys")}>
+          openrouter.ai/keys
+        </span>{" "}
+        — it is stored locally on this machine and sent only to OpenRouter.
       </div>
     </div>
   );
 }
 
-function Field({ label, value, onChange, placeholder, mono }: {
+function saveModel(value: string) {
+  localStorage.setItem("verba_llm_model", value.trim() || DEFAULT_LLM_MODEL);
+}
+
+function Field({ label, value, onChange, placeholder, mono, password }: {
   label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; mono?: boolean;
+  placeholder?: string; mono?: boolean; password?: boolean;
 }) {
   return (
     <div>
@@ -79,6 +79,8 @@ function Field({ label, value, onChange, placeholder, mono }: {
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
+        type={password ? "password" : "text"}
+        autoComplete="off"
         style={{ ...s.input, fontFamily: mono ? "var(--font-mono, monospace)" : undefined }}
       />
     </div>
@@ -129,8 +131,4 @@ const s: Record<string, React.CSSProperties> = {
     resize: "vertical", fontFamily: "inherit", lineHeight: 1.5,
     boxSizing: "border-box",
   } as React.CSSProperties,
-  code: {
-    background: "rgba(255,255,255,0.07)", borderRadius: 4,
-    padding: "2px 6px", fontFamily: "monospace", color: "#a5b4fc",
-  },
 };

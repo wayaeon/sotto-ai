@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { useAppStore } from "../stores/appStore";
 import { useSidecar } from "../hooks/useSidecar";
-import { setWakePhraseEnabled, toggleHandsfree } from "../lib/tauri";
 
 const PILL_WINDOW_W           = 300;
 const PILL_WINDOW_COLLAPSED_W = 60;
@@ -47,7 +46,7 @@ async function resizePillWindow(width: number, height: number) {
 
 export default function Pill() {
   useSidecar({ primary: true });
-  const { recordingState, audioLevel, sidecarReady, modelReady, setRecordingState, handsFreeActive, wakePhraseActive, focusedApp, tabletPosture } = useAppStore();
+  const { recordingState, audioLevel, sidecarReady, setRecordingState, handsFreeActive, wakePhraseActive, focusedApp, tabletPosture } = useAppStore();
 
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -194,24 +193,14 @@ export default function Pill() {
   };
   const cancelHide = () => clearTimeout(leaveTimer.current);
 
-  // Click toggles hands-free, same as the Orb — Ctrl+Alt stays the instant
-  // one-shot PTT path (wired directly in Rust, doesn't go through here).
-  const onDictateClick = () => {
-    if (!sidecarReady || !modelReady) return;
-    if (wakePhraseActive) {
-      setWakePhraseEnabled(false).catch(() => {});
-      return;
-    }
-    toggleHandsfree().catch(() => {});
-  };
+  // Dictation is Ctrl+Alt hold/release only. Clicks used to toggle hands-free
+  // and flood handsfree_*.wav files without ever pasting a transcript.
+  const onDictateClick = () => {};
   const cancelRecording = async () => {
     setRecordingState("idle");
     if (sidecarReady) await invoke("stop_ptt").catch(() => {});
   };
-  const startTouchDictation = () => {
-    if (!sidecarReady || !modelReady || isProcessing || isLoading) return;
-    toggleHandsfree().catch(() => {});
-  };
+  const startTouchDictation = () => {};
 
   const isCollapsed = phase === "collapsed";
   const barEnter    = `opacity ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1), transform ${ANIM_IN_MS}ms cubic-bezier(0.22,1,0.36,1)`;

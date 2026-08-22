@@ -24,3 +24,16 @@ def test_model_switch_does_not_eagerly_reload_parakeet():
     source = (ROOT / "sidecar/recorder.py").read_text(encoding="utf-8")
     model_switch = source[source.index("def set_model"):source.index("def set_dictionary")]
     assert "self._start_worker()" not in model_switch
+
+
+def test_retry_control_reloads_worker_without_eager_model_startup():
+    ipc = (ROOT / "sidecar/ipc.py").read_text(encoding="utf-8")
+    main = (ROOT / "sidecar/main.py").read_text(encoding="utf-8")
+    tauri = (ROOT / "src/lib/tauri.ts").read_text(encoding="utf-8")
+    orb = (ROOT / "src/components/Orb.tsx").read_text(encoding="utf-8")
+    recorder = (ROOT / "sidecar/recorder.py").read_text(encoding="utf-8")
+    assert "RETRY_WORKER" in ipc
+    assert "Command.RETRY_WORKER" in main
+    assert "retryWorker" in tauri
+    assert "retryWorker()" in orb
+    assert "Transcription worker unavailable: {self._worker_error" in recorder

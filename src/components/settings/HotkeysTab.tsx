@@ -9,7 +9,7 @@ export default function HotkeysTab() {
   return (
     <div>
       <h2 style={s.heading}>Hotkeys</h2>
-      <p style={s.desc}>Global hotkeys work even when Wispr Local is in the background.</p>
+      <p style={s.desc}>Global hotkeys work even when Verba is in the background.</p>
       <div style={s.list}>
         {hotkeys.map((hk) => (
           <div key={hk.action} style={s.row}>
